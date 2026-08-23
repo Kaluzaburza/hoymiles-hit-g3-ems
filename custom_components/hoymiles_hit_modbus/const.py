@@ -11,7 +11,7 @@ VERSION = "1.5.7"
 
 # Version of the managed Home Assistant EMS package schema. It changes only
 # when the package YAML changes, independently from dashboard-only releases.
-EMS_PACKAGE_VERSION = "1.5.7"
+EMS_PACKAGE_VERSION = "1.5.7-supervisor-1b3"
 
 # Existing helper created by the managed Home Assistant EMS package. Keep the
 # setup-status sensor and Repairs check on this single shared sentinel so they

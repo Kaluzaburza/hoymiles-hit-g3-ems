@@ -6,6 +6,27 @@ input_boolean:
     name: "EMS — push notifications for status changes"
     icon: mdi:cellphone-message
 
+  # Allows EMS Supervisor to consider RCE only in Shadow arbitration. It does
+  # not enable RCE automation, change its enable helper, or grant physical
+  # write authority.
+  hoymiles_ems_supervisor_allow_rce:
+    name: "EMS Supervisor — consider RCE"
+    icon: mdi:chart-line
+
+  # Allows EMS Supervisor to consider tariff charging only in Shadow
+  # arbitration. It does not enable tariff charging, change its enable
+  # helper, or grant physical write authority.
+  hoymiles_ems_supervisor_allow_tariff:
+    name: "EMS Supervisor — consider tariff charging"
+    icon: mdi:battery-clock-outline
+
+  # Allows EMS Supervisor to consider RCEm only in Shadow arbitration. It
+  # does not enable RCEm, change its helpers, or grant physical write
+  # authority.
+  hoymiles_ems_supervisor_allow_rcm:
+    name: "EMS Supervisor — consider RCEm"
+    icon: mdi:transmission-tower
+
   hoymiles_discharge_schedule_enabled:
     name: "EMS — daily discharge enabled"
     icon: mdi:transmission-tower-export
@@ -281,6 +302,27 @@ input_text:
     icon: mdi:state-machine
 
 input_select:
+  # EMS Supervisor observation mode. Off disables arbitration, while Shadow
+  # publishes an observation-only decision. Neither option starts physical
+  # execution or changes legacy automation.
+  hoymiles_ems_supervisor_mode:
+    name: "EMS Supervisor — mode"
+    options:
+      - "Off"
+      - "Shadow"
+    icon: mdi:eye-outline
+
+  # The profile is only published in Shadow arbitration. Profile effects
+  # remain unapplied and do not change physical execution or legacy
+  # automation.
+  hoymiles_ems_supervisor_profile:
+    name: "EMS Supervisor — profile"
+    options:
+      - "Balanced"
+      - "Maximum Profit"
+      - "High Reserve — Winter"
+    icon: mdi:tune-variant
+
   hoymiles_tariff_operator:
     name: "Tariff EMS — DSO / price profile"
     options:
@@ -936,7 +978,7 @@ template:
       - name: "Hoymiles EMS Package Version"
         unique_id: hoymiles_ems_package_version
         icon: mdi:package-variant-closed-check
-        state: "1.5.7"
+        state: "1.5.7-supervisor-1b3"
         attributes:
           # One changing attribute per local day gives Recorder a recent
           # boundary report even when the package version itself is stable.

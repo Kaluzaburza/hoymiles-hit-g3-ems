@@ -75,11 +75,11 @@ class SupervisorSourceSpec:
 
 
 _SOURCE_ROWS = (
-    (1, "supervisor_mode", "input_select.hoymiles_ems_supervisor_mode", False, False, True),
-    (2, "supervisor_profile", "input_select.hoymiles_ems_supervisor_profile", False, True, True),
-    (3, "allow_rce", "input_boolean.hoymiles_ems_supervisor_allow_rce", False, True, True),
-    (4, "allow_tariff", "input_boolean.hoymiles_ems_supervisor_allow_tariff", False, True, True),
-    (5, "allow_rcm", "input_boolean.hoymiles_ems_supervisor_allow_rcm", False, True, True),
+    (1, "supervisor_mode", "input_select.hoymiles_ems_supervisor_mode", False, False, False),
+    (2, "supervisor_profile", "input_select.hoymiles_ems_supervisor_profile", False, True, False),
+    (3, "allow_rce", "input_boolean.hoymiles_ems_supervisor_allow_rce", False, True, False),
+    (4, "allow_tariff", "input_boolean.hoymiles_ems_supervisor_allow_tariff", False, True, False),
+    (5, "allow_rcm", "input_boolean.hoymiles_ems_supervisor_allow_rcm", False, True, False),
     (6, "rce_plan", "rce_optimized_plan", True, True, False),
     (7, "rce_enabled", "input_boolean.hoymiles_rce_discharge_enabled", False, True, False),
     (8, "rce_active", "input_boolean.hoymiles_rce_discharge_active", False, False, False),

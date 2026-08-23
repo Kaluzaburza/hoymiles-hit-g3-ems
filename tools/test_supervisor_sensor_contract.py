@@ -24,9 +24,16 @@ NOW = datetime(2026, 8, 22, 10, 0, tzinfo=timezone.utc)
 CLOCK = {"now": NOW, "calls": 0}
 CHECKS = 0
 GROUPS = 0
-EXPECTED_CHECK_COUNT = 403
+EXPECTED_CHECK_COUNT = 405
 EXPECTED_TASK_PATHS = {
-    "custom_components/hoymiles_hit_modbus/sensor.py",
+    "custom_components/hoymiles_hit_modbus/assets.py",
+    "custom_components/hoymiles_hit_modbus/const.py",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+    "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+    "home_assistant/hoymiles_ems_scheduler.yaml",
+    "tools/build_hacs_assets.py",
+    "tools/test_supervisor_helpers_contract.py",
     "tools/test_supervisor_sensor_contract.py",
 }
 
@@ -1141,7 +1148,7 @@ def test_structure_and_manifest() -> None:
     branch = _git_paths("diff", "--name-only", "v1.5.7") | _git_paths(
         "ls-files", "--others", "--exclude-standard"
     )
-    check(len(branch) == 14, f"Branch manifest must have 14 paths, got {len(branch)}")
+    check(len(branch) == 20, f"Branch manifest must have 20 paths, got {len(branch)}")
     check(
         not _git_paths(
             "diff",
@@ -1397,12 +1404,14 @@ def test_source_map() -> None:
     ).hexdigest()
     check(
         source_map_hash
-        == "c438f0c92e8d148fbcbba82eab540ac0986d7b41b8c834c5bf1bfe3ae137835a",
+        == "9b135496b122e5bc95eac9352b95192901d46a8cea7de1aa4a1c948367d37ccc",
         "Exact frozen source map differs",
     )
     check(len(specs) == 60, "Logical source count differs")
-    check(sum(not spec.future_helper for spec in specs) == 55, "Existing source count differs")
-    check(sum(spec.future_helper for spec in specs) == 5, "Future source count differs")
+    check(tuple(spec.number for spec in specs) == tuple(range(1, 61)), "Source numbers differ or a 61st source exists")
+    check(sum(not spec.future_helper for spec in specs) == 60, "Existing source count differs")
+    check(sum(spec.future_helper for spec in specs) == 0, "Future source count differs")
+    check(all(not specs[index].future_helper for index in range(5)), "Persistent helper sources remain future")
     check(sum(spec.entry_local for spec in specs) == 21, "Entry-local count differs")
     check(sum(not spec.entry_local for spec in specs) == 39, "Global count differs")
     check(sum(not spec.planner_event for spec in specs) == 46, "H count differs")
@@ -2232,7 +2241,7 @@ def main() -> None:
     print(
         "Supervisor sensor contract: PASS "
         f"groups={GROUPS}/{len(TEST_GROUPS)} checks={CHECKS} "
-        "sources=60 existing=55 future=5 entry_local=21 global=39 H=46 P=14"
+        "sources=60 existing=60 future=0 entry_local=21 global=39 H=46 P=14"
     )
 
 

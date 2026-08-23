@@ -10,6 +10,7 @@ import json
 import py_compile
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 import types
@@ -27,6 +28,215 @@ EXPECTED_DESCRIPTION = (
     "Home Assistant, ESPHome, Modbus, RCE, tariff optimization and RCEm."
 )
 LEGACY_REPOSITORY_SLUG = "Hoymiles_HIT_xxL_G3_ModBus"
+VALIDATOR_PACKAGE_MARKER = "1.5.7-supervisor-1b3"
+VALIDATOR_MARKER_ENTITY = "sensor.hoymiles_ems_package_version"
+VALIDATOR_SCHEDULER_RELATIVE = "packages/hoymiles_ems_scheduler.yaml"
+VALIDATOR_BACKUP_SUFFIX = ".pre-ems-supervisor-1b3.bak"
+VALIDATOR_OLD_TEMP = ".hoymiles_ems_scheduler.yaml.hoymiles_hit_modbus.tmp"
+VALIDATOR_HELPER_IDS = (
+    "input_select.hoymiles_ems_supervisor_mode",
+    "input_select.hoymiles_ems_supervisor_profile",
+    "input_boolean.hoymiles_ems_supervisor_allow_rce",
+    "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+    "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+)
+VALIDATOR_NEW_HASHES = {
+    "pl": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+    "en": "3df7345f0ee9649a35160b4817d6d3dd9d0c95ecf93eed2bf07ec1fe2633886a",
+}
+VALIDATOR_HISTORICAL_HASHES = {
+    "pl": "9846bfe0d0e9f8f707db7b3eb5b30fd349b663f8fb1c3777b460ef62696026a2",
+    "en": "b76ba6a2a9f94d307d1582822101b2fc0951868ba7319394ce0886ee9fe9e07d",
+}
+VALIDATOR_STORE_CONTRACTS = {
+    "input_select": (1, frozenset({1, 2})),
+    "input_boolean": (1, frozenset({1})),
+}
+VALIDATOR_TRANSITIONS = {
+    "fresh": "INSTALLED_FRESH",
+    "current": "CURRENT",
+    "modified": "PRESERVED_MODIFIED",
+    "collision": "BLOCKED_COLLISION",
+    "destination_changed": "ABORTED_DESTINATION_CHANGED",
+}
+VALIDATOR_BACKUP_FIXTURE = b"# validator exact pre-update bytes\nstate: custom\n"
+
+
+class ValidatorState:
+    """Minimal public-compatible State fixture."""
+
+    def __init__(self, entity_id: str, state: str, attributes: dict) -> None:
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = attributes
+
+
+class ValidatorStateMachine:
+    """Minimal exact StateMachine.get surface."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, object] = {}
+
+    def get(self, entity_id: str):
+        return self.values.get(entity_id)
+
+    def put(self, state: ValidatorState) -> None:
+        self.values[state.entity_id] = state
+
+
+class ValidatorRegistryEntry:
+    """Minimal public RegistryEntry identity."""
+
+    def __init__(self, entity_id: str, platform: str, unique_id: str) -> None:
+        self.entity_id = entity_id
+        self.platform = platform
+        self.unique_id = unique_id
+
+
+class ValidatorEntityRegistry:
+    """Public exact and identity-index lookup surface."""
+
+    def __init__(self) -> None:
+        self.entries: dict[str, ValidatorRegistryEntry] = {}
+
+    def async_get(self, entity_id: str):
+        return self.entries.get(entity_id)
+
+    def async_get_entity_id(
+        self,
+        domain: str,
+        platform: str,
+        unique_id: str,
+    ) -> str | None:
+        for entry in self.entries.values():
+            if (
+                entry.entity_id.partition(".")[0] == domain
+                and entry.platform == platform
+                and entry.unique_id == unique_id
+            ):
+                return entry.entity_id
+        return None
+
+
+class ValidatorStore:
+    """Per-Hass managed metadata Store fixture."""
+
+    def __init__(self, hass, *_args, **_kwargs) -> None:
+        self.hass = hass
+
+    async def async_load(self):
+        self.hass.store_load_calls += 1
+        return json.loads(json.dumps(self.hass.store_payload))
+
+    async def async_save(self, payload: dict) -> None:
+        self.hass.store_save_calls += 1
+        if self.hass.metadata_failures:
+            self.hass.metadata_failures -= 1
+            raise OSError("injected validator metadata failure")
+        self.hass.store_payload = json.loads(json.dumps(payload))
+
+
+class ValidatorHass:
+    """Only the public HA surfaces needed by async_install_assets."""
+
+    def __init__(self, config_path: Path, language: str = "pl-PL") -> None:
+        self.config = types.SimpleNamespace(
+            config_dir=str(config_path),
+            language=language,
+        )
+        self.data: dict = {}
+        self.states = ValidatorStateMachine()
+        self.entity_registry = ValidatorEntityRegistry()
+        self.store_payload: dict = {}
+        self.store_load_calls = 0
+        self.store_save_calls = 0
+        self.metadata_failures = 0
+        self.executor_before = None
+        self.executor_after = None
+        self.pause_executor_name: str | None = None
+        self.pause_entered: asyncio.Event | None = None
+        self.pause_release: asyncio.Event | None = None
+        self.replace_failure_path: Path | None = None
+
+    async def async_add_executor_job(self, function, *args):
+        if self.executor_before is not None:
+            self.executor_before(function.__name__, args)
+        if function.__name__ == self.pause_executor_name:
+            require(
+                self.pause_entered is not None
+                and self.pause_release is not None,
+                "Executor pause events are missing",
+            )
+            self.pause_entered.set()
+            await self.pause_release.wait()
+        module = sys.modules[function.__module__]
+        original_replace = module.os.replace
+
+        def replace_with_failure(source, destination) -> None:
+            if (
+                self.replace_failure_path is not None
+                and Path(destination) == self.replace_failure_path
+            ):
+                raise OSError("injected validator replace failure")
+            original_replace(source, destination)
+
+        module.os.replace = replace_with_failure
+        try:
+            result = function(*args)
+        finally:
+            module.os.replace = original_replace
+        if self.executor_after is not None:
+            self.executor_after(function.__name__, result)
+        return result
+
+
+def validator_install(assets, hass: ValidatorHass, overwrite: bool = False):
+    """Invoke only the public runtime transaction."""
+    return asyncio.run(
+        assets.async_install_assets(
+            hass,
+            overwrite=overwrite,
+            publish_frontend=False,
+        )
+    )
+
+
+def validator_set_ui_collision(
+    hass: ValidatorHass,
+    entity_id: str = VALIDATOR_HELPER_IDS[0],
+) -> None:
+    """Publish an exact editable helper before its delayed Store save."""
+    domain, object_id = entity_id.split(".", 1)
+    hass.states.put(ValidatorState(entity_id, "off", {"editable": True}))
+    hass.entity_registry.entries[entity_id] = ValidatorRegistryEntry(
+        entity_id,
+        domain,
+        object_id,
+    )
+
+
+def validator_scheduler_path(config_path: Path) -> Path:
+    return config_path / VALIDATOR_SCHEDULER_RELATIVE
+
+
+def validator_file_identity(path: Path) -> tuple[int, int, int, int, int, int]:
+    info = path.lstat()
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_mode,
+        info.st_nlink,
+    )
+
+
+def validator_metadata_hash(hass: ValidatorHass) -> str | None:
+    values = hass.store_payload.get("assets", {})
+    if not isinstance(values, dict):
+        return None
+    value = values.get(VALIDATOR_SCHEDULER_RELATIVE)
+    return value if isinstance(value, str) else None
 
 
 def require(condition: bool, message: str) -> None:
@@ -81,7 +291,7 @@ def load_localization_module():
 
 
 def load_assets_module():
-    """Load the asset installer with a minimal Home Assistant type stub."""
+    """Load assets.py with only documented public HA surfaces stubbed."""
     homeassistant = types.ModuleType("homeassistant")
     components = types.ModuleType("homeassistant.components")
     lovelace = types.ModuleType("homeassistant.components.lovelace")
@@ -90,14 +300,19 @@ def load_assets_module():
     core = types.ModuleType("homeassistant.core")
     helpers = types.ModuleType("homeassistant.helpers")
     storage = types.ModuleType("homeassistant.helpers.storage")
+    entity_registry = types.ModuleType(
+        "homeassistant.helpers.entity_registry"
+    )
     core.HomeAssistant = object
     lovelace_const.CONF_RESOURCE_TYPE_WS = "res_type"
     lovelace_const.LOVELACE_DATA = "lovelace"
     lovelace_const.MODE_STORAGE = "storage"
+    ha_const.ATTR_EDITABLE = "editable"
     ha_const.CONF_ID = "id"
     ha_const.CONF_TYPE = "type"
     ha_const.CONF_URL = "url"
-    storage.Store = object
+    storage.Store = ValidatorStore
+    entity_registry.async_get = lambda hass: hass.entity_registry
     homeassistant.components = components
     components.lovelace = lovelace
     lovelace.const = lovelace_const
@@ -105,14 +320,16 @@ def load_assets_module():
     homeassistant.core = core
     homeassistant.helpers = helpers
     helpers.storage = storage
-    sys.modules.setdefault("homeassistant", homeassistant)
-    sys.modules.setdefault("homeassistant.components", components)
-    sys.modules.setdefault("homeassistant.components.lovelace", lovelace)
-    sys.modules.setdefault("homeassistant.components.lovelace.const", lovelace_const)
-    sys.modules.setdefault("homeassistant.const", ha_const)
-    sys.modules.setdefault("homeassistant.core", core)
-    sys.modules.setdefault("homeassistant.helpers", helpers)
-    sys.modules.setdefault("homeassistant.helpers.storage", storage)
+    helpers.entity_registry = entity_registry
+    sys.modules["homeassistant"] = homeassistant
+    sys.modules["homeassistant.components"] = components
+    sys.modules["homeassistant.components.lovelace"] = lovelace
+    sys.modules["homeassistant.components.lovelace.const"] = lovelace_const
+    sys.modules["homeassistant.const"] = ha_const
+    sys.modules["homeassistant.core"] = core
+    sys.modules["homeassistant.helpers"] = helpers
+    sys.modules["homeassistant.helpers.storage"] = storage
+    sys.modules["homeassistant.helpers.entity_registry"] = entity_registry
 
     custom_components = types.ModuleType("custom_components")
     package = types.ModuleType("custom_components.hoymiles_hit_modbus")
@@ -125,6 +342,8 @@ def load_assets_module():
     const_module.VERSION = json.loads(
         (COMPONENT / "manifest.json").read_text(encoding="utf-8")
     )["version"]
+    const_module.EMS_PACKAGE_VERSION = VALIDATOR_PACKAGE_MARKER
+    const_module.EMS_PACKAGE_VERSION_ENTITY = VALIDATOR_MARKER_ENTITY
     sys.modules[const_module.__name__] = const_module
 
     path = COMPONENT / "assets.py"
@@ -140,148 +359,541 @@ def load_assets_module():
 
 
 def validate_fresh_asset_install() -> None:
-    """Exercise fresh installation and the legacy-dashboard migration path."""
+    """Exercise managed assets only through async_install_assets."""
     assets = load_assets_module()
+    assets_source = (COMPONENT / "assets.py").read_text(encoding="utf-8")
+    module = ast.parse(assets_source)
+    symbols = {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    require("_copy_assets" not in symbols, "Removed _copy_assets symbol returned")
+    validator_module = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    validator_calls = {
+        (node.func.value.id, node.func.attr)
+        for node in ast.walk(validator_module)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+    }
+    require(
+        ("assets", "_copy_assets") not in validator_calls,
+        "Validator calls removed path",
+    )
+    require(
+        ("assets", "_sync_assets") not in validator_calls,
+        "Validator bypasses the actual async state machine",
+    )
+    require(
+        VALIDATOR_STORE_CONTRACTS
+        == {
+            "input_select": (1, frozenset({1, 2})),
+            "input_boolean": (1, frozenset({1})),
+        },
+        "Literal Store contract oracle differs",
+    )
+    require(
+        tuple(VALIDATOR_HELPER_IDS)
+        == (
+            "input_select.hoymiles_ems_supervisor_mode",
+            "input_select.hoymiles_ems_supervisor_profile",
+            "input_boolean.hoymiles_ems_supervisor_allow_rce",
+            "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+            "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+        ),
+        "Literal canonical helper oracle differs",
+    )
+
     with tempfile.TemporaryDirectory(prefix="hoymiles_hacs_install_") as tmp:
         config_path = Path(tmp)
         dashboard_path = config_path / "dashboard_hoymiles.yaml"
-        package_path = (
-            config_path / "packages" / "hoymiles_ems_scheduler.yaml"
-        )
-        frontend_local_ready = (config_path / "www").is_dir()
-        polish_written = assets._copy_assets(config_path, "pl-PL", False)
+        package_path = validator_scheduler_path(config_path)
+        hass = ValidatorHass(config_path)
+        results: list = []
+
+        def capture(name: str, result) -> None:
+            if name == "_sync_assets":
+                results.append(result)
+
+        hass.executor_after = capture
+        polish_written = validator_install(assets, hass)
         require(
             len(polish_written) == 7,
-            "Fresh Polish installation did not copy all seven assets",
+            "Fresh Polish async installation did not write seven assets",
         )
         require(
-            (config_path / "www").is_dir()
-            and not frontend_local_ready,
-            "Fresh-no-www setup must remain restart-gated after copying assets",
+            dashboard_path.read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_bytes(),
+            "Fresh async installation copied wrong Polish dashboard",
         )
         require(
-            dashboard_path.read_text(encoding="utf-8")
-            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_text(
-                encoding="utf-8"
-            ),
-            "Fresh Polish installation copied the wrong dashboard",
+            package_path.read_bytes()
+            == (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes(),
+            "Fresh async installation copied wrong scheduler",
+        )
+        require(
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["fresh"],
+            "Fresh literal transition differs",
+        )
+        require(
+            validator_metadata_hash(hass) == VALIDATOR_NEW_HASHES["pl"],
+            "Fresh scheduler metadata differs",
         )
         for filename in assets.LOCAL_FRONTEND_ASSETS:
             require(
                 (config_path / "www" / filename).read_bytes()
                 == (RESOURCES / "www" / filename).read_bytes(),
-                f"Fresh installation copied the wrong /local asset: {filename}",
+                f"Fresh async installation copied wrong /local asset: {filename}",
             )
+        inode = package_path.stat().st_ino
+        saves = hass.store_save_calls
+        results.clear()
+        second = validator_install(assets, hass)
+        require(second == [], "Second async run is not idempotent")
+        require(package_path.stat().st_ino == inode, "Second async run replaced scheduler")
+        require(hass.store_save_calls == saves, "Second async run churned Store")
         require(
-            assets._copy_assets(config_path, "pl-PL", False) == [],
-            "Asset installer overwrites user files without explicit permission",
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["current"],
+            "Current literal transition differs",
         )
 
-        legacy_dashboard = """\
-title: Custom user dashboard
-entities:
-  - sensor.hoymiles_inverter_pv1_voltage
-  - sensor.pv_hoymiles_inverter_pv1_current
-  - sensor.unrelated_user_entity
-"""
-        dashboard_path.write_text(legacy_dashboard, encoding="utf-8")
-        legacy_package = """\
-script:
-  custom_user_script:
-    sequence:
-      - action: select.select_option
-        target:
-          entity_id: select.pv_hoymiles_inverter_tryb_ems
-"""
-        package_path.write_text(legacy_package, encoding="utf-8")
-        migrated = assets._copy_assets(config_path, "pl-PL", False)
-        require(
-            migrated == [dashboard_path, package_path],
-            "Existing legacy assets were not migrated in place",
-        )
-        migrated_text = dashboard_path.read_text(encoding="utf-8")
-        require(
-            "sensor.hoymiles_hit_pv1_voltage" in migrated_text
-            and "sensor.hoymiles_hit_pv1_current" in migrated_text,
-            "Legacy dashboard ids were not replaced with stable proxy ids",
-        )
-        require(
-            "title: Custom user dashboard" in migrated_text
-            and "sensor.unrelated_user_entity" in migrated_text,
-            "Legacy migration did not preserve user dashboard content",
-        )
-        backup_path = dashboard_path.with_name(
-            f"{dashboard_path.name}{assets.LEGACY_ENTITY_BACKUP_SUFFIX}"
-        )
-        require(
-            backup_path.read_text(encoding="utf-8") == legacy_dashboard,
-            "Legacy dashboard migration did not create an exact backup",
-        )
-        migrated_package = package_path.read_text(encoding="utf-8")
-        require(
-            "select.hoymiles_hit_ems_mode" in migrated_package
-            and "custom_user_script" in migrated_package,
-            "Legacy EMS package was not safely migrated",
-        )
-        package_backup = package_path.with_name(
-            f"{package_path.name}{assets.LEGACY_ENTITY_BACKUP_SUFFIX}"
-        )
-        require(
-            package_backup.read_text(encoding="utf-8") == legacy_package,
-            "Legacy EMS migration did not create an exact backup",
-        )
-        require(
-            assets._copy_assets(config_path, "pl-PL", False) == [],
-            "Stable dashboard migration is not idempotent",
-        )
-
-        english_written = assets._copy_assets(config_path, "en-GB", True)
-        require(
-            len(english_written) == 7,
-            "English overwrite installation did not copy all seven assets",
-        )
-        require(
-            (config_path / "dashboard_hoymiles.yaml").read_text(
-                encoding="utf-8"
+    for language in ("pl", "en"):
+        with tempfile.TemporaryDirectory(prefix=f"hoymiles_historical_{language}_") as tmp:
+            config_path = Path(tmp)
+            package_path = validator_scheduler_path(config_path)
+            package_path.parent.mkdir(parents=True)
+            relative = (
+                "custom_components/hoymiles_hit_modbus/resources/"
+                f"home_assistant/{language}/hoymiles_ems_scheduler.yaml"
             )
-            == (RESOURCES / "dashboard_hoymiles_en.yaml").read_text(
-                encoding="utf-8"
+            historical = subprocess.check_output(
+                ["git", "show", f"HEAD:{relative}"],
+                cwd=ROOT,
+            )
+            require(
+                hashlib.sha256(historical).hexdigest()
+                == VALIDATOR_HISTORICAL_HASHES[language],
+                f"Literal historical {language} hash differs",
+            )
+            package_path.write_bytes(historical)
+            hass = ValidatorHass(
+                config_path,
+                "pl-PL" if language == "pl" else "en-GB",
+            )
+            written = validator_install(assets, hass)
+            require(package_path in written, f"Historical {language} did not update")
+            require(
+                package_path.with_name(
+                    package_path.name + VALIDATOR_BACKUP_SUFFIX
+                ).read_bytes()
+                == historical,
+                f"Historical {language} backup differs",
+            )
+            require(
+                validator_metadata_hash(hass) == VALIDATOR_NEW_HASHES[language],
+                f"Historical {language} metadata differs",
+            )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_final_attestation_foreign_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        historical = subprocess.check_output(
+            [
+                "git",
+                "show",
+                "HEAD:custom_components/hoymiles_hit_modbus/resources/"
+                "home_assistant/pl/hoymiles_ems_scheduler.yaml",
+            ],
+            cwd=ROOT,
+        )
+        old_hash = hashlib.sha256(historical).hexdigest()
+        package_path.write_bytes(historical)
+        backup = package_path.with_name(
+            package_path.name + VALIDATOR_BACKUP_SUFFIX
+        )
+        foreign = b"validator foreign destination after filesystem transaction\n"
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        observed: dict = {}
+
+        def install_foreign_after_sync(name: str, result) -> None:
+            if name == "_sync_assets":
+                observed["backup"] = (
+                    validator_file_identity(backup),
+                    backup.read_bytes(),
+                )
+                winner = package_path.parent / "validator-foreign-winner"
+                winner.write_bytes(foreign)
+                winner.replace(package_path)
+                observed["foreign_identity"] = validator_file_identity(package_path)
+            elif name == "_attest_scheduler_destination":
+                observed["attestation"] = result
+
+        hass.executor_after = install_foreign_after_sync
+        written = validator_install(assets, hass)
+        require(
+            package_path not in written,
+            "Final destination mismatch reported scheduler write",
+        )
+        require(
+            package_path.read_bytes() == foreign,
+            "Final destination mismatch overwrote foreign bytes",
+        )
+        require(
+            validator_file_identity(package_path) == observed["foreign_identity"],
+            "Final destination mismatch changed foreign identity",
+        )
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Final destination mismatch advanced scheduler metadata",
+        )
+        require(
+            (validator_file_identity(backup), backup.read_bytes())
+            == observed["backup"],
+            "Final destination mismatch changed fixed backup",
+        )
+        require(
+            observed["attestation"].action.value
+            == VALIDATOR_TRANSITIONS["destination_changed"],
+            "Final destination mismatch category differs",
+        )
+        require(
+            not list(
+                package_path.parent.glob(
+                    f".{package_path.name}.hoymiles_hit_modbus.rollback.*.tmp"
+                )
             ),
-            "English installation copied the wrong dashboard",
+            "Final destination mismatch left rollback artifact",
         )
 
-    with tempfile.TemporaryDirectory(prefix="hoymiles_managed_upgrade_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="hoymiles_final_attestation_inode_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        historical = subprocess.check_output(
+            [
+                "git",
+                "show",
+                "HEAD:custom_components/hoymiles_hit_modbus/resources/"
+                "home_assistant/pl/hoymiles_ems_scheduler.yaml",
+            ],
+            cwd=ROOT,
+        )
+        old_hash = hashlib.sha256(historical).hexdigest()
+        package_path.write_bytes(historical)
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        observed = {}
+
+        def replace_with_same_hash(name: str, result) -> None:
+            if name == "_sync_assets":
+                observed["installed_identity"] = result.scheduler.after.identity
+                winner = package_path.parent / "validator-same-hash-new-inode"
+                winner.write_bytes(
+                    (
+                        RESOURCES
+                        / "home_assistant"
+                        / "pl"
+                        / "hoymiles_ems_scheduler.yaml"
+                    ).read_bytes()
+                )
+                winner.replace(package_path)
+                observed["winner_identity"] = validator_file_identity(package_path)
+            elif name == "_attest_scheduler_destination":
+                observed["attestation"] = result
+
+        hass.executor_after = replace_with_same_hash
+        written = validator_install(assets, hass)
+        require(
+            package_path not in written,
+            "Hash-only final attestation reported scheduler write",
+        )
+        require(
+            hashlib.sha256(package_path.read_bytes()).hexdigest()
+            == VALIDATOR_NEW_HASHES["pl"],
+            "Same-hash replacement bytes differ",
+        )
+        require(
+            validator_file_identity(package_path) == observed["winner_identity"],
+            "Same-hash replacement identity changed after attestation",
+        )
+        require(
+            observed["attestation"].resulting_snapshot.identity
+            != observed["installed_identity"],
+            "Same-hash replacement did not exercise identity mismatch",
+        )
+        require(
+            observed["attestation"].action.value
+            == VALIDATOR_TRANSITIONS["destination_changed"],
+            "Hash-only final attestation accepted a different inode",
+        )
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Same-hash identity mismatch advanced scheduler metadata",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_dashboard_managed_") as tmp:
         config_path = Path(tmp)
         dashboard_path = config_path / "dashboard_hoymiles.yaml"
-        dashboard_path.write_text("title: previous managed release\n", encoding="utf-8")
-        previous_hash = assets._sha256(dashboard_path)
-        written, managed = assets._sync_assets(
-            config_path,
-            "pl-PL",
-            False,
-            {"dashboard_hoymiles.yaml": previous_hash},
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(
+            (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes()
+        )
+        old_dashboard = b"title: previous managed release\n"
+        dashboard_path.write_bytes(old_dashboard)
+        old_hash = hashlib.sha256(old_dashboard).hexdigest()
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {
+                "dashboard_hoymiles.yaml": old_hash,
+                VALIDATOR_SCHEDULER_RELATIVE: VALIDATOR_NEW_HASHES["pl"],
+            },
+        }
+        written = validator_install(assets, hass)
+        require(dashboard_path in written, "Managed dashboard was not upgraded")
+        require(
+            dashboard_path.read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_bytes(),
+            "Managed dashboard async update bytes differ",
+        )
+        custom = b"title: user customization\n"
+        dashboard_path.write_bytes(custom)
+        stale = dict(hass.store_payload)
+        written = validator_install(assets, hass)
+        require(dashboard_path not in written, "Customized dashboard was overwritten")
+        require(dashboard_path.read_bytes() == custom, "Customized dashboard changed")
+        require(
+            hass.store_payload.get("assets", {}).get("dashboard_hoymiles.yaml")
+            is None,
+            "Customized dashboard retained false managed metadata",
+        )
+        require(stale != hass.store_payload, "Customized dashboard metadata did not reconcile")
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_english_overwrite_") as tmp:
+        config_path = Path(tmp)
+        hass = ValidatorHass(config_path, "en-GB")
+        written = validator_install(assets, hass, overwrite=True)
+        require(len(written) == 7, "Fresh English async overwrite count differs")
+        require(
+            (config_path / "dashboard_hoymiles.yaml").read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_en.yaml").read_bytes(),
+            "English async overwrite copied wrong dashboard",
         )
         require(
-            dashboard_path in written
-            and managed["dashboard_hoymiles.yaml"]
-            == assets._sha256(dashboard_path),
-            "An unchanged managed dashboard was not upgraded",
+            validator_metadata_hash(hass) == VALIDATOR_NEW_HASHES["en"],
+            "English scheduler metadata differs",
         )
 
-        dashboard_path.write_text("title: user customization\n", encoding="utf-8")
-        custom_content = dashboard_path.read_text(encoding="utf-8")
-        written, managed = assets._sync_assets(
-            config_path,
-            "pl-PL",
-            False,
-            {"dashboard_hoymiles.yaml": previous_hash},
+    with tempfile.TemporaryDirectory(prefix="hoymiles_live_collision_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(
+            (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes()
+        )
+        hass = ValidatorHass(config_path)
+        results: list = []
+
+        def capture_collision(name: str, result) -> None:
+            if name == "_sync_assets":
+                results.append(result)
+
+        hass.executor_after = capture_collision
+        validator_set_ui_collision(hass)
+        written = validator_install(assets, hass)
+        require(package_path not in written, "Live editable collision was missed")
+        require(validator_metadata_hash(hass) is None, "Collision repaired missing metadata")
+        require(
+            not package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX).exists(),
+            "Current collision created backup",
         )
         require(
-            dashboard_path not in written
-            and dashboard_path.read_text(encoding="utf-8") == custom_content
-            and "dashboard_hoymiles.yaml" not in managed,
-            "A user-modified dashboard was overwritten",
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["collision"],
+            "Literal collision transition differs",
         )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_backup_exact_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        backup = package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX)
+        backup.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        before = (backup.stat().st_ino, backup.stat().st_mtime_ns, backup.read_bytes())
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path in written, "Exact existing backup blocked overwrite")
+        require(
+            (backup.stat().st_ino, backup.stat().st_mtime_ns, backup.read_bytes())
+            == before,
+            "Exact existing backup was overwritten",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_backup_foreign_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        backup = package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX)
+        backup.write_bytes(b"foreign backup")
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path not in written, "Foreign backup allowed overwrite")
+        require(package_path.read_bytes() == VALIDATOR_BACKUP_FIXTURE, "Foreign backup changed scheduler")
+        require(backup.read_bytes() == b"foreign backup", "Foreign backup was overwritten")
+        require(validator_metadata_hash(hass) is None, "Foreign backup advanced metadata")
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_legacy_temp_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        legacy = package_path.parent / VALIDATOR_OLD_TEMP
+        legacy.write_bytes(b"protected legacy temp")
+        identity = (legacy.stat().st_ino, legacy.stat().st_mtime_ns)
+        written = validator_install(assets, ValidatorHass(config_path), overwrite=True)
+        require(package_path in written, "Legacy fixed temp blocked unique-temp transaction")
+        require(legacy.read_bytes() == b"protected legacy temp", "Legacy temp bytes changed")
+        require(
+            (legacy.stat().st_ino, legacy.stat().st_mtime_ns) == identity,
+            "Legacy temp identity changed",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_metadata_recovery_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        old_hash = hashlib.sha256(VALIDATOR_BACKUP_FIXTURE).hexdigest()
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        hass.metadata_failures = 1
+        try:
+            validator_install(assets, hass, overwrite=True)
+        except OSError:
+            pass
+        else:
+            raise RuntimeError("Injected metadata failure was swallowed")
+        inode = package_path.stat().st_ino
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Metadata failure advanced scheduler hash",
+        )
+        written = validator_install(assets, hass)
+        require(package_path not in written, "Metadata self-heal replaced current file")
+        require(package_path.stat().st_ino == inode, "Metadata self-heal changed identity")
+        require(
+            validator_metadata_hash(hass) == VALIDATOR_NEW_HASHES["pl"],
+            "Metadata self-heal did not commit exact new hash",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_modified_policy_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        modified = b"# user modified scheduler\nstate: custom\n"
+        package_path.write_bytes(modified)
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=False)
+        require(package_path not in written, "overwrite false replaced modified scheduler")
+        require(package_path.read_bytes() == modified, "modified scheduler changed")
+        require(
+            not package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX).exists(),
+            "modified hold created backup",
+        )
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path in written, "explicit overwrite did not replace modified scheduler")
+        require(
+            package_path.with_name(
+                package_path.name + VALIDATOR_BACKUP_SUFFIX
+            ).read_bytes()
+            == modified,
+            "Explicit overwrite backup differs",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_replace_failure_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        hass = ValidatorHass(config_path)
+        hass.replace_failure_path = package_path
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path not in written, "Replace failure reported success")
+        require(
+            package_path.read_bytes() == VALIDATOR_BACKUP_FIXTURE,
+            "Replace failure changed scheduler",
+        )
+        require(
+            validator_metadata_hash(hass) is None,
+            "Replace failure advanced scheduler metadata",
+        )
+
+    async def validate_executor_pause_collision() -> None:
+        with tempfile.TemporaryDirectory(prefix="hoymiles_pause_collision_") as tmp:
+            config_path = Path(tmp)
+            hass = ValidatorHass(config_path)
+            hass.pause_executor_name = "_sync_assets"
+            hass.pause_entered = asyncio.Event()
+            hass.pause_release = asyncio.Event()
+            task = asyncio.create_task(
+                assets.async_install_assets(
+                    hass,
+                    overwrite=False,
+                    publish_frontend=False,
+                )
+            )
+            await hass.pause_entered.wait()
+            validator_set_ui_collision(hass)
+            hass.pause_release.set()
+            written = await task
+            package_path = validator_scheduler_path(config_path)
+            require(package_path not in written, "Paused collision reported write")
+            require(not package_path.exists(), "Paused collision did not remove fresh file")
+            require(
+                validator_metadata_hash(hass) is None,
+                "Paused collision advanced scheduler metadata",
+            )
+
+    asyncio.run(validate_executor_pause_collision())
+
+    require(
+        "hass.services.async_call" not in assets_source
+        and "write_register" not in assets_source
+        and "grant_execution" not in assets_source,
+        "Managed-package delivery added a physical execution path",
+    )
 
     class FakeResourceCollection:
         """Exercise the same live collection contract as Lovelace websocket."""
