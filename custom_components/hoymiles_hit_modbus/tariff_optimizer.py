@@ -7,11 +7,16 @@ tariff slot that occurs before the energy is needed by the home.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from math import ceil, isfinite
 
 try:  # Package import in Home Assistant; direct import in deterministic tests.
+    from .automation_plan_timeline import (
+        OptimizerTimelineTrace,
+        TariffPolicyPoint,
+        TimelineTracePoint,
+    )
     from .energy_data import numeric_sample_is_fresh
     from .forecast_model import adaptive_forecast_factor
     from .load_model import robust_weighted_estimate, robust_weighted_upper_estimate
@@ -22,6 +27,11 @@ try:  # Package import in Home Assistant; direct import in deterministic tests.
         profile_rate,
     )
 except ImportError:  # pragma: no cover - exercised by tools/test_tariff_optimizer.py
+    from automation_plan_timeline import (
+        OptimizerTimelineTrace,
+        TariffPolicyPoint,
+        TimelineTracePoint,
+    )
     from energy_data import numeric_sample_is_fresh
     from forecast_model import adaptive_forecast_factor
     from load_model import robust_weighted_estimate, robust_weighted_upper_estimate
@@ -253,6 +263,12 @@ class TariffOptimizerResult:
     capacity_or_power_shortfall_kwh: float = 0.0
     control_inputs_fresh: bool = True
     control_input_block_reason: str = "none"
+    # Observation-only sidecar, never consumed by planning or execution.
+    timeline_trace: OptimizerTimelineTrace | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
 
 @dataclass(slots=True)
@@ -270,6 +286,11 @@ class _Simulation:
     total_optimization_cost_pln: float
     terminal_shortfall_kwh: float
     terminal_import_kwh: float
+    pv_kwh: dict[int, float]
+    load_kwh: dict[int, float]
+    battery_delta_kwh: dict[int, float]
+    grid_import_kwh: dict[int, float]
+    grid_export_kwh: dict[int, float]
 
 
 def _classify_current_run_need(
@@ -644,11 +665,19 @@ def _simulate(
     stored: dict[int, float] = {}
     battery_after: dict[int, float] = {}
     uncovered_import: dict[int, float] = {}
+    traced_pv: dict[int, float] = {}
+    traced_load: dict[int, float] = {}
+    battery_delta: dict[int, float] = {}
+    grid_import: dict[int, float] = {}
+    grid_export: dict[int, float] = {}
 
     for index, start in enumerate(starts):
+        battery_before = battery
         fraction = slot_fractions[index]
         slot_hours = 0.5 * fraction
         pv = max(settings.pv_by_slot_kwh.get(start, 0.0), 0.0) * fraction
+        traced_pv[index] = pv
+        traced_load[index] = loads[index]
         net = pv - loads[index]
         requested_support = max(supports.get(index, 0.0), 0.0)
         requested_import = max(imports.get(index, 0.0), 0.0)
@@ -670,6 +699,7 @@ def _simulate(
             net += direct_grid
             accepted_support[index] = direct_grid
         remaining_grid_budget = max(grid_budget - direct_grid, 0.0)
+        interval_grid_export = 0.0
         if net >= 0:
             # PV surplus is subject to the same physical BMS/inverter charging
             # limit and conversion loss as energy imported from the grid.
@@ -685,6 +715,10 @@ def _simulate(
                 max(maximum - battery, 0.0),
             )
             battery += max(stored_from_pv, 0.0)
+            interval_grid_export = max(
+                net - max(stored_from_pv, 0.0) / charge_efficiency,
+                0.0,
+            )
             battery_charge_budget = max(
                 battery_charge_budget - max(stored_from_pv, 0.0),
                 0.0,
@@ -718,7 +752,14 @@ def _simulate(
             battery += stored_energy
             accepted[index] = accepted_import
             stored[index] = stored_energy
+        else:
+            accepted_import = 0.0
         battery_after[index] = battery
+        interval_uncovered = uncovered_import.get(index, 0.0)
+        battery_delta[index] = battery - battery_before
+        gross_grid_import = direct_grid + accepted_import + interval_uncovered
+        grid_import[index] = max(gross_grid_import - interval_grid_export, 0.0)
+        grid_export[index] = max(interval_grid_export - gross_grid_import, 0.0)
 
     terminal_soc = _effective_terminal_reserve_soc_percent(settings)
     terminal_target = min(
@@ -795,6 +836,121 @@ def _simulate(
         total_optimization_cost_pln=total_optimization_cost,
         terminal_shortfall_kwh=terminal_shortfall,
         terminal_import_kwh=terminal_import,
+        pv_kwh=traced_pv,
+        load_kwh=traced_load,
+        battery_delta_kwh=battery_delta,
+        grid_import_kwh=grid_import,
+        grid_export_kwh=grid_export,
+    )
+
+
+def _tariff_timeline_trace(
+    *,
+    settings: TariffOptimizerInput,
+    starts: list[datetime],
+    slot_fractions: list[float],
+    rates: list[tuple[float, str]],
+    baseline: _Simulation,
+    selected: _Simulation,
+    status_code: str,
+    planning_horizon_hours: float,
+) -> OptimizerTimelineTrace | None:
+    """Merge already-executed baseline/selected simulations into a trace."""
+
+    if (
+        not settings.control_inputs_fresh
+        or not starts
+        or len(starts) != len(slot_fractions)
+        or len(starts) != len(rates)
+    ):
+        return None
+    capacity = max(settings.battery_capacity_kwh, 0.001)
+    protected_soc = min(max(settings.reserve_soc_percent, 0.0), 100.0)
+    if status_code == "insufficient_cheap_window":
+        timeline_quality = "partial"
+        timeline_blocker = status_code
+    elif planning_horizon_hours < 48.0 - 0.01:
+        timeline_quality = "partial"
+        timeline_blocker = "planning_horizon_limited"
+    else:
+        timeline_quality = "complete"
+        timeline_blocker = None
+    points: list[TimelineTracePoint] = []
+    first_fraction = min(max(slot_fractions[0], 0.0), 1.0)
+    first_end = starts[0].astimezone(timezone.utc) + SLOT
+    horizon_limit = first_end - SLOT * first_fraction + timedelta(hours=48)
+    for index, slot_start in enumerate(starts):
+        fraction = min(max(slot_fractions[index], 0.0), 1.0)
+        end = slot_start.astimezone(timezone.utc) + SLOT
+        start = end - SLOT * fraction
+        if end > horizon_limit:
+            break
+        duration_hours = max((end - start).total_seconds() / 3600.0, 1e-9)
+        battery_import = selected.accepted_import_kwh.get(index, 0.0)
+        direct_support = selected.accepted_support_kwh.get(index, 0.0)
+        planned_import = battery_import + direct_support
+        if battery_import > _EPSILON and direct_support > _EPSILON:
+            action = "grid_support_and_charge"
+        elif battery_import > _EPSILON:
+            action = "battery_charge"
+        elif direct_support > _EPSILON:
+            action = "grid_support"
+        else:
+            action = "idle"
+        price, zone = rates[index]
+        selected_point = planned_import > 0.001
+        points.append(
+            TimelineTracePoint(
+                start=start,
+                end=end,
+                pv_kwh=selected.pv_kwh[index],
+                load_kwh=selected.load_kwh[index],
+                battery_delta_kwh=selected.battery_delta_kwh[index],
+                grid_import_kwh=selected.grid_import_kwh[index],
+                grid_export_kwh=selected.grid_export_kwh[index],
+                soc_percent=min(
+                    max(selected.battery_after_kwh[index] / capacity * 100.0, 0.0),
+                    100.0,
+                ),
+                baseline_soc_percent=min(
+                    max(baseline.battery_after_kwh[index] / capacity * 100.0, 0.0),
+                    100.0,
+                ),
+                protected_soc_floor_percent=protected_soc,
+                action_code=action,
+                selected=selected_point,
+                quality=timeline_quality,
+                policy=TariffPolicyPoint(
+                    buy_price_pln_kwh=price,
+                    tariff_zone=zone,
+                    planned_import_kwh=planned_import,
+                    planned_charge_kw=(
+                        selected.stored_import_kwh.get(index, 0.0) / duration_hours
+                    ),
+                    expected_cost_pln=planned_import * price,
+                    # The existing optimizer exposes aggregate savings only.
+                    expected_saving_pln=None,
+                ),
+                target_soc_percent=(
+                    min(
+                        max(
+                            selected.battery_after_kwh[index]
+                            / capacity
+                            * 100.0,
+                            0.0,
+                        ),
+                        100.0,
+                    )
+                    if selected_point
+                    else None
+                ),
+            )
+        )
+    return OptimizerTimelineTrace(
+        policy_id="tariff",
+        points=tuple(points),
+        quality=timeline_quality,
+        blocker_code=timeline_blocker,
     )
 
 
@@ -2032,5 +2188,15 @@ def optimize_tariff_charging(
                 if settings.control_inputs_fresh
                 else "control_inputs_stale"
             )
+        ),
+        timeline_trace=_tariff_timeline_trace(
+            settings=effective_settings,
+            starts=starts,
+            slot_fractions=slot_fractions,
+            rates=rates,
+            baseline=baseline,
+            selected=simulation,
+            status_code=status,
+            planning_horizon_hours=planning_horizon_hours,
         ),
     )

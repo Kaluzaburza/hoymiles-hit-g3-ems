@@ -801,6 +801,9 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         self._input_revision = OptimizerInputRevision()
         self._current_slot_continue_eligible: bool | None = None
         self._current_slot_continue_changed_at: datetime | None = None
+        self._tariff_plan_source: SensorEntity | None = None
+        self._timeline_sensor: Any | None = None
+        self._timeline_metadata: dict[str, Any] = {}
         self._attributes: dict[str, Any] = {
             "status_code": "missing_data",
             "missing_entities": [],
@@ -809,6 +812,77 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             "recalculation_pending": True,
             "input_revision": 0,
         }
+
+    def attach_timeline_sensor(self, timeline_sensor: Any) -> None:
+        """Bind the one entry-local observation-only timeline publisher."""
+
+        if self._timeline_sensor is not None and self._timeline_sensor is not timeline_sensor:
+            raise RuntimeError("RCE timeline sensor already attached")
+        self._timeline_sensor = timeline_sensor
+
+    def attach_tariff_plan_source(self, tariff_plan_source: SensorEntity) -> None:
+        """Bind the exact same-entry tariff price broker."""
+
+        source_entry = getattr(tariff_plan_source, "_entry", None)
+        if source_entry is None or source_entry.entry_id != self._entry.entry_id:
+            raise RuntimeError("RCE tariff broker belongs to another entry")
+        self._tariff_plan_source = tariff_plan_source
+
+    def attach_tariff_plan_listener(self) -> None:
+        """Observe a suffixed same-entry tariff entity without guessing its ID."""
+
+        source = getattr(self, "_tariff_plan_source", None)
+        entity_id = getattr(source, "entity_id", None)
+        if not isinstance(entity_id, str) or entity_id in RCE_EVENT_DRIVEN_ENTITIES:
+            return
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                (entity_id,),
+                self._async_input_changed,
+            )
+        )
+
+    def _same_entry_tariff_plan_state(self) -> State | None:
+        """Return only the exact tariff broker object wired for this entry."""
+
+        source = getattr(self, "_tariff_plan_source", None)
+        source_entry = getattr(source, "_entry", None)
+        entity_id = getattr(source, "entity_id", None)
+        if (
+            source is None
+            or source_entry is None
+            or source_entry.entry_id != self._entry.entry_id
+            or not isinstance(entity_id, str)
+        ):
+            return None
+        return self.hass.states.get(entity_id)
+
+    @callback
+    def _publish_timeline_result(self) -> None:
+        """Publish only the result committed for this exact input revision."""
+
+        if self._timeline_sensor is None:
+            return
+        if self._result is None:
+            self._timeline_sensor.publish_unavailable(
+                input_revision=self._input_revision.value,
+                blocker_code=str(
+                    self._attributes.get("status_code", "missing_data")
+                ),
+            )
+            return
+        quality = (
+            "partial"
+            if self._timeline_metadata.get("planning_scope") == "today_only"
+            else "complete"
+        )
+        self._timeline_sensor.publish_current(
+            self._result.timeline_trace,
+            input_revision=self._input_revision.value,
+            metadata=self._timeline_metadata,
+            quality=quality,
+        )
 
     @property
     def suggested_object_id(self) -> str:
@@ -1262,7 +1336,15 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
     @callback
     def _current_input_fingerprint(self) -> tuple[Any, ...]:
         """Return the exact watched snapshot used to certify publication."""
+        tariff_entity_id = getattr(
+            getattr(self, "_tariff_plan_source", None),
+            "entity_id",
+            None,
+        )
         watched_entities = WATCHED_ENTITIES | self._configured_forecast_source_ids()
+        watched_entities -= {"sensor.hoymiles_hit_tariff_charge_plan"}
+        if isinstance(tariff_entity_id, str):
+            watched_entities.add(tariff_entity_id)
         watched_entities -= {
             "sensor.hoymiles_hit_gcf_enable_readback_code",
             "sensor.hoymiles_hit_gcf_maximum_export_power_readback",
@@ -1270,11 +1352,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         fingerprint = optimizer_input_fingerprint(
             self.hass,
             watched_entities,
-            attribute_projections={
-                "sensor.hoymiles_hit_tariff_charge_plan": (
-                    TARIFF_PRICE_BROKER_ATTRIBUTES
-                ),
-            },
+            attribute_projections=(
+                {tariff_entity_id: TARIFF_PRICE_BROKER_ATTRIBUTES}
+                if isinstance(tariff_entity_id, str)
+                else {}
+            ),
         )
         gcf_signature = getattr(self, "_forecast_gcf_optimizer_signature", None)
         if gcf_signature is None:
@@ -1288,7 +1370,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
     ) -> bool:
         """Invalidate only when a value consumed by this optimizer changed."""
         entity_id = event.data["entity_id"]
-        counterpart = entity_id == "sensor.hoymiles_hit_tariff_charge_plan"
+        counterpart = entity_id == getattr(
+            getattr(self, "_tariff_plan_source", None),
+            "entity_id",
+            None,
+        )
         changed = self._input_revision.invalidate_state_change(
             event.data.get("old_state"),
             event.data.get("new_state"),
@@ -1313,6 +1399,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             self._attributes.get("result_current") is False
             and self._attributes.get("recalculation_pending") is True
         ):
+            if self._timeline_sensor is not None:
+                self._timeline_sensor.publish_pending(self._input_revision.value)
             return
         self._attributes = {
             **self._attributes,
@@ -1320,6 +1408,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             "recalculation_pending": True,
         }
         self.async_write_ha_state()
+        if self._timeline_sensor is not None:
+            self._timeline_sensor.publish_pending(self._input_revision.value)
 
     @callback
     def _mark_result_current(self) -> None:
@@ -1545,6 +1635,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 or previous_attributes != self._attributes
             ):
                 self.async_write_ha_state()
+            if committed:
+                self._publish_timeline_result()
 
     async def _recalculate(self) -> None:
         """Serialize startup and event-driven optimizer runs."""
@@ -1552,6 +1644,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             for _attempt in range(MAX_IMMEDIATE_RECALCULATIONS):
                 if await self._recalculate_locked():
                     self._mark_result_current()
+                    self._publish_timeline_result()
                     return
 
     async def _recalculate_locked(self) -> bool:
@@ -1566,6 +1659,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             settings, metadata = self._optimizer_input()
             if settings is None:
                 self._result = None
+                self._timeline_metadata = dict(metadata)
                 self._attributes = {
                     "status_code": "missing_data",
                     "missing_entities": metadata["missing_entities"],
@@ -1581,6 +1675,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 self._mark_recalculation_pending()
                 return False
             self._result = result
+            self._timeline_metadata = dict(metadata)
             now = dt_util.now().astimezone(ZoneInfo(self.hass.config.time_zone))
             current_slot_continue_eligible = bool(
                 result.current_slot_planned_export_kwh >= 0.01
@@ -1957,6 +2052,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 return False
             _LOGGER.exception("Cannot calculate the optimized RCE plan")
             self._result = None
+            self._timeline_metadata = {}
             self._attributes = {
                 "status_code": "optimizer_error",
                 "missing_entities": [],
@@ -3015,9 +3111,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 effective_export_source = entity_id
                 break
 
-        tariff_plan = self.hass.states.get(
-            "sensor.hoymiles_hit_tariff_charge_plan"
-        )
+        tariff_plan = self._same_entry_tariff_plan_state()
         avoided_import_price = None
         if tariff_plan is not None:
             for attribute in (

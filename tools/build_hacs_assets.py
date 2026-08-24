@@ -3353,6 +3353,38 @@ def build() -> None:
     pl["entity"]["sensor"]["tariff_charge_plan"] = {
         "name": "Plan automatycznego ładowania taryfowego"
     }
+    en["entity"]["sensor"]["rce_automation_plan_timeline"] = {
+        "name": "RCE automation plan timeline",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["rce_automation_plan_timeline"] = {
+        "name": "Oś czasu planu automatyki RCE",
+        "state": {
+            "current": "Aktualna",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępna",
+        },
+    }
+    en["entity"]["sensor"]["tariff_automation_plan_timeline"] = {
+        "name": "Tariff automation plan timeline",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["tariff_automation_plan_timeline"] = {
+        "name": "Oś czasu planu automatyki taryfowej",
+        "state": {
+            "current": "Aktualna",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępna",
+        },
+    }
     en["entity"]["sensor"]["rcm_voltage_plan"] = {
         "name": "RCEm 253 V+ plan"
     }

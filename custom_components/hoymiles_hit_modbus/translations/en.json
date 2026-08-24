@@ -1691,6 +1691,22 @@
       "tariff_charge_plan": {
         "name": "Automatic tariff charging plan"
       },
+      "rce_automation_plan_timeline": {
+        "name": "RCE automation plan timeline",
+        "state": {
+          "current": "Current",
+          "pending": "Recalculation pending",
+          "unavailable": "Unavailable"
+        }
+      },
+      "tariff_automation_plan_timeline": {
+        "name": "Tariff automation plan timeline",
+        "state": {
+          "current": "Current",
+          "pending": "Recalculation pending",
+          "unavailable": "Unavailable"
+        }
+      },
       "rcm_voltage_plan": {
         "name": "RCEm 253 V+ plan"
       },

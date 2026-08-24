@@ -17,8 +17,18 @@ from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo
 
 try:  # Package import in Home Assistant; direct import in deterministic tests.
+    from .automation_plan_timeline import (
+        OptimizerTimelineTrace,
+        RCEPolicyPoint,
+        TimelineTracePoint,
+    )
     from .load_model import robust_weighted_upper_estimate
 except ImportError:  # pragma: no cover - exercised by tools/test_rce_optimizer.py
+    from automation_plan_timeline import (
+        OptimizerTimelineTrace,
+        RCEPolicyPoint,
+        TimelineTracePoint,
+    )
     from load_model import robust_weighted_upper_estimate
 
 
@@ -206,6 +216,13 @@ class OptimizerResult:
     solver_method: str = "joint_horizon_bounded_active_set"
     optimality_verified: bool = False
     solver_runtime_ms: float = 0.0
+    # Observation-only sidecar. It is excluded from equality/repr so every
+    # pre-AP-1 result contract remains backward compatible.
+    timeline_trace: OptimizerTimelineTrace | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def planned_export_kwh(self) -> float:
@@ -262,6 +279,21 @@ class OptimizerResult:
             self.terminal_energy_value_pln
             - self.baseline_terminal_energy_value_pln
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _RCESimulationSlot:
+    """Exact per-slot values retained by an already-required simulation."""
+
+    slot_start: datetime
+    start: datetime
+    end: datetime
+    pv_kwh: float
+    load_kwh: float
+    battery_delta_kwh: float
+    grid_import_kwh: float
+    grid_export_kwh: float
+    battery_after_kwh: float
 
 
 def floor_half_hour(value: datetime) -> datetime:
@@ -1125,6 +1157,7 @@ def _simulate(
     export_reserve_by_slot: Mapping[datetime, float] | None = None,
     pv_by_slot_kwh: Mapping[datetime, float] | None = None,
     slot_fractions: Mapping[datetime, float] | None = None,
+    trace_collector: list[_RCESimulationSlot] | None = None,
 ) -> tuple[bool, float, dict[datetime, float]]:
     capacity = settings.battery_capacity_kwh
     battery = capacity * settings.battery_soc_percent / 100.0
@@ -1143,6 +1176,7 @@ def _simulate(
     natural_exports: dict[datetime, float] = {}
     pv_map = pv_by_slot_kwh or settings.pv_by_slot_kwh
     for start in starts:
+        battery_before = battery
         pv = max(float(pv_map.get(start, 0.0)), 0.0)
         load = max(float(load_by_slot.get(start, 0.0)), 0.0)
         export = max(float(exports.get(start, 0.0)), 0.0)
@@ -1161,6 +1195,7 @@ def _simulate(
         if pv < load:
             battery -= (load - pv) / house_discharge_efficiency
         battery -= export / efficiency
+        natural_export = 0.0
         if pv >= load:
             charge_input_ac = _slot_charge_input_limit_kwh(
                 settings,
@@ -1222,7 +1257,106 @@ def _simulate(
             if natural_export > 0.0:
                 natural_exports[start] = natural_export
         battery = min(battery, capacity)
+        if trace_collector is not None:
+            end = start + SLOT
+            effective_start = end - SLOT * fraction
+            trace_collector.append(
+                _RCESimulationSlot(
+                    slot_start=start,
+                    start=effective_start,
+                    end=end,
+                    pv_kwh=pv,
+                    load_kwh=load,
+                    battery_delta_kwh=battery - battery_before,
+                    grid_import_kwh=0.0,
+                    grid_export_kwh=export + natural_export,
+                    battery_after_kwh=battery,
+                )
+            )
     return True, battery, natural_exports
+
+
+def _rce_timeline_trace(
+    *,
+    settings: OptimizerInput,
+    selected: list[_RCESimulationSlot],
+    baseline: list[_RCESimulationSlot],
+    exports: Mapping[datetime, float],
+    price_by_start: Mapping[datetime, float],
+    floor_kwh: float,
+    export_reserve_by_slot: Mapping[datetime, float],
+    quality: str = "complete",
+) -> OptimizerTimelineTrace | None:
+    """Merge two already-executed simulations into one immutable RCE trace."""
+
+    if not selected or len(selected) != len(baseline):
+        return None
+    capacity = max(settings.battery_capacity_kwh, 0.001)
+    baseline_by_start = {item.slot_start: item for item in baseline}
+    points: list[TimelineTracePoint] = []
+    horizon_limit = selected[0].start + timedelta(hours=48)
+    for item in selected:
+        if item.end > horizon_limit:
+            break
+        baseline_item = baseline_by_start.get(item.slot_start)
+        if baseline_item is None:
+            return None
+        duration_hours = max(
+            (item.end - item.start).total_seconds() / 3600.0,
+            1e-9,
+        )
+        planned_export = max(float(exports.get(item.slot_start, 0.0)), 0.0)
+        sell_price = price_by_start.get(item.slot_start)
+        points.append(
+            TimelineTracePoint(
+                start=item.start,
+                end=item.end,
+                pv_kwh=item.pv_kwh,
+                load_kwh=item.load_kwh,
+                battery_delta_kwh=item.battery_delta_kwh,
+                grid_import_kwh=item.grid_import_kwh,
+                grid_export_kwh=item.grid_export_kwh,
+                soc_percent=min(
+                    max(item.battery_after_kwh / capacity * 100.0, 0.0),
+                    100.0,
+                ),
+                baseline_soc_percent=min(
+                    max(baseline_item.battery_after_kwh / capacity * 100.0, 0.0),
+                    100.0,
+                ),
+                protected_soc_floor_percent=min(
+                    max(
+                        max(
+                            export_reserve_by_slot.get(item.slot_start, floor_kwh),
+                            floor_kwh,
+                        )
+                        / capacity
+                        * 100.0,
+                        0.0,
+                    ),
+                    100.0,
+                ),
+                action_code="export" if planned_export >= 0.001 else "idle",
+                selected=planned_export >= 0.001,
+                quality=quality,
+                policy=RCEPolicyPoint(
+                    sell_price_pln_kwh=sell_price,
+                    planned_export_kwh=planned_export,
+                    target_discharge_kw=planned_export / duration_hours,
+                    target_tolerance_kw=0.05,
+                    expected_revenue_pln=(
+                        planned_export * sell_price
+                        if sell_price is not None
+                        else None
+                    ),
+                ),
+            )
+        )
+    return OptimizerTimelineTrace(
+        policy_id="rce",
+        points=tuple(points),
+        quality=quality,
+    )
 
 
 def _market_revenue(
@@ -2133,6 +2267,7 @@ def optimize_rce(settings: OptimizerInput) -> OptimizerResult:
         pv_by_slot_kwh=conservative_pv,
         slot_fractions=slot_fractions,
     )
+    baseline_trace: list[_RCESimulationSlot] = []
     _, baseline_expected_end, baseline_natural = _simulate(
         starts,
         settings,
@@ -2141,6 +2276,7 @@ def optimize_rce(settings: OptimizerInput) -> OptimizerResult:
         floor_kwh,
         pv_by_slot_kwh=expected_pv,
         slot_fractions=slot_fractions,
+        trace_collector=baseline_trace,
     )
     system_power = settings.inverter_power_kw * settings.inverter_count
     requested_power = system_power * min(
@@ -2367,6 +2503,15 @@ def optimize_rce(settings: OptimizerInput) -> OptimizerResult:
             price_by_start,
         ),
     )
+    result.timeline_trace = _rce_timeline_trace(
+        settings=settings,
+        selected=baseline_trace,
+        baseline=baseline_trace,
+        exports={},
+        price_by_start=price_by_start,
+        floor_kwh=floor_kwh,
+        export_reserve_by_slot=export_reserve_by_slot,
+    )
     if not baseline_ok:
         result.status_code = "home_energy_shortage"
         return result
@@ -2422,6 +2567,7 @@ def optimize_rce(settings: OptimizerInput) -> OptimizerResult:
         conservative_pv,
         slot_fractions,
     )
+    selected_trace: list[_RCESimulationSlot] = []
     _, expected_ending_battery, natural_exports = _simulate(
         starts,
         settings,
@@ -2431,6 +2577,7 @@ def optimize_rce(settings: OptimizerInput) -> OptimizerResult:
         export_reserve_by_slot,
         expected_pv,
         slot_fractions,
+        trace_collector=selected_trace,
     )
     if not feasible:
         result.ready = False
@@ -2451,6 +2598,15 @@ def optimize_rce(settings: OptimizerInput) -> OptimizerResult:
         for start, energy in natural_exports.items()
     )
     result.ending_battery_kwh = ending_battery
+    result.timeline_trace = _rce_timeline_trace(
+        settings=settings,
+        selected=selected_trace,
+        baseline=baseline_trace,
+        exports=exports,
+        price_by_start=price_by_start,
+        floor_kwh=floor_kwh,
+        export_reserve_by_slot=export_reserve_by_slot,
+    )
     (
         result.net_objective_pln,
         result.battery_wear_cost_pln,

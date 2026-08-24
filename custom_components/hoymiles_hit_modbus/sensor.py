@@ -39,6 +39,7 @@ from .rcm_sensor import HoymilesRCMOptimizerSensor
 from .rce_sensor import HoymilesRCEOptimizerSensor
 from .supervisor_sensor import HoymilesSupervisorSensor
 from .tariff_sensor import HoymilesTariffOptimizerSensor
+from .timeline_sensor import HoymilesAutomationPlanTimelineSensor
 
 
 async def async_setup_entry(
@@ -53,8 +54,31 @@ async def async_setup_entry(
         for matched in runtime.entities["sensor"]
     ]
     entities.append(HoymilesSupervisorSensor(hass, entry, runtime))
-    entities.append(HoymilesRCEOptimizerSensor(hass, entry, runtime))
-    entities.append(HoymilesTariffOptimizerSensor(hass, entry, runtime))
+    rce_plan = HoymilesRCEOptimizerSensor(hass, entry, runtime)
+    tariff_plan = HoymilesTariffOptimizerSensor(hass, entry, runtime)
+    tariff_plan.attach_rce_plan_source(rce_plan)
+    rce_plan.attach_tariff_plan_source(tariff_plan)
+    # Both source plans are registered before either observation-only timeline.
+    entities.append(rce_plan)
+    entities.append(tariff_plan)
+    entities.append(
+        HoymilesAutomationPlanTimelineSensor(
+            hass,
+            entry,
+            runtime,
+            policy_id="rce",
+            source_sensor=rce_plan,
+        )
+    )
+    entities.append(
+        HoymilesAutomationPlanTimelineSensor(
+            hass,
+            entry,
+            runtime,
+            policy_id="tariff",
+            source_sensor=tariff_plan,
+        )
+    )
     entities.append(HoymilesRCMOptimizerSensor(hass, entry, runtime))
     entities.append(HoymilesSetupStatusSensor(hass, entry, runtime))
     async_add_entities(entities)

@@ -40,6 +40,7 @@ ZONE = ZoneInfo("Europe/Warsaw")
 def existing_result_digest(result) -> str:
     """Hash every result field that existed before Phase 1B-1."""
     payload = asdict(result)
+    payload.pop("timeline_trace")
     assert payload.pop("current_run_need_class") in {
         "required_energy",
         "economic",
@@ -92,7 +93,201 @@ def settings(now: datetime, **overrides) -> TariffOptimizerInput:
     return TariffOptimizerInput(**values)
 
 
+def test_timeline_quality_and_legacy_output_contract() -> None:
+    """Pin partial/complete truth without changing any legacy result field."""
+
+    pre_peak = datetime(2026, 8, 6, 12, 30, tzinfo=ZONE)
+    peak_load = {
+        pre_peak.replace(hour=hour, minute=minute): 10.0 / 14.0
+        for hour in range(15, 22)
+        for minute in (0, 30)
+    }
+    common = {
+        "now": pre_peak.replace(hour=14, minute=50),
+        "reserve_soc_percent": 20.0,
+        "average_daily_load_kwh": 0.0,
+        "average_night_load_kwh": 0.0,
+        "load_by_slot_kwh": peak_load,
+        "charge_power_kw": 10.0,
+        "battery_charge_power_kw": 20.0,
+        "charge_efficiency_percent": 100.0,
+        "discharge_efficiency_percent": 100.0,
+        "minimum_saving_pln_kwh": 0.0,
+    }
+
+    soc_cases = (
+        (20.0, 8.333333333333334, "eeee285a1ec96443037881f1bb4c0cb0dc4b5230b8c2b3b137d2889cc4a00938"),
+        (25.0, 7.333333333333335, "1602ebc10ba2f6b81e5fb84eef1923b712f5418c7d6eeaa2529bd33b3fe42665"),
+        (50.0, 2.333333333333331, "e88238e65fc132e9bc354d16b212c991b07e3ef88fafa2116688a6036393c37f"),
+    )
+    for soc, residual, legacy_digest in soc_cases:
+        result = optimize_tariff_charging(
+            settings(**common, battery_soc_percent=soc)
+        )
+        assert result.status_code == "insufficient_cheap_window"
+        assert len(result.planned_charges) == 1
+        assert abs(result.remaining_shortage_kwh - residual) < 1e-12
+        assert existing_result_digest(result) == legacy_digest
+        assert result.timeline_trace is not None
+        assert len(result.timeline_trace.points) == 67
+        assert result.timeline_trace.quality == "partial"
+        assert result.timeline_trace.blocker_code == "insufficient_cheap_window"
+
+    no_charge = optimize_tariff_charging(
+        settings(**common, battery_soc_percent=90.0, horizon_days=3)
+    )
+    assert no_charge.status_code == "no_charge_needed"
+    assert not no_charge.planned_charges
+    assert no_charge.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(no_charge) == (
+        "5c1d74084a7df2fc34ef7558ae92cb310ddaebf296ea4638f21576534f13ec8e"
+    )
+    assert no_charge.timeline_trace is not None
+    assert len(no_charge.timeline_trace.points) == 96
+    assert no_charge.timeline_trace.quality == "complete"
+    assert no_charge.timeline_trace.blocker_code is None
+
+    complete_battery = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak,
+                "battery_soc_percent": 20.0,
+                "horizon_days": 3,
+            }
+        )
+    )
+    assert complete_battery.status_code == "ready"
+    assert complete_battery.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(complete_battery) == (
+        "75228e72e1d4b14cc51dc55907484d3ec25b39345097a7024ebc1e01c2a165cd"
+    )
+    assert complete_battery.timeline_trace is not None
+    assert len(complete_battery.timeline_trace.points) == 96
+    assert complete_battery.timeline_trace.quality == "complete"
+    assert complete_battery.timeline_trace.blocker_code is None
+    assert {
+        point.action_code
+        for point in complete_battery.timeline_trace.points
+        if point.selected
+    } == {"battery_charge"}
+
+    loaded_cheap_period = dict(peak_load)
+    loaded_cheap_period.update(
+        {
+            pre_peak.replace(hour=hour, minute=minute): 2.0
+            for hour in (13, 14)
+            for minute in (0, 30)
+        }
+    )
+    support_and_charge = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak.replace(hour=13, minute=0),
+                "battery_soc_percent": 20.0,
+                "load_by_slot_kwh": loaded_cheap_period,
+                "horizon_days": 3,
+            }
+        )
+    )
+    assert support_and_charge.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(support_and_charge) == (
+        "2ce2351bbb10b701abd28c2c4d60bc411d42e7ebc23e0aeeb865e7d64441c098"
+    )
+    assert support_and_charge.timeline_trace is not None
+    assert len(support_and_charge.timeline_trace.points) == 96
+    assert support_and_charge.timeline_trace.quality == "complete"
+    assert support_and_charge.timeline_trace.blocker_code is None
+    assert {
+        point.action_code
+        for point in support_and_charge.timeline_trace.points
+        if point.selected
+    } == {"grid_support_and_charge"}
+
+    grid_support = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak.replace(hour=13, minute=0),
+                "battery_soc_percent": 100.0,
+                "load_by_slot_kwh": loaded_cheap_period,
+                "horizon_days": 3,
+            }
+        )
+    )
+    assert grid_support.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(grid_support) == (
+        "f7bb21376e0fc4227ca9e79921363788487540d97855dccfe3c4401721d54845"
+    )
+    assert grid_support.timeline_trace is not None
+    assert len(grid_support.timeline_trace.points) == 96
+    assert grid_support.timeline_trace.quality == "complete"
+    assert grid_support.timeline_trace.blocker_code is None
+    assert {
+        point.action_code
+        for point in grid_support.timeline_trace.points
+        if point.selected
+    } == {"grid_support"}
+
+    partial_horizon = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak,
+                "battery_soc_percent": 20.0,
+                "horizon_days": 2,
+            }
+        )
+    )
+    assert partial_horizon.status_code == "ready"
+    assert partial_horizon.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(partial_horizon) == (
+        "cdd6a2a3644ec4ce336926e230b6c286d969d23198a3a6ce985c5a114b10a4cd"
+    )
+    assert partial_horizon.timeline_trace is not None
+    assert len(partial_horizon.timeline_trace.points) == 71
+    assert partial_horizon.timeline_trace.quality == "partial"
+    assert partial_horizon.timeline_trace.blocker_code == "planning_horizon_limited"
+
+    stale = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak,
+                "battery_soc_percent": 20.0,
+                "horizon_days": 3,
+                "control_inputs_fresh": False,
+                "control_input_block_reason": "missing_soc",
+            }
+        )
+    )
+    assert not stale.control_inputs_fresh
+    assert stale.control_input_block_reason == "missing_soc"
+    assert stale.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(stale) == (
+        "fc9951d16f8eed790a3a81cf8e967dd4025603a3d743a713ce4174c2072da302"
+    )
+    assert stale.timeline_trace is None
+
+    # Missing critical input never reaches the optimizer in the HA adapter;
+    # it clears the result and retains the existing unavailable publication.
+    sensor_source = (
+        ROOT
+        / "custom_components"
+        / "hoymiles_hit_modbus"
+        / "tariff_sensor.py"
+    ).read_text(encoding="utf-8")
+    publish_start = sensor_source.index("def _publish_timeline_result")
+    publish_end = sensor_source.index("\n    def ", publish_start + 8)
+    publish_source = sensor_source[publish_start:publish_end]
+    assert "quality=" not in publish_source
+    assert "self._result is None" in publish_source
+    assert "publish_unavailable" in publish_source
+
+
 def main() -> None:
+    test_timeline_quality_and_legacy_output_contract()
     monday = datetime(2026, 8, 3, 21, 10, tzinfo=ZONE)
 
     # Freshness treats a repeated exact zero as a real sample. HA's

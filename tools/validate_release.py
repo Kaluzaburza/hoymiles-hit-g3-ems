@@ -5,15 +5,16 @@ from __future__ import annotations
 import ast
 import asyncio
 import hashlib
+import io
 import importlib.util
 import json
 import os
-import py_compile
 import re
 import shutil
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import types
 from pathlib import Path
@@ -51,6 +52,7 @@ VALIDATOR_HISTORICAL_HASHES = {
     "en": "b76ba6a2a9f94d307d1582822101b2fc0951868ba7319394ce0886ee9fe9e07d",
 }
 VALIDATOR_HISTORICAL_REF = "v1.5.7"
+REV28_HISTORICAL_COMMIT = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
 PHASE_2_TASK_PATHS = frozenset(
     {
         "dashboard_hoymiles.yaml",
@@ -141,6 +143,27 @@ SUPERVISOR_BRANCH_PATHS = frozenset(
         "tools/validate_release.py",
     }
 )
+AP1_TASK_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "tools/build_hacs_assets.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_optimizer_executor_contract.py",
+        "tools/test_optimizer_startup_contract.py",
+        "tools/test_rce_optimizer.py",
+        "tools/test_tariff_optimizer.py",
+        "tools/validate_release.py",
+    }
+)
+AP1_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1_TASK_PATHS
 VALIDATOR_STORE_CONTRACTS = {
     "input_select": (1, frozenset({1, 2})),
     "input_boolean": (1, frozenset({1})),
@@ -406,28 +429,29 @@ def _git_path_set(*args: str) -> set[str]:
     return {line.strip().replace("\\", "/") for line in output.splitlines() if line.strip()}
 
 
-def validate_supervisor_manifests() -> None:
-    """Fail closed on the 8-path correction, 14-path task and 32-path branch."""
-    staged_paths = _git_path_set("diff", "--cached", "--name-only")
-    task_paths = (
-        _git_path_set("diff", "--name-only", "HEAD")
-        | staged_paths
-        | _git_path_set("ls-files", "--others", "--exclude-standard")
+def _git_blob_sha256(reference: str, relative_path: str) -> str:
+    """Hash exact historical bytes without substituting the current worktree."""
+
+    content = subprocess.check_output(
+        ["git", "show", f"{reference}:{relative_path}"],
+        cwd=ROOT,
     )
-    branch_paths = _git_path_set(
-        "diff", "--name-only", f"{VALIDATOR_HISTORICAL_REF}...HEAD"
-    ) | task_paths
-    require(
-        task_paths == PHASE_2_TASK_PATHS,
-        "Phase 2 task manifest is not exactly 14 paths: "
-        f"missing={sorted(PHASE_2_TASK_PATHS - task_paths)}, "
-        f"extra={sorted(task_paths - PHASE_2_TASK_PATHS)}",
+    return hashlib.sha256(content).hexdigest()
+
+
+def validate_historical_rev28_gate() -> None:
+    """Validate the frozen REV28 fixture independently of current AP-1."""
+
+    historical_branch_paths = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{VALIDATOR_HISTORICAL_REF}...{REV28_HISTORICAL_COMMIT}",
     )
     require(
-        branch_paths == SUPERVISOR_BRANCH_PATHS,
-        "Supervisor branch manifest is not exactly 32 paths: "
-        f"missing={sorted(SUPERVISOR_BRANCH_PATHS - branch_paths)}, "
-        f"extra={sorted(branch_paths - SUPERVISOR_BRANCH_PATHS)}",
+        historical_branch_paths == SUPERVISOR_BRANCH_PATHS,
+        "Historical REV28 branch manifest is not exactly 32 paths: "
+        f"missing={sorted(SUPERVISOR_BRANCH_PATHS - historical_branch_paths)}, "
+        f"extra={sorted(historical_branch_paths - SUPERVISOR_BRANCH_PATHS)}",
     )
     protected_task_paths = frozenset(REV28_PROTECTED_TASK_HASHES)
     require(
@@ -436,16 +460,17 @@ def validate_supervisor_manifests() -> None:
         and PHASE_2_TASK_PATHS - REV28_CORRECTION_PATHS == protected_task_paths,
         "Revision 28 correction manifest is not exactly the authorized 8 paths",
     )
-    require(not staged_paths, "Revision 28 validation requires zero staged paths")
     for relative_path, expected_hash in {
         **REV28_PROTECTED_TASK_HASHES,
         **REV28_PROTECTED_BACKEND_HASHES,
     }.items():
-        path = ROOT / relative_path
-        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        actual_hash = _git_blob_sha256(
+            REV28_HISTORICAL_COMMIT,
+            relative_path,
+        )
         require(
             actual_hash == expected_hash,
-            f"Revision 28 protected bytes changed: {relative_path}",
+            f"Historical REV28 protected bytes changed: {relative_path}",
         )
 
     exact = lambda actual, expected: actual == expected
@@ -481,6 +506,201 @@ def validate_supervisor_manifests() -> None:
     require(
         not exact(SUPERVISOR_BRANCH_PATHS | {"__unexpected_branch_path__"}, SUPERVISOR_BRANCH_PATHS),
         "Branch 33-path count self-test did not fail",
+    )
+
+
+def _ap1_manifests_match(
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact current AP-1 manifest verdict for self-tests."""
+
+    return task_paths == AP1_TASK_PATHS and branch_paths == AP1_BRANCH_PATHS
+
+
+def validate_current_ap1_manifests() -> None:
+    """Fail closed on the actual 16-path AP-1 task and 40-path branch."""
+
+    staged_paths = _git_path_set("diff", "--cached", "--name-only")
+    task_paths = (
+        _git_path_set("diff", "--name-only", "HEAD")
+        | staged_paths
+        | _git_path_set("ls-files", "--others", "--exclude-standard")
+    )
+    branch_paths = _git_path_set(
+        "diff", "--name-only", f"{VALIDATOR_HISTORICAL_REF}...HEAD"
+    ) | task_paths
+    require(
+        _ap1_manifests_match(task_paths, branch_paths),
+        "Current AP-1 manifests are not exactly 16/40 paths: "
+        f"task_missing={sorted(AP1_TASK_PATHS - task_paths)}, "
+        f"task_extra={sorted(task_paths - AP1_TASK_PATHS)}, "
+        f"branch_missing={sorted(AP1_BRANCH_PATHS - branch_paths)}, "
+        f"branch_extra={sorted(branch_paths - AP1_BRANCH_PATHS)}",
+    )
+    require(not staged_paths, "Current AP-1 validation requires zero staged paths")
+
+    task_anchor = sorted(AP1_TASK_PATHS)[0]
+    branch_anchor = sorted(AP1_BRANCH_PATHS)[0]
+    require(
+        not _ap1_manifests_match(
+            AP1_TASK_PATHS - {task_anchor},
+            AP1_BRANCH_PATHS,
+        ),
+        "AP-1 15-path count self-test did not fail",
+    )
+    require(
+        not _ap1_manifests_match(
+            AP1_TASK_PATHS | {"__unexpected_ap1_path__"},
+            AP1_BRANCH_PATHS,
+        ),
+        "AP-1 17-path count self-test did not fail",
+    )
+    require(
+        not _ap1_manifests_match(
+            AP1_TASK_PATHS,
+            AP1_BRANCH_PATHS - {branch_anchor},
+        ),
+        "AP-1 branch 39-path count self-test did not fail",
+    )
+    require(
+        not _ap1_manifests_match(
+            AP1_TASK_PATHS,
+            AP1_BRANCH_PATHS | {"__unexpected_ap1_branch_path__"},
+        ),
+        "AP-1 branch 41-path count self-test did not fail",
+    )
+    require(
+        not _ap1_manifests_match(PHASE_2_TASK_PATHS, SUPERVISOR_BRANCH_PATHS),
+        "Historical REV28 PASS was accepted as current AP-1 validation",
+    )
+
+
+def validate_current_ap1_contract() -> None:
+    """Run current AP-1 contracts and inspect the actual current adapters."""
+
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    for test_name in (
+        "test_automation_plan_timeline.py",
+        "test_optimizer_startup_contract.py",
+        "test_optimizer_executor_contract.py",
+    ):
+        completed = subprocess.run(
+            [sys.executable, "-B", str(ROOT / "tools" / test_name)],
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        require(
+            completed.returncode == 0,
+            f"Current AP-1 contract failed: {test_name}\n"
+            f"{completed.stdout}{completed.stderr}",
+        )
+
+    timeline_source = (COMPONENT / "timeline_sensor.py").read_text(
+        encoding="utf-8"
+    )
+    common_source = (COMPONENT / "automation_plan_timeline.py").read_text(
+        encoding="utf-8"
+    )
+    sensor_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
+    require(
+        "_unrecorded_attributes = frozenset({MATCH_ALL})" in timeline_source
+        and "RestoreEntity" not in timeline_source
+        and "_attr_should_poll = False" in timeline_source,
+        "Current AP-1 Recorder/Restore/polling contract differs",
+    )
+    require(
+        "MAX_POINTS = 192" in common_source
+        and "MAX_SERIALIZED_BYTES = 262_144" in common_source
+        and "MAX_SOURCES = 16" in common_source
+        and 'PLAN_REVISION_SCOPE = "runtime"' in common_source
+        and 'ACTIVE_SCOPE = "publication_snapshot"' in common_source,
+        "Current AP-1 schema or bounded-limit contract differs",
+    )
+    require(
+        'policy_id="rce"' in sensor_source
+        and 'policy_id="tariff"' in sensor_source
+        and 'f"hoymiles_hit_{self._policy_id}_automation_plan_timeline"'
+        in timeline_source
+        and 'f"{entry.entry_id}_{policy_id}_automation_plan_timeline"'
+        in timeline_source,
+        "Current AP-1 timeline IDs or unique-ID construction differs",
+    )
+    forbidden = (
+        "async_track_time_interval",
+        "async_call_later",
+        "services.async_call",
+        "modbus.write",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+    )
+    require(
+        not any(token in timeline_source for token in forbidden),
+        "Current AP-1 gained polling, timers or physical authority",
+    )
+
+
+def _write_historical_paths(
+    destination: Path,
+    reference: str,
+    paths: set[str] | frozenset[str],
+) -> None:
+    """Overlay exact tracked blobs from one frozen historical reference."""
+
+    for relative_path in paths:
+        target = destination / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(
+            subprocess.check_output(
+                ["git", "show", f"{reference}:{relative_path}"],
+                cwd=ROOT,
+            )
+        )
+
+
+def build_historical_rev28_frontend_fixture(destination: Path) -> None:
+    """Build the original 14/32 REV28 validator fixture outside the repo."""
+
+    archive = subprocess.check_output(
+        ["git", "archive", "--format=tar", VALIDATOR_HISTORICAL_REF],
+        cwd=ROOT,
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
+        bundle.extractall(destination, filter="fully_trusted")
+
+    quiet = {"cwd": destination, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    subprocess.check_call(["git", "init"], **quiet)
+    subprocess.check_call(["git", "config", "user.name", "AP-1 validator"], **quiet)
+    subprocess.check_call(
+        ["git", "config", "user.email", "validator@example.invalid"],
+        **quiet,
+    )
+    subprocess.check_call(["git", "add", "--all"], **quiet)
+    subprocess.check_call(["git", "commit", "-m", "v1.5.7 fixture"], **quiet)
+    subprocess.check_call(["git", "tag", VALIDATOR_HISTORICAL_REF], **quiet)
+
+    historical_base_paths = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{VALIDATOR_HISTORICAL_REF}...{PROTECTED_ASSETS_AST_BASE}",
+    )
+    _write_historical_paths(
+        destination,
+        PROTECTED_ASSETS_AST_BASE,
+        historical_base_paths,
+    )
+    subprocess.check_call(["git", "add", "--all"], **quiet)
+    subprocess.check_call(["git", "commit", "-m", "Supervisor fixture"], **quiet)
+
+    _write_historical_paths(
+        destination,
+        REV28_HISTORICAL_COMMIT,
+        PHASE_2_TASK_PATHS,
     )
 
 
@@ -1675,9 +1895,12 @@ def validate_frontend_asset_failure_isolation(init_source: str) -> None:
     )
 
 
-def validate_ui_count_self_tests(node_executable: str) -> None:
+def validate_ui_count_self_tests(
+    node_executable: str,
+    validation_root: Path = ROOT,
+) -> None:
     """Prove both exact UI counters reject one-less and one-more oracles."""
-    ui_test = ROOT / "tools" / "test_supervisor_aurora_ui_contract.js"
+    ui_test = validation_root / "tools" / "test_supervisor_aurora_ui_contract.js"
     source = ui_test.read_text(encoding="utf-8")
     cases = (
         ("const EXPECTED_GROUP_COUNT = 65;", "const EXPECTED_GROUP_COUNT = 64;"),
@@ -1697,10 +1920,10 @@ def validate_ui_count_self_tests(node_executable: str) -> None:
                 encoding="utf-8",
             )
             environment = os.environ.copy()
-            environment["HOYMILES_UI_TEST_ROOT"] = str(ROOT)
+            environment["HOYMILES_UI_TEST_ROOT"] = str(validation_root)
             completed = subprocess.run(
                 [node_executable, str(target)],
-                cwd=ROOT,
+                cwd=validation_root,
                 env=environment,
                 check=False,
                 capture_output=True,
@@ -1714,7 +1937,10 @@ def validate_ui_count_self_tests(node_executable: str) -> None:
             )
 
 
-def validate_rev28_visual_mutations(node_executable: str) -> int:
+def validate_rev28_visual_mutations(
+    node_executable: str,
+    validation_root: Path = ROOT,
+) -> int:
     """Run V01–V12 against both canonical and packaged card bytes."""
 
     def replace_once(text: str, old: str, new: str, mutation_id: str) -> str:
@@ -1880,9 +2106,14 @@ def validate_rev28_visual_mutations(node_executable: str) -> int:
         ),
     )
 
-    canonical_card = ROOT / "home_assistant" / "www" / "hoymiles-rce-chart-card.js"
+    validation_component = (
+        validation_root / "custom_components" / "hoymiles_hit_modbus"
+    )
+    canonical_card = (
+        validation_root / "home_assistant" / "www" / "hoymiles-rce-chart-card.js"
+    )
     packaged_card = (
-        COMPONENT / "resources" / "www" / "hoymiles-rce-chart-card.js"
+        validation_component / "resources" / "www" / "hoymiles-rce-chart-card.js"
     )
     baseline = canonical_card.read_text(encoding="utf-8")
     require(
@@ -1892,7 +2123,7 @@ def validate_rev28_visual_mutations(node_executable: str) -> int:
     with tempfile.TemporaryDirectory(prefix="hoymiles-rev28-visual-") as directory:
         fixture_root = Path(directory)
         shutil.copytree(
-            COMPONENT,
+            validation_component,
             fixture_root / "custom_components" / "hoymiles_hit_modbus",
         )
         for relative_path in (
@@ -1904,12 +2135,14 @@ def validate_rev28_visual_mutations(node_executable: str) -> int:
             "tools/validate_rce_card.js",
             "tools/validate_release.py",
         ):
-            source_path = ROOT / relative_path
+            source_path = validation_root / relative_path
             target_path = fixture_root / relative_path
             target_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, target_path)
 
-        ui_test = ROOT / "tools" / "test_supervisor_aurora_ui_contract.js"
+        ui_test = (
+            validation_root / "tools" / "test_supervisor_aurora_ui_contract.js"
+        )
         environment = os.environ.copy()
         environment["HOYMILES_UI_TEST_ROOT"] = str(fixture_root)
         detected = 0
@@ -1964,7 +2197,9 @@ def entity_translation_keys(translations: dict) -> dict[str, set[str]]:
 
 def main() -> int:
     """Validate HACS layout, translations, Python and bundled assets."""
-    validate_supervisor_manifests()
+    validate_historical_rev28_gate()
+    validate_current_ap1_manifests()
+    validate_current_ap1_contract()
     integration_dirs = [
         path for path in COMPONENT_ROOT.iterdir() if path.is_dir()
     ]
@@ -3774,7 +4009,11 @@ def main() -> int:
         )
 
     for python_file in COMPONENT.glob("*.py"):
-        py_compile.compile(python_file, doraise=True)
+        compile(
+            python_file.read_text(encoding="utf-8"),
+            str(python_file),
+            "exec",
+        )
 
     localization = load_localization_module()
     require(
@@ -3907,28 +4146,40 @@ def main() -> int:
         node_executable is not None,
         "Node.js is required for managed frontend validation",
     )
-    for frontend_test in (
-        ROOT / "tools" / "validate_rce_card.js",
-        ROOT / "tools" / "test_supervisor_aurora_ui_contract.js",
-    ):
-        completed = subprocess.run(
-            [node_executable, str(frontend_test)],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
+    with tempfile.TemporaryDirectory(
+        prefix="hoymiles_rev28_frontend_fixture_"
+    ) as temporary:
+        historical_root = Path(temporary)
+        build_historical_rev28_frontend_fixture(historical_root)
+        historical_environment = os.environ.copy()
+        historical_environment["HOYMILES_UI_TEST_ROOT"] = str(historical_root)
+        for frontend_test_name in (
+            "validate_rce_card.js",
+            "test_supervisor_aurora_ui_contract.js",
+        ):
+            frontend_test = historical_root / "tools" / frontend_test_name
+            completed = subprocess.run(
+                [node_executable, str(frontend_test)],
+                cwd=historical_root,
+                env=historical_environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            require(
+                completed.returncode == 0,
+                f"Historical frontend validation failed: {frontend_test.name}\n"
+                f"{completed.stdout}{completed.stderr}",
+            )
+        validate_ui_count_self_tests(node_executable, historical_root)
+        visual_mutations_detected = validate_rev28_visual_mutations(
+            node_executable,
+            historical_root,
         )
-        require(
-            completed.returncode == 0,
-            f"Frontend validation failed: {frontend_test.name}\n"
-            f"{completed.stdout}{completed.stderr}",
-        )
-    validate_ui_count_self_tests(node_executable)
-    visual_mutations_detected = validate_rev28_visual_mutations(
-        node_executable
-    )
 
     print(f"HACS layout: OK ({len(integration_dirs)} integration)")
+    print("Historical REV28 fixture gate: OK (32-path frozen branch)")
+    print("Current AP-1 gate: OK (16-path task, 40-path branch)")
     print(f"Manifest: OK (version {manifest['version']})")
     print(f"Localized entities: {len(catalog)} (English and Polish)")
     print("Bundled dashboards/EMS assets: OK")
@@ -3942,7 +4193,7 @@ def main() -> int:
     print("MIT/OSI license and current license documentation: OK")
     print("Contribution rights, sign-off and CODEOWNERS: OK")
     print("RCE/tariff/RCEm CI regression matrix: OK")
-    print("Managed frontend validators: OK")
+    print("Managed frontend validators: OK (historical REV28 fixture)")
     print(
         "Revision 28 visual mutations: "
         f"{visual_mutations_detected}/12 detected, 0 survivors"

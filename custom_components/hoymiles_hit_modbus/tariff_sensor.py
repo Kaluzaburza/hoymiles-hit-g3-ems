@@ -71,6 +71,7 @@ from .rce_sensor import (
 )
 from .tariff_optimizer import (
     TariffOptimizerInput,
+    TariffOptimizerResult,
     TariffSchedule,
     floor_half_hour,
     horizon_gap_expensive_load_reserve_kwh,
@@ -463,11 +464,16 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         hass: HomeAssistant,
         entry: ConfigEntry,
         runtime: RuntimeData,
+        rce_plan_source: SensorEntity | None = None,
     ) -> None:
         self.hass = hass
         self._entry = entry
         self._runtime = runtime
+        self._rce_plan_source = rce_plan_source
         self._attr_unique_id = f"{entry.entry_id}_tariff_charge_plan"
+        self._result: TariffOptimizerResult | None = None
+        self._timeline_sensor: Any | None = None
+        self._timeline_metadata: dict[str, Any] = {}
         self._attributes: dict[str, Any] = {
             "status_code": "missing_data",
             "missing_entities": [],
@@ -525,6 +531,56 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             }
         )
 
+    def attach_timeline_sensor(self, timeline_sensor: Any) -> None:
+        """Bind the one entry-local observation-only timeline publisher."""
+
+        if self._timeline_sensor is not None and self._timeline_sensor is not timeline_sensor:
+            raise RuntimeError("tariff timeline sensor already attached")
+        self._timeline_sensor = timeline_sensor
+
+    def attach_rce_plan_source(self, rce_plan_source: SensorEntity) -> None:
+        """Bind the exact same-entry LOAD broker before entity registration."""
+
+        source_entry = getattr(rce_plan_source, "_entry", None)
+        if source_entry is None or source_entry.entry_id != self._entry.entry_id:
+            raise RuntimeError("tariff LOAD broker belongs to another entry")
+        self._rce_plan_source = rce_plan_source
+
+    @callback
+    def _publish_timeline_result(self) -> None:
+        """Publish only the result committed for this exact input revision."""
+
+        if self._timeline_sensor is None:
+            return
+        if self._result is None:
+            self._timeline_sensor.publish_unavailable(
+                input_revision=self._input_revision.value,
+                blocker_code=str(
+                    self._attributes.get("status_code", "missing_data")
+                ),
+            )
+            return
+        self._timeline_sensor.publish_current(
+            self._result.timeline_trace,
+            input_revision=self._input_revision.value,
+            metadata=self._timeline_metadata,
+        )
+
+    def _same_entry_rce_plan_state(self) -> State | None:
+        """Return only the exact RCE broker object wired for this config entry."""
+
+        source = getattr(self, "_rce_plan_source", None)
+        source_entry = getattr(source, "_entry", None)
+        entity_id = getattr(source, "entity_id", None)
+        if (
+            source is None
+            or source_entry is None
+            or source_entry.entry_id != self._entry.entry_id
+            or not isinstance(entity_id, str)
+        ):
+            return None
+        return self.hass.states.get(entity_id)
+
     @property
     def suggested_object_id(self) -> str:
         return "hoymiles_hit_tariff_charge_plan"
@@ -555,6 +611,13 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        attach_tariff_listener = getattr(
+            getattr(self, "_rce_plan_source", None),
+            "attach_tariff_plan_listener",
+            None,
+        )
+        if callable(attach_tariff_listener):
+            attach_tariff_listener()
         restored = await self.async_get_last_state()
         if (
             restored is not None
@@ -729,17 +792,26 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
     @callback
     def _current_input_fingerprint(self) -> tuple[Any, ...]:
         """Return the exact watched snapshot used to certify publication."""
+
+        rce_entity_id = getattr(
+            getattr(self, "_rce_plan_source", None),
+            "entity_id",
+            None,
+        )
+        watched_entities = (
+            WATCHED_TARIFF_ENTITIES
+            | self._configured_forecast_source_ids()
+        ) - {"sensor.hoymiles_hit_rce_optimized_plan"}
+        if isinstance(rce_entity_id, str):
+            watched_entities.add(rce_entity_id)
         return optimizer_input_fingerprint(
             self.hass,
-            (
-                WATCHED_TARIFF_ENTITIES
-                | self._configured_forecast_source_ids()
+            watched_entities,
+            attribute_projections=(
+                {rce_entity_id: RCE_LOAD_BROKER_ATTRIBUTES}
+                if isinstance(rce_entity_id, str)
+                else {}
             ),
-            attribute_projections={
-                "sensor.hoymiles_hit_rce_optimized_plan": (
-                    RCE_LOAD_BROKER_ATTRIBUTES
-                ),
-            },
         )
 
     @callback
@@ -749,7 +821,11 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
     ) -> bool:
         """Invalidate only when a value consumed by this optimizer changed."""
         entity_id = event.data["entity_id"]
-        counterpart = entity_id == "sensor.hoymiles_hit_rce_optimized_plan"
+        counterpart = entity_id == getattr(
+            getattr(self, "_rce_plan_source", None),
+            "entity_id",
+            None,
+        )
         changed = self._input_revision.invalidate_state_change(
             event.data.get("old_state"),
             event.data.get("new_state"),
@@ -777,6 +853,8 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             self._attributes.get("result_current") is False
             and self._attributes.get("recalculation_pending") is True
         ):
+            if self._timeline_sensor is not None:
+                self._timeline_sensor.publish_pending(self._input_revision.value)
             return
         self._attributes = {
             **self._attributes,
@@ -784,6 +862,8 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "recalculation_pending": True,
         }
         self.async_write_ha_state()
+        if self._timeline_sensor is not None:
+            self._timeline_sensor.publish_pending(self._input_revision.value)
 
     @callback
     def _mark_result_current(self) -> None:
@@ -1111,6 +1191,8 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 or previous_attributes != self._attributes
             ):
                 self.async_write_ha_state()
+            if committed:
+                self._publish_timeline_result()
 
     async def _async_refresh_forecast_accuracy(self) -> None:
         """Learn a conservative PV factor from complete local days."""
@@ -1261,6 +1343,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             for _attempt in range(MAX_IMMEDIATE_RECALCULATIONS):
                 if await self._recalculate_locked():
                     self._mark_result_current()
+                    self._publish_timeline_result()
                     return
 
     async def _recalculate_locked(self) -> bool:
@@ -1280,6 +1363,8 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 # again after telemetry recovers.
                 self._live_pv_surplus_started_at = None
                 status_code = str(metadata.pop("_status_code", "missing_data"))
+                self._result = None
+                self._timeline_metadata = dict(metadata)
                 self._attributes = {
                     "status_code": status_code,
                     "planned_slots": [],
@@ -1304,6 +1389,17 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             ):
                 self._mark_recalculation_pending()
                 return False
+            self._result = result
+            self._timeline_metadata = dict(metadata)
+            broker_entity_id = getattr(
+                getattr(self, "_rce_plan_source", None),
+                "entity_id",
+                None,
+            )
+            if isinstance(broker_entity_id, str):
+                self._timeline_metadata["load_profile_broker_entity_id"] = (
+                    broker_entity_id
+                )
             planned_slots = [
                 {
                     "date": item.start.date().isoformat(),
@@ -1768,6 +1864,8 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 self._mark_recalculation_pending()
                 return False
             _LOGGER.exception("Cannot calculate the tariff charging plan")
+            self._result = None
+            self._timeline_metadata = {}
             self._attributes = {
                 "status_code": "optimizer_error",
                 "missing_entities": [],
@@ -1799,9 +1897,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         timezone = ZoneInfo(self.hass.config.time_zone)
         now = dt_util.now().astimezone(timezone)
         now_slot = floor_half_hour(now)
-        rce_state_raw = self.hass.states.get(
-            "sensor.hoymiles_hit_rce_optimized_plan"
-        )
+        rce_state_raw = self._same_entry_rce_plan_state()
         load_profile_age_seconds = _state_age_seconds(rce_state_raw, now=now)
         load_profile_broker_fresh = bool(
             rce_state_raw is not None

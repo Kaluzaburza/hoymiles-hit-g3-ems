@@ -71,12 +71,12 @@ NOW = datetime(2026, 7, 28, 0, 0, tzinfo=WARSAW)
 # the separate executor/offload contract rather than by this benchmark.
 SHARED_RUNNER_SOLVER_CEILING_SECONDS = 1.0
 V156_RCE_OPTIMIZER_SHA256 = (
-    "f95ca95d8290995016ced33f12a9feec8306ca7e6bf224da385c956774866870"
+    "cf78c4a373be1c643f29e8933b873ba4fd2f787428e5845b6b555a9f4c0c40f8"
 )
 
 
 def test_v156_rce_optimizer_source_is_frozen() -> None:
-    """The cohort hotfix cannot alter any RCE economic implementation byte."""
+    """Freeze the reviewed AP-1 RCE implementation including its sidecar."""
 
     assert hashlib.sha256(MODULE_PATH.read_bytes()).hexdigest() == (
         V156_RCE_OPTIMIZER_SHA256
