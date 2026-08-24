@@ -7,8 +7,10 @@ import asyncio
 import hashlib
 import importlib.util
 import json
+import os
 import py_compile
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -48,6 +50,97 @@ VALIDATOR_HISTORICAL_HASHES = {
     "pl": "9846bfe0d0e9f8f707db7b3eb5b30fd349b663f8fb1c3777b460ef62696026a2",
     "en": "b76ba6a2a9f94d307d1582822101b2fc0951868ba7319394ce0886ee9fe9e07d",
 }
+VALIDATOR_HISTORICAL_REF = "v1.5.7"
+PHASE_2_TASK_PATHS = frozenset(
+    {
+        "dashboard_hoymiles.yaml",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "tools/build_hacs_assets.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+    }
+)
+REV28_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+REV28_PROTECTED_TASK_HASHES = {
+    "dashboard_hoymiles.yaml": "69efcb7b93d1463e29f8f273b45d4c96bca80f7a56dd65d5599164ab5857ee4d",
+    "tools/build_hacs_assets.py": "07b7890d8999d5d115984d4ab0dc1cb9935fcf9e28423fbcebb5f4c10b81060b",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml": "e8113f54a671591fddb2fce9abb3ee7394fd997cfb87f3a5724c2a3ee875347b",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml": "e56a60f49b407775228d41500fd14cd2bd67a5aba69c53efa513f358ca8bd9c6",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json": "dca8d5ceb63c979b9adfc9b2e9c6d0153593509bfa13227de7bb28e45a41f628",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json": "4868d931824557e5e68dca4c9c0f33f2a20bd8636a55b5a98caf8af5f1e72b1c",
+}
+REV28_PROTECTED_BACKEND_HASHES = {
+    "custom_components/hoymiles_hit_modbus/ems_supervisor.py": "031d0abf8948d24708b960deb6ee71c7fe952fdebecd915ac6fc766596429ca7",
+    "custom_components/hoymiles_hit_modbus/supervisor_runtime.py": "12cf54cb8baeb8a161b4a6b49ac19f91daeb46beef3f949d9782f689f3889d7d",
+    "custom_components/hoymiles_hit_modbus/supervisor_sensor.py": "1c18ac1eef5d46e2512574ea3dfc7f0c4bd62c58aae6296b2e7b4c479ba743f8",
+    "custom_components/hoymiles_hit_modbus/sensor.py": "fe83d62990150145c3db595e4983f598752751d2488375dd938db961908311bf",
+    "custom_components/hoymiles_hit_modbus/const.py": "eee0ffebe1197f0f74b488bce4c7e51066a33b96255944672f3fee288fc1d956",
+    "home_assistant/hoymiles_ems_scheduler.yaml": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml": "3df7345f0ee9649a35160b4817d6d3dd9d0c95ecf93eed2bf07ec1fe2633886a",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+    "custom_components/hoymiles_hit_modbus/tariff_optimizer.py": "7a77f3885a9f393179d40777770de5eee4ac1918b84a0dba5433531ccc344459",
+    "custom_components/hoymiles_hit_modbus/tariff_sensor.py": "f90a54afd2e9f001ad466bb55941e480bbb6dc25f0b2b2c37d7c30fbcfe39ff5",
+    "custom_components/hoymiles_hit_modbus/rce_optimizer.py": "f95ca95d8290995016ced33f12a9feec8306ca7e6bf224da385c956774866870",
+    "custom_components/hoymiles_hit_modbus/rce_sensor.py": "d2401157dc90ba76069d24cd7d4bdc7ee15947c5173efe209cf986d8e88fef98",
+    "custom_components/hoymiles_hit_modbus/rcm_optimizer.py": "ca533110396a2d24c9bf99cc73bb2e8843f782e53b914044dea83c60715b410b",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "5a66f6cdf6eae5a07b877db49c72e498ac65427dace0f3e774b3339363a3a087",
+}
+SUPERVISOR_BRANCH_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/const.py",
+        "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "dashboard_hoymiles.yaml",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tools/build_hacs_assets.py",
+        "tools/test_ems_supervisor.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_supervisor_helpers_contract.py",
+        "tools/test_supervisor_runtime_contract.py",
+        "tools/test_supervisor_sensor_contract.py",
+        "tools/test_tariff_optimizer.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
 VALIDATOR_STORE_CONTRACTS = {
     "input_select": (1, frozenset({1, 2})),
     "input_boolean": (1, frozenset({1})),
@@ -60,6 +153,67 @@ VALIDATOR_TRANSITIONS = {
     "destination_changed": "ABORTED_DESTINATION_CHANGED",
 }
 VALIDATOR_BACKUP_FIXTURE = b"# validator exact pre-update bytes\nstate: custom\n"
+PROTECTED_ASSETS_AST_BASE = "c65e8b73096cb64ff2d21b6e2b05602f71a4a2af"
+PROTECTED_ASSETS_AST_SHA256 = {
+    "assets.HelperClassification": "1c2d5cb92be71c0e34a14e1d9b721b62bb99d697411e3cd14d3a4a67d3b66d51",
+    "assets.SchedulerFilesystemAction": "d9ff8d458dfb10b355afc52858bbc65d37ab78d847a90df8ef0737d6f9d8edbc",
+    "assets.RollbackAction": "131b9a72f67c4613fc5c2acb1032b1efeaa81d8143ba2049fce1992be97390c4",
+    "assets.DestinationAttestationAction": "ccc3668decc2da3cff2c5510cffb4c9dd6bd42db5b4ffb2deeec14d4c7dc5d70",
+    "assets.FileIdentity": "325d334a0caf93a1bb9e7fe534222f2e6747cdc57ac8da83b417678bbda4284f",
+    "assets.LiveHelperFact": "36c0602273ce64058dff08f915018f38efea256fbb678a5478441d79a305fdb7",
+    "assets.SchedulerInstallAuthorization": "247724e5dc9fcb87fd12887fa6f9e7fe00d65c4e34155f1c00c2ea938e814680",
+    "assets.FileSnapshot": "1e751060e17a5fb0f4bc16d3774ede9581bc8f812e61b0b878bd1001d28140f8",
+    "assets.SchedulerFilesystemResult": "4c7b6d4b49e3efc41107cf9c341d0cc7bb8bda6080b363f0259ae8acc6a2a46c",
+    "assets.AssetFilesystemResult": "d3b0a551e40fef56cf67791c0f0b90b9195023e0dc2510b4478564dbc866eeb7",
+    "assets.RollbackResult": "c672715d9c70813c179a74055d6378b7ae539ab8d3bc3d7f453702f6b148c052",
+    "assets.DestinationAttestationResult": "4259e3ad8887ff227d14aca9843a800017b639c894604c2c74d08da66cb74517",
+    "assets._LiveHelperSnapshot": "2c460298847ce006bbfd503ed0462358948291e6b49b6796d4c951fa063d8196",
+    "assets._DiskHelperEvidence": "1dd0679aa050af27c34fee17c2d66f1deffb75652fb32ce301754bb8c16ebede",
+    "assets._FilesystemContractError": "bbd39f13fea484f089702c226875898a6700498ad73acbeb9d9d7f3bd9a057fb",
+    "assets._stable_entity_id_map": "31b648814c1cc8858d151e5f6870196374cbff7fb15867aa7319887ee5bf0231",
+    "assets._migrate_legacy_entity_ids": "de0b5d49f25ed253091179bf2f50cf11479667f1b376b44e8960c598ca857140",
+    "assets._sha256": "1bac43b621d5b16f48868469dd62fcc1c2050bd1419fc513aa306c1aeac3374a",
+    "assets._identity_from_stat": "380304c31497af1b285a505568dcddd9508037fdc08628f3dbdd0a64b7494c42",
+    "assets._same_inode": "535b0b8eeaf492509af52db965feddc8ec5a86742cb12222649e5eef2544960d",
+    "assets._read_fd_bytes": "d0efddadb19dc375a05d903db4ec3dcd4e5799bfc429e2d1ba1101baf7768202",
+    "assets._open_read_flags": "d54eef5e1031651eb4f97f8ed43f3aaafe5e5d70b9cebe450473bd410408113a",
+    "assets._capture_regular_file": "1061037ba7c57f09bee5b538fcd03cefb98efd1c3dc0ffe76c4adaa3f8aa43bb",
+    "assets._bounded_path_snapshot": "cdcc9e070b7309d3de604ba1c698586c79b1654b9bbdcd21a23cb28776bd445f",
+    "assets._unlink_owned_path": "fe3029303bdc9ae9eefdfe7006c5ccd8bb3c832d8ce9e76f8fe6d707e820e7ba",
+    "assets._write_all_fd": "44890b6479641c1e8588cca5cf810d42807b98a0cc85aaf5b1899a7a72f71c59",
+    "assets._create_verified_temp": "a9ea003c421aca92fdb84eb381c3181c2ab5fc2b3d1b0a62d1b508c43267deff",
+    "assets._verify_temp_for_publish": "7b89399b099245fdbb1a49426bae370345359986751408774f43d85fae1c51ba",
+    "assets._fsync_directory": "b46f9299b2b748229853a031e95bbb55cee662d243354eeae38494aead6fd828",
+    "assets._atomic_copy": "69e7b07f7179cb10e58b751e5c9716c81f0b8345bdaa712dab5624069e4e1558",
+    "assets._verify_fixed_backup": "95f1c792cfe905748bdd5abd65107c0a81c6f829693f766b18faacc248564690",
+    "assets._ensure_fixed_backup": "dd2c5c558fa8dfdb577362ed29cf1a9a994756e6ecb1baff67b6d40b1a55772c",
+    "assets._storage_helper_ids": "036a0e36b7f8a85c9d0552da74d130e6dc49738f7889b18e6015e72e4bf7fefb",
+    "assets._read_disk_helper_evidence": "ef6cc382822e358ce91c6d88c039a271ab9786031db4a4edf9f3f1bf85ba1d4b",
+    "assets._unverifiable_live_snapshot": "da3321ab2c0c5b2e38d2b4c0e2ac5255c44b1ac061fbdd8984a81df1b68aa1fb",
+    "assets._capture_live_helper_snapshot": "fbe6dafca2cdc9f166b26ab4f8ccf54f03361380ad785fadd541caf2bd433965",
+    "assets._build_scheduler_authorization": "4ec2b8a6db84a26febd1194c8ceba2fa39e88d18c0f172619a753be957bcfab3",
+    "assets._async_scheduler_authorization": "d69a982c3277717c905b6cde7d3144b79a68691548a9a96e63953c743ab8ccbb",
+    "assets._atomic_write_json": "e2d9b889b54440b334b7cf49c6b45608c11906f9e1864ce434490fd48c8abd53",
+    "assets._backup_storage_once": "ee86c9c948350c0beb7472e47740970b173884d0a23cbe72b02978b3b4a7c692",
+    "assets._replace_entities_cards": "1269b45ed3f33ad4c05c613b5d783f84ed9072bee3f5e829466538b6b8e42642",
+    "assets._migrate_rce_load_rows": "3dcffaff1f6def40074b77820b6a8dfb2d61e3b26fc26b7c758ccd37a464aa48",
+    "assets._is_hoymiles_dashboard": "1faf3f3e16e48dfa964b2ff810ae51dc082940acfa5da6a9167b1c39bca50fb0",
+    "assets._async_sync_lovelace_resource": "73a6abbd8c8ca5308efe4156f07a95061a68739f6ee4205a7dab14803f4b518a",
+    "assets._sync_lovelace_storage": "48aa5daf5234b57994533d5ff0836e9ff0ff38619dce2e4b43048139d51dec5c",
+    "assets._migrate_inverter_image_paths": "7c0c04160889d7285c31989b6f15fcfa615375b104a150ffb8525b566e5c16b2",
+    "assets._revalidate_destination": "50c0fc105c3c46074a8f398a16d45f460d34c5505971c860e479ec9ae14bd65c",
+    "assets._remove_transaction_artifact": "ff70b40e1790b42f18a40dacfe1096bc1de374236bcb8512d8537c921bd5067f",
+    "assets._aborted_scheduler_result": "bb27ecd462798ceb113c0439d080e993c9640d654b017de68d33b1bc24952efa",
+    "assets._sync_ems_scheduler": "587396d7fb5ac88d5906a96d334264ed621293d01e87b9881466ea2b9cbfd7e3",
+    "assets._rollback_scheduler": "6e1943ea85dd8e1a57cf2cdeb2c9c3f4cc463a682bc4955005d240c1eb0dbc44",
+    "assets._sync_regular_asset": "0666273e715759fe5e88aee17493d238f30c8a1be42405b3bbb909a5964e74a0",
+    "assets._sync_assets": "c234e26bdac983a15cf0b48e933ad0dcf70cb7d7eeb47c3c28e2e4acc3868301",
+    "assets._get_install_lock": "d1625e977c0d72e69e6841eefc5a9d0146c073e5ccda30e6d9b11661b9e8027d",
+    "assets._attest_scheduler_destination": "ac1c7c0478ff74b2e3ecdcfa6adf3fcd36684ce3047e43a1d3e1248f1f78c089",
+    "assets._scheduler_metadata_after_transaction": "e5392d3a1de39219b9cc8b84503409c7bdf83f23b45c56f67533e5dbacde3daa",
+    "assets._log_scheduler_outcome": "45e70bc47fc7ba9c48108115017a1116d64f22c27b02aa7002ee9d4af5697823",
+    "assets.async_install_assets": "dce56901ecfb45304b8f418fdf23d2a419d058d59a59650fbe91c87d31377c02",
+}
 
 
 class ValidatorState:
@@ -243,6 +397,146 @@ def require(condition: bool, message: str) -> None:
     """Raise a readable release validation error."""
     if not condition:
         raise RuntimeError(message)
+
+
+def _git_path_set(*args: str) -> set[str]:
+    output = subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    )
+    return {line.strip().replace("\\", "/") for line in output.splitlines() if line.strip()}
+
+
+def validate_supervisor_manifests() -> None:
+    """Fail closed on the 8-path correction, 14-path task and 32-path branch."""
+    staged_paths = _git_path_set("diff", "--cached", "--name-only")
+    task_paths = (
+        _git_path_set("diff", "--name-only", "HEAD")
+        | staged_paths
+        | _git_path_set("ls-files", "--others", "--exclude-standard")
+    )
+    branch_paths = _git_path_set(
+        "diff", "--name-only", f"{VALIDATOR_HISTORICAL_REF}...HEAD"
+    ) | task_paths
+    require(
+        task_paths == PHASE_2_TASK_PATHS,
+        "Phase 2 task manifest is not exactly 14 paths: "
+        f"missing={sorted(PHASE_2_TASK_PATHS - task_paths)}, "
+        f"extra={sorted(task_paths - PHASE_2_TASK_PATHS)}",
+    )
+    require(
+        branch_paths == SUPERVISOR_BRANCH_PATHS,
+        "Supervisor branch manifest is not exactly 32 paths: "
+        f"missing={sorted(SUPERVISOR_BRANCH_PATHS - branch_paths)}, "
+        f"extra={sorted(branch_paths - SUPERVISOR_BRANCH_PATHS)}",
+    )
+    protected_task_paths = frozenset(REV28_PROTECTED_TASK_HASHES)
+    require(
+        len(REV28_CORRECTION_PATHS) == 8
+        and PHASE_2_TASK_PATHS - protected_task_paths == REV28_CORRECTION_PATHS
+        and PHASE_2_TASK_PATHS - REV28_CORRECTION_PATHS == protected_task_paths,
+        "Revision 28 correction manifest is not exactly the authorized 8 paths",
+    )
+    require(not staged_paths, "Revision 28 validation requires zero staged paths")
+    for relative_path, expected_hash in {
+        **REV28_PROTECTED_TASK_HASHES,
+        **REV28_PROTECTED_BACKEND_HASHES,
+    }.items():
+        path = ROOT / relative_path
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        require(
+            actual_hash == expected_hash,
+            f"Revision 28 protected bytes changed: {relative_path}",
+        )
+
+    exact = lambda actual, expected: actual == expected
+    correction_anchor = sorted(REV28_CORRECTION_PATHS)[0]
+    phase_anchor = sorted(PHASE_2_TASK_PATHS)[0]
+    branch_anchor = sorted(SUPERVISOR_BRANCH_PATHS)[0]
+    require(
+        not exact(
+            REV28_CORRECTION_PATHS - {correction_anchor},
+            REV28_CORRECTION_PATHS,
+        ),
+        "Correction 7-path count self-test did not fail",
+    )
+    require(
+        not exact(
+            REV28_CORRECTION_PATHS | {"__unexpected_correction_path__"},
+            REV28_CORRECTION_PATHS,
+        ),
+        "Correction 9-path count self-test did not fail",
+    )
+    require(
+        not exact(PHASE_2_TASK_PATHS - {phase_anchor}, PHASE_2_TASK_PATHS),
+        "Phase 2 13-path count self-test did not fail",
+    )
+    require(
+        not exact(PHASE_2_TASK_PATHS | {"__unexpected_phase2_path__"}, PHASE_2_TASK_PATHS),
+        "Phase 2 15-path count self-test did not fail",
+    )
+    require(
+        not exact(SUPERVISOR_BRANCH_PATHS - {branch_anchor}, SUPERVISOR_BRANCH_PATHS),
+        "Branch 31-path count self-test did not fail",
+    )
+    require(
+        not exact(SUPERVISOR_BRANCH_PATHS | {"__unexpected_branch_path__"}, SUPERVISOR_BRANCH_PATHS),
+        "Branch 33-path count self-test did not fail",
+    )
+
+
+def _require_protected_assets_ast(module: ast.Module) -> None:
+    """Require the exact c65e8b73 function/class AST declaration set."""
+    actual_nodes = {
+        f"assets.{node.name}": node
+        for node in module.body
+        if isinstance(
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+        )
+    }
+    require(
+        set(actual_nodes) == set(PROTECTED_ASSETS_AST_SHA256),
+        "Protected assets.py function/class declaration set changed",
+    )
+    for qualified_name, expected_hash in PROTECTED_ASSETS_AST_SHA256.items():
+        node = actual_nodes[qualified_name]
+        canonical = ast.dump(node, annotate_fields=True, include_attributes=False)
+        actual_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        require(
+            actual_hash == expected_hash,
+            f"Protected scheduler-delivery AST changed: {qualified_name}",
+        )
+
+
+def validate_protected_assets_ast(assets_source: str) -> None:
+    """Protect all assets.py declarations and prove the S29 detector fires."""
+    require(
+        PROTECTED_ASSETS_AST_BASE
+        == "c65e8b73096cb64ff2d21b6e2b05602f71a4a2af",
+        "Protected assets.py AST base is not the reviewed exact commit",
+    )
+    _require_protected_assets_ast(ast.parse(assets_source))
+
+    # S29: a semantic edit to final destination attestation must be rejected
+    # by the same literal AST oracle used for the real current worktree.
+    mutation = ast.parse(assets_source)
+    target = next(
+        (
+            node
+            for node in mutation.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_attest_scheduler_destination"
+        ),
+        None,
+    )
+    require(target is not None, "S29 mutation target is missing")
+    target.body.append(ast.Pass())
+    try:
+        _require_protected_assets_ast(mutation)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("S29 protected scheduler-delivery mutation survived")
 
 
 def load_json(path: Path) -> dict | list:
@@ -475,7 +769,7 @@ def validate_fresh_asset_install() -> None:
                 f"home_assistant/{language}/hoymiles_ems_scheduler.yaml"
             )
             historical = subprocess.check_output(
-                ["git", "show", f"HEAD:{relative}"],
+                ["git", "show", f"{VALIDATOR_HISTORICAL_REF}:{relative}"],
                 cwd=ROOT,
             )
             require(
@@ -510,7 +804,8 @@ def validate_fresh_asset_install() -> None:
             [
                 "git",
                 "show",
-                "HEAD:custom_components/hoymiles_hit_modbus/resources/"
+                f"{VALIDATOR_HISTORICAL_REF}:custom_components/"
+                "hoymiles_hit_modbus/resources/"
                 "home_assistant/pl/hoymiles_ems_scheduler.yaml",
             ],
             cwd=ROOT,
@@ -586,7 +881,8 @@ def validate_fresh_asset_install() -> None:
             [
                 "git",
                 "show",
-                "HEAD:custom_components/hoymiles_hit_modbus/resources/"
+                f"{VALIDATOR_HISTORICAL_REF}:custom_components/"
+                "hoymiles_hit_modbus/resources/"
                 "home_assistant/pl/hoymiles_ems_scheduler.yaml",
             ],
             cwd=ROOT,
@@ -1207,12 +1503,12 @@ def validate_fresh_asset_install() -> None:
 
     require(
         assets.FRONTEND_RESOURCE_URL
-        == f"/local/hoymiles-rce-chart-card.js?v={assets.VERSION}.24"
+        == f"/local/hoymiles-rce-chart-card.js?v={assets.VERSION}.28"
         and assets.FRONTEND_BOOTSTRAP_URL
-        == f"/local/hoymiles-dashboard-strategy.js?v={assets.VERSION}.24"
+        == f"/local/hoymiles-dashboard-strategy.js?v={assets.VERSION}.28"
         and "/local/hoymiles-dashboard-strategy.js"
         in assets.MANAGED_FRONTEND_RESOURCE_PATHS,
-        "Frontend revision 24 or bootstrap migration paths changed",
+        "Frontend revision 28 or bootstrap migration paths changed",
     )
 
 
@@ -1379,6 +1675,273 @@ def validate_frontend_asset_failure_isolation(init_source: str) -> None:
     )
 
 
+def validate_ui_count_self_tests(node_executable: str) -> None:
+    """Prove both exact UI counters reject one-less and one-more oracles."""
+    ui_test = ROOT / "tools" / "test_supervisor_aurora_ui_contract.js"
+    source = ui_test.read_text(encoding="utf-8")
+    cases = (
+        ("const EXPECTED_GROUP_COUNT = 65;", "const EXPECTED_GROUP_COUNT = 64;"),
+        ("const EXPECTED_GROUP_COUNT = 65;", "const EXPECTED_GROUP_COUNT = 66;"),
+        ("const EXPECTED_CHECK_COUNT = 913;", "const EXPECTED_CHECK_COUNT = 912;"),
+        ("const EXPECTED_CHECK_COUNT = 913;", "const EXPECTED_CHECK_COUNT = 914;"),
+    )
+    with tempfile.TemporaryDirectory(prefix="hoymiles-rev28-counts-") as directory:
+        target = Path(directory) / ui_test.name
+        for index, (anchor, replacement) in enumerate(cases, start=1):
+            require(
+                source.count(anchor) == 1,
+                f"UI count self-test {index} anchor is not unique",
+            )
+            target.write_text(
+                source.replace(anchor, replacement, 1),
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["HOYMILES_UI_TEST_ROOT"] = str(ROOT)
+            completed = subprocess.run(
+                [node_executable, str(target)],
+                cwd=ROOT,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            require(
+                completed.returncode != 0
+                and "UI "
+                in f"{completed.stdout}{completed.stderr}",
+                f"UI count ±1 self-test {index} unexpectedly survived",
+            )
+
+
+def validate_rev28_visual_mutations(node_executable: str) -> int:
+    """Run V01–V12 against both canonical and packaged card bytes."""
+
+    def replace_once(text: str, old: str, new: str, mutation_id: str) -> str:
+        require(
+            text.count(old) == 1,
+            f"{mutation_id} mutation anchor count is {text.count(old)}, expected 1",
+        )
+        return text.replace(old, new, 1)
+
+    def remove_last_reduced_motion(text: str) -> str:
+        marker = "  @media (prefers-reduced-motion: reduce) {"
+        component_start = text.find("const HOYMILES_EMS_SUPERVISOR_CSS")
+        component_end = text.find(
+            "class HoymilesEmsSupervisorPanel", component_start
+        )
+        start = text.rfind(marker, component_start, component_end)
+        end = text.find(
+            "  @container (max-width: 1024px)", start, component_end
+        )
+        require(start >= 0 and end > start, "V08 reduced-motion block anchor missing")
+        return text[:start] + text[end:]
+
+    mutations = (
+        (
+            "V01",
+            lambda text: text.replace(
+                "--policy-accent: var(--supervisor-rce);",
+                "--policy-accent: var(--supervisor-cyan);",
+            )
+            .replace(
+                "--policy-accent: var(--supervisor-tariff);",
+                "--policy-accent: var(--supervisor-cyan);",
+            )
+            .replace(
+                "--policy-accent: var(--supervisor-rcm);",
+                "--policy-accent: var(--supervisor-cyan);",
+            ),
+        ),
+        (
+            "V02",
+            lambda text: replace_once(
+                text,
+                '  .supervisor-panel[data-tone="shadow-selected"] {\n'
+                "    --supervisor-tone: var(--supervisor-violet);",
+                '  .supervisor-panel[data-tone="shadow-selected"] {\n'
+                "    --supervisor-tone: var(--supervisor-ready);",
+                "V02",
+            ),
+        ),
+        (
+            "V03",
+            lambda text: replace_once(
+                text,
+                'this._copyElement("span", "", "physicalAuthority")',
+                'this._copyElement("span", "", "heroIntro")',
+                "V03",
+            ),
+        ),
+        (
+            "V04",
+            lambda text: replace_once(
+                text,
+                '      "details",\n'
+                '      ("supervisor-knowledge-detail " + className).trim()',
+                '      "section",\n'
+                '      ("supervisor-knowledge-detail " + className).trim()',
+                "V04",
+            ),
+        ),
+        (
+            "V05",
+            lambda text: replace_once(
+                text,
+                'this._copyElement("span", "", "safetyStrip")',
+                'this._copyElement("span", "", "heroIntro")',
+                "V05",
+            ),
+        ),
+        (
+            "V06",
+            lambda text: replace_once(
+                replace_once(
+                    text,
+                    "--supervisor-tariff: #49a5ff;",
+                    "--supervisor-tariff: #f2b84b;",
+                    "V06",
+                ),
+                "--supervisor-rcm: #b07cff;",
+                "--supervisor-rcm: #f2b84b;",
+                "V06",
+            ),
+        ),
+        (
+            "V07",
+            lambda text: replace_once(
+                text,
+                "  .supervisor-title {\n"
+                "    color: var(--hoymiles-aurora-text);",
+                "  .supervisor-title {\n"
+                "    color: #12ab34;",
+                "V07",
+            ),
+        ),
+        ("V08", remove_last_reduced_motion),
+        (
+            "V09",
+            lambda text: replace_once(
+                text,
+                "  @container (max-width: 390px) {\n"
+                "    .supervisor-hero { gap: 17px; padding: 15px 12px; }",
+                "  @container (max-width: 390px) {\n"
+                "    .supervisor-scope { display: none; }\n"
+                "    .supervisor-hero { gap: 17px; padding: 15px 12px; }",
+                "V09",
+            ),
+        ),
+        (
+            "V10",
+            lambda text: replace_once(
+                text,
+                "      hero,\n"
+                "      liveGrid,\n"
+                "      policySection,\n"
+                "      howSection,\n"
+                "      safetyStrip,\n"
+                "      knowledgeSection",
+                "      hero,\n"
+                "      knowledgeSection,\n"
+                "      liveGrid,\n"
+                "      policySection,\n"
+                "      howSection,\n"
+                "      safetyStrip",
+                "V10",
+            ),
+        ),
+        (
+            "V11",
+            lambda text: replace_once(
+                text,
+                '  rce: "mdi:chart-line",',
+                '  rce: "mdi:circle-outline",',
+                "V11",
+            ),
+        ),
+        (
+            "V12",
+            lambda text: replace_once(
+                text,
+                "  .supervisor-backdrop,\n"
+                "  .supervisor-blob,\n"
+                "  .supervisor-points,\n"
+                "  .supervisor-vignette {\n"
+                "    inset: 0;\n"
+                "    pointer-events: none;",
+                "  .supervisor-backdrop,\n"
+                "  .supervisor-blob,\n"
+                "  .supervisor-points,\n"
+                "  .supervisor-vignette {\n"
+                "    inset: 0;\n"
+                "    pointer-events: auto;",
+                "V12",
+            ),
+        ),
+    )
+
+    canonical_card = ROOT / "home_assistant" / "www" / "hoymiles-rce-chart-card.js"
+    packaged_card = (
+        COMPONENT / "resources" / "www" / "hoymiles-rce-chart-card.js"
+    )
+    baseline = canonical_card.read_text(encoding="utf-8")
+    require(
+        packaged_card.read_text(encoding="utf-8") == baseline,
+        "Visual mutation baseline lacks generated card parity",
+    )
+    with tempfile.TemporaryDirectory(prefix="hoymiles-rev28-visual-") as directory:
+        fixture_root = Path(directory)
+        shutil.copytree(
+            COMPONENT,
+            fixture_root / "custom_components" / "hoymiles_hit_modbus",
+        )
+        for relative_path in (
+            "dashboard_hoymiles.yaml",
+            "home_assistant/hoymiles_ems_scheduler.yaml",
+            "home_assistant/www/hoymiles-dashboard-strategy.js",
+            "home_assistant/www/hoymiles-rce-chart-card.js",
+            "tools/build_hacs_assets.py",
+            "tools/validate_rce_card.js",
+            "tools/validate_release.py",
+        ):
+            source_path = ROOT / relative_path
+            target_path = fixture_root / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+
+        ui_test = ROOT / "tools" / "test_supervisor_aurora_ui_contract.js"
+        environment = os.environ.copy()
+        environment["HOYMILES_UI_TEST_ROOT"] = str(fixture_root)
+        detected = 0
+        for mutation_id, mutate in mutations:
+            mutated = mutate(baseline)
+            require(mutated != baseline, f"{mutation_id} did not alter the card")
+            for relative_path in (
+                "home_assistant/www/hoymiles-rce-chart-card.js",
+                "custom_components/hoymiles_hit_modbus/resources/www/"
+                "hoymiles-rce-chart-card.js",
+            ):
+                (fixture_root / relative_path).write_text(
+                    mutated,
+                    encoding="utf-8",
+                )
+            completed = subprocess.run(
+                [node_executable, str(ui_test)],
+                cwd=fixture_root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if completed.returncode != 0:
+                detected += 1
+        require(
+            detected == len(mutations) == 12,
+            f"Visual mutation result is {detected}/12, expected 12/12",
+        )
+    return detected
+
+
 def png_dimensions(path: Path) -> tuple[int, int]:
     """Return PNG dimensions using only the Python standard library."""
     header = path.read_bytes()[:24]
@@ -1401,6 +1964,7 @@ def entity_translation_keys(translations: dict) -> dict[str, set[str]]:
 
 def main() -> int:
     """Validate HACS layout, translations, Python and bundled assets."""
+    validate_supervisor_manifests()
     integration_dirs = [
         path for path in COMPONENT_ROOT.iterdir() if path.is_dir()
     ]
@@ -1445,6 +2009,7 @@ def main() -> int:
     entity_source = (COMPONENT / "entity.py").read_text(encoding="utf-8")
     init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
     assets_source = (COMPONENT / "assets.py").read_text(encoding="utf-8")
+    validate_protected_assets_ast(assets_source)
     config_flow_source = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
     sensor_platform_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
     const_source = (COMPONENT / "const.py").read_text(encoding="utf-8")
@@ -1764,6 +2329,20 @@ def main() -> int:
         "RCE details must remain in the main column below the discharge plan",
     )
     dashboard_payloads = []
+    supervisor_bindings = {
+        "supervisor_entity": "sensor.hoymiles_hit_ems_supervisor",
+        "supervisor_mode_entity": "input_select.hoymiles_ems_supervisor_mode",
+        "supervisor_profile_entity": "input_select.hoymiles_ems_supervisor_profile",
+        "supervisor_allow_rce_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_rce"
+        ),
+        "supervisor_allow_tariff_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_tariff"
+        ),
+        "supervisor_allow_rcm_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_rcm"
+        ),
+    }
     for dashboard_json in required_assets[-2:]:
         dashboard_data = load_json(dashboard_json)
         dashboard_payloads.append(dashboard_data)
@@ -1791,6 +2370,59 @@ def main() -> int:
             )
             == 4,
             f"{dashboard_json.name} must contain four authored Aurora frames",
+        )
+        start_view = next(
+            (
+                view
+                for view in dashboard_data["views"]
+                if view.get("path") == "start"
+            ),
+            None,
+        )
+        supervisor_view = next(
+            (
+                view
+                for view in dashboard_data["views"]
+                if view.get("path") == "ems-supervisor"
+            ),
+            None,
+        )
+        expected_supervisor_title = (
+            "EMS Supervisor"
+            if dashboard_json.name.endswith("_en.json")
+            else "Nadzorca EMS"
+        )
+        energy_card = next(
+            (
+                card
+                for card in (start_view or {}).get("cards", [])
+                if card.get("type")
+                == "custom:hoymiles-aurora-energy-card"
+            ),
+            None,
+        )
+        supervisor_cards = (supervisor_view or {}).get("cards", [])
+        supervisor_card = (
+            supervisor_cards[0] if len(supervisor_cards) == 1 else None
+        )
+        require(
+            energy_card is not None
+            and all(key not in energy_card for key in supervisor_bindings)
+            and dashboard_data["views"].index(start_view) == 0
+            and dashboard_data["views"].index(supervisor_view) == 1
+            and dashboard_data["views"][2].get("path") == "automatyka-ems"
+            and supervisor_view.get("title") == expected_supervisor_title
+            and supervisor_view.get("icon") == "mdi:eye-circle-outline"
+            and supervisor_view.get("type") == "panel"
+            and supervisor_card is not None
+            and supervisor_card.get("type")
+            == "custom:hoymiles-ems-supervisor-card"
+            and set(supervisor_card) == {"type", *supervisor_bindings}
+            and all(
+                supervisor_card.get(key) == entity_id
+                for key, entity_id in supervisor_bindings.items()
+            ),
+            f"{dashboard_json.name} lacks the exact second Supervisor view",
         )
     require(
         dashboard_structure(dashboard_payloads[0])
@@ -1856,12 +2488,289 @@ def main() -> int:
         and "class HoymilesAuroraFinanceCard" in card_source,
         "Complete Aurora dashboard card set is not registered",
     )
+    supervisor_start = card_source.find("const HOYMILES_SUPERVISOR_BINDINGS")
+    supervisor_end = card_source.find("class HoymilesAuroraEnergyCard")
+    require(
+        supervisor_start >= 0 and supervisor_end > supervisor_start,
+        "Internal EMS Supervisor panel source is missing",
+    )
+    supervisor_source = card_source[supervisor_start:supervisor_end]
+    reason_start = supervisor_source.find(
+        "const HOYMILES_SUPERVISOR_REASON_COPY"
+    )
+    reason_end = supervisor_source.find(
+        "const HOYMILES_SUPERVISOR_COPY", reason_start
+    )
+    reason_source = supervisor_source[reason_start:reason_end]
+    require(
+        len(re.findall(r"^  [a-z0-9_]+: Object\.freeze\(", reason_source, re.M))
+        == 45,
+        "EMS Supervisor reason map is not 45/45",
+    )
+    energy_end = card_source.find("class HoymilesPowerFlowCard", supervisor_end)
+    energy_source = card_source[supervisor_end:energy_end]
+    aurora_markup = energy_source.find('<div class="aurora">')
+    daily_markup = energy_source.find('<div class="daily">', aurora_markup)
+    require(
+        0 <= aurora_markup < daily_markup
+        and "data-supervisor" not in energy_source
+        and "_supervisorPanel" not in energy_source
+        and "HOYMILES_SUPERVISOR_BINDINGS" not in energy_source,
+        "Start was not restored to Aurora followed directly by daily energy",
+    )
+    require(
+        "class HoymilesEmsSupervisorPanel" in supervisor_source
+        and "class HoymilesEmsSupervisorCard extends HTMLElement"
+        in supervisor_source
+        and supervisor_source.count(
+            '"hoymiles-ems-supervisor-card",\n    HoymilesEmsSupervisorCard'
+        )
+        == 1
+        and "data-supervisor-card" in supervisor_source
+        and 'customElements.define("hoymiles-ems-supervisor-panel"'
+        not in card_source
+        and 'Object.freeze(["Off", "Shadow"])' in supervisor_source
+        and "Observation only" in supervisor_source
+        and "Tylko obserwacja" in supervisor_source
+        and "Profiles currently affect only the observation decision"
+        in supervisor_source
+        and "Profile wpływają obecnie wyłącznie na decyzję obserwacyjną"
+        in supervisor_source,
+        "EMS Supervisor standalone observation-only contract is incomplete",
+    )
+    for required_ui_token in (
+        "heroIntro",
+        "howItWorksTitle",
+        "modesTitle",
+        "modeActiveDescription",
+        "profilesTitle",
+        "permissionsTitle",
+        "readResultTitle",
+        "safetyTitle",
+        "technicalTitle",
+        "actionWarning",
+        "max-width: 1440px",
+        "supervisor-blob-three",
+        "@media (prefers-reduced-motion: reduce)",
+        'activeCard.setAttribute("aria-disabled", "true")',
+        "SUPERVISOR_SEMANTIC_PALETTE_REV28",
+        "supervisor-authority",
+        "supervisor-core-orb",
+        "supervisor-hero-result",
+        "supervisor-policy-identity",
+        "supervisor-policy-permission",
+        "supervisor-permission-context",
+        "supervisor-safety-strip",
+        "supervisor-knowledge-detail",
+        "supervisor-core-ring { animation: none",
+        'content: "↓"',
+    ):
+        require(
+            required_ui_token in supervisor_source,
+            f"EMS Supervisor standalone UI token missing: {required_ui_token}",
+        )
+    css_start = supervisor_source.find("const HOYMILES_EMS_SUPERVISOR_CSS")
+    css_end = supervisor_source.find(
+        "class HoymilesEmsSupervisorPanel", css_start
+    )
+    supervisor_css = supervisor_source[css_start:css_end]
+    palette_marker = "SUPERVISOR_SEMANTIC_PALETTE_REV28"
+    palette_start = supervisor_css.find(palette_marker)
+    palette_end = supervisor_css.find("  }", palette_start)
+    require(
+        supervisor_css.count(palette_marker) == 1
+        and palette_start >= 0
+        and palette_end > palette_start,
+        "Revision 28 does not contain one centralized Supervisor palette",
+    )
+    palette_block = supervisor_css[palette_start:palette_end]
+    css_outside_palette = (
+        supervisor_css[:palette_start] + supervisor_css[palette_end:]
+    )
+    for name, value in (
+        ("cyan", "#43d5ff"),
+        ("blue", "#4c91ff"),
+        ("violet", "#9b7cff"),
+        ("rce", "#f2b84b"),
+        ("tariff", "#49a5ff"),
+        ("rcm", "#b07cff"),
+        ("ready", "#47df91"),
+        ("warning", "#f1b84b"),
+        ("error", "#ff647c"),
+    ):
+        require(
+            f"--supervisor-{name}: {value}" in palette_block,
+            f"Revision 28 palette lost {name}",
+        )
+    require(
+        re.search(r"#[0-9a-fA-F]{3,8}", css_outside_palette) is None,
+        "Revision 28 has an ad-hoc raw color outside its semantic palette",
+    )
+    require(
+        supervisor_source.count("this._knowledgeDetail(") == 5
+        and 'details.setAttribute("open"' not in supervisor_source
+        and "accordionState" not in supervisor_source
+        and "toggleDetails" not in supervisor_source,
+        "Revision 28 knowledge area is not exactly five closed native details",
+    )
+    content_start = supervisor_source.find("    content.append(")
+    content_end = supervisor_source.find("    panel.append(", content_start)
+    content_append = supervisor_source[content_start:content_end]
+    require(
+        re.search(
+            r"hero,[\s\S]*liveGrid,[\s\S]*policySection,[\s\S]*"
+            r"howSection,[\s\S]*safetyStrip,[\s\S]*knowledgeSection",
+            content_append,
+        )
+        is not None
+        and not re.search(
+            r"modesSection|profilesSection|permissionsSection|"
+            r"readSection|safetySection|technical\b",
+            content_append,
+        ),
+        "Revision 28 documentation wall appears before live information",
+    )
+    selected_start = supervisor_css.find(
+        '.supervisor-panel[data-tone="shadow-selected"]'
+    )
+    selected_end = supervisor_css.find(
+        '.supervisor-panel[data-tone="blocked"]', selected_start
+    )
+    require(
+        selected_start >= 0
+        and selected_end > selected_start
+        and "supervisor-ready"
+        not in supervisor_css[selected_start:selected_end]
+        and '.supervisor-policy-badge[data-tone="ready"]'
+        in supervisor_css,
+        "Revision 28 selected Shadow uses readiness green",
+    )
+    light_start = supervisor_css.find("@media (prefers-color-scheme: light)")
+    light_end = supervisor_css.find(
+        "@media (prefers-reduced-motion: reduce)", light_start
+    )
+    light_css = supervisor_css[light_start:light_end]
+    require(
+        light_start >= 0
+        and light_end > light_start
+        and all(
+            token in light_css
+            for token in (
+                "--supervisor-page-base: color-mix(in srgb, "
+                "var(--primary-background-color, var(--supervisor-on-deep)) "
+                "94%, var(--supervisor-blue) 6%)",
+                "--supervisor-page-cyan-glow: color-mix(in srgb, "
+                "var(--supervisor-cyan) 5%, transparent)",
+                "--supervisor-page-violet-glow: color-mix(in srgb, "
+                "var(--supervisor-violet) 4%, transparent)",
+                ".supervisor-blob { opacity: .08; }",
+                ".supervisor-points { opacity: .1; }",
+            )
+        ),
+        "Revision 28 light theme is not independently pale and restrained",
+    )
+    require(
+        re.search(r"opacity:\s*\.(?:64|72)\b", supervisor_css) is None
+        and ".supervisor-info-disabled { border-style: dashed; opacity: 1; }"
+        in supervisor_css
+        and '.supervisor-policy[data-permitted="false"] '
+        '{ filter: saturate(.68); opacity: 1; }' in supervisor_css,
+        "Revision 28 disabled content loses light-theme contrast",
+    )
+    undersized_supervisor_text = [
+        float(match.group(1))
+        for match in re.finditer(
+            r"font-size:\s*(\d+(?:\.\d+)?)px", supervisor_css
+        )
+        if float(match.group(1)) < 11
+    ]
+    require(
+        not undersized_supervisor_text,
+        "Revision 28 contains Supervisor text below the accepted 11px minimum",
+    )
+    for forbidden in (
+        "setInterval",
+        "setTimeout",
+        "requestAnimationFrame",
+        "number.set_value",
+        "select.select_option",
+        "button.press",
+        "input_boolean.toggle",
+        "modbus.write",
+    ):
+        require(
+            forbidden not in supervisor_source,
+            f"EMS Supervisor contains forbidden scope: {forbidden}",
+        )
+    ui_contract_test = ROOT / "tools" / "test_supervisor_aurora_ui_contract.js"
+    require(
+        ui_contract_test.is_file(),
+        "Missing EMS Supervisor Aurora UI contract test",
+    )
+    ui_contract_source = ui_contract_test.read_text(encoding="utf-8")
+    require(
+        "const EXPECTED_GROUP_COUNT = 65;" in ui_contract_source
+        and "const EXPECTED_CHECK_COUNT = 913;" in ui_contract_source
+        and all(
+            f'group("{group_name}"' in ui_contract_source
+            for group_name in (
+                "CENTRALIZED_AURORA_PALETTE",
+                "COLOR_SEMANTICS",
+                "HERO_VISUAL_HIERARCHY",
+                "HERO_STATE_COPY",
+                "POLICY_VISUAL_IDENTITIES",
+                "POLICY_SWITCH_ACCENTS",
+                "DECISION_HIERARCHY",
+                "VISIBLE_SAFETY_STRIP",
+                "KNOWLEDGE_DETAILS",
+                "FIRST_SCREEN_PRIORITY",
+                "AURORA_BACKGROUND_REV28",
+                "REDUCED_MOTION_REV28",
+                "LIGHT_DARK_CONTRAST",
+                "MOBILE_REV28",
+                "FUNCTIONAL_INERTNESS",
+            )
+        ),
+        "Revision 28 UI contract group/check freeze is incomplete",
+    )
     for dashboard_path in required_assets[:2]:
         dashboard_text = dashboard_path.read_text(encoding="utf-8")
+        expected_title = (
+            "EMS Supervisor"
+            if dashboard_path.name.endswith("_en.yaml")
+            else "Nadzorca EMS"
+        )
+        start_index = dashboard_text.index("  - title: Start")
+        supervisor_index = dashboard_text.index(
+            f"  - title: {expected_title}"
+        )
+        rce_index = dashboard_text.index(
+            "  - title: RCE and Results"
+            if dashboard_path.name.endswith("_en.yaml")
+            else "  - title: RCE i Wyniki"
+        )
+        start_yaml = dashboard_text[start_index:supervisor_index]
+        supervisor_yaml = dashboard_text[supervisor_index:rce_index]
         require(
             "entity: sensor.hoymiles_rce_day_tomorrow\n"
             "            future_data: true" in dashboard_text,
             f"{dashboard_path.name} does not mark the tomorrow chart as future data",
+        )
+        require(
+            start_index < supervisor_index < rce_index
+            and "path: ems-supervisor" in supervisor_yaml
+            and "icon: mdi:eye-circle-outline" in supervisor_yaml
+            and "type: panel" in supervisor_yaml
+            and supervisor_yaml.count(
+                "type: custom:hoymiles-ems-supervisor-card"
+            )
+            == 1
+            and all(
+                f"{key}: {entity_id}" in supervisor_yaml
+                for key, entity_id in supervisor_bindings.items()
+            )
+            and all(key not in start_yaml for key in supervisor_bindings),
+            f"{dashboard_path.name} lacks exact isolated Supervisor view",
         )
         require(
             "type: custom:hoymiles-aurora-energy-card" in dashboard_text
@@ -1933,6 +2842,18 @@ def main() -> int:
             in dashboard_text,
             f"{dashboard_path.name} lacks the LOAD power/energy graphs",
         )
+
+    generator_source = (ROOT / "tools" / "build_hacs_assets.py").read_text(
+        encoding="utf-8"
+    )
+    require(
+        '"  - title: Nadzorca EMS\\n"' in generator_source
+        and '"    path: ems-supervisor\\n"' in generator_source
+        and '"    icon: mdi:eye-circle-outline\\n"' in generator_source
+        and '"  - title: EMS Supervisor\\n"' in generator_source
+        and '"Nadzorca EMS": "EMS Supervisor"' not in generator_source,
+        "Generator lacks the narrow full-view Supervisor title translation",
+    )
 
     rce_sensor_source = (
         COMPONENT / "rce_sensor.py"
@@ -2008,6 +2929,7 @@ def main() -> int:
         ("sensor", "tariff_charge_plan"),
         ("sensor", "rcm_voltage_plan"),
         ("sensor", "setup_status"),
+        ("sensor", "ems_supervisor"),
     }
     for asset_path in stable_entity_assets:
         asset_text = asset_path.read_text(encoding="utf-8")
@@ -2978,6 +3900,34 @@ def main() -> int:
         "Official HACS validation must be mandatory and unignored",
     )
 
+    node_executable = os.environ.get("HOYMILES_NODE_EXECUTABLE") or shutil.which(
+        "node"
+    )
+    require(
+        node_executable is not None,
+        "Node.js is required for managed frontend validation",
+    )
+    for frontend_test in (
+        ROOT / "tools" / "validate_rce_card.js",
+        ROOT / "tools" / "test_supervisor_aurora_ui_contract.js",
+    ):
+        completed = subprocess.run(
+            [node_executable, str(frontend_test)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        require(
+            completed.returncode == 0,
+            f"Frontend validation failed: {frontend_test.name}\n"
+            f"{completed.stdout}{completed.stderr}",
+        )
+    validate_ui_count_self_tests(node_executable)
+    visual_mutations_detected = validate_rev28_visual_mutations(
+        node_executable
+    )
+
     print(f"HACS layout: OK ({len(integration_dirs)} integration)")
     print(f"Manifest: OK (version {manifest['version']})")
     print(f"Localized entities: {len(catalog)} (English and Polish)")
@@ -2992,6 +3942,11 @@ def main() -> int:
     print("MIT/OSI license and current license documentation: OK")
     print("Contribution rights, sign-off and CODEOWNERS: OK")
     print("RCE/tariff/RCEm CI regression matrix: OK")
+    print("Managed frontend validators: OK")
+    print(
+        "Revision 28 visual mutations: "
+        f"{visual_mutations_detected}/12 detected, 0 survivors"
+    )
     return 0
 
 

@@ -286,6 +286,17 @@ TEXT_STATE_TRANSLATIONS = {
 
 ENGLISH_REPLACEMENTS = {
     (
+        "  - title: Nadzorca EMS\n"
+        "    path: ems-supervisor\n"
+        "    icon: mdi:eye-circle-outline\n"
+        "    type: panel"
+    ): (
+        "  - title: EMS Supervisor\n"
+        "    path: ems-supervisor\n"
+        "    icon: mdi:eye-circle-outline\n"
+        "    type: panel"
+    ),
+    (
         "  # Pozwala Nadzorcy EMS uwzględniać RCE wyłącznie w arbitrażu Shadow.\n"
         "  # Nie włącza automatyki RCE, nie zmienia jej przełącznika i nie udziela\n"
         "  # prawa do fizycznego zapisu."

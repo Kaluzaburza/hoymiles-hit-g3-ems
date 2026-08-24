@@ -107,12 +107,18 @@ function hoymilesAuroraAccent(value) {
   return HOYMILES_AURORA_ACCENTS[value] || HOYMILES_AURORA_ACCENTS.neutral;
 }
 
+function hoymilesNormalizeLanguage(value) {
+  if (typeof value !== "string") return "en";
+  const normalized = value.trim().toLowerCase();
+  return normalized === "pl" || normalized.startsWith("pl-") ? "pl" : "en";
+}
+
 function hoymilesLanguage(hass, configuredLanguage) {
-  return String(configuredLanguage || hass?.language || "en")
-    .toLowerCase()
-    .startsWith("pl")
-    ? "pl"
-    : "en";
+  const value =
+    configuredLanguage !== undefined
+      ? configuredLanguage
+      : hass?.locale?.language ?? hass?.language;
+  return hoymilesNormalizeLanguage(value);
 }
 
 function hoymilesEscape(value) {
@@ -2442,6 +2448,2923 @@ if (!customElements.get("hoymiles-aurora-finance-card")) {
 }
 if (!window.customCards.some((card) => card.type === "hoymiles-aurora-finance-card")) {
   window.customCards.push({ type: "hoymiles-aurora-finance-card", name: "Hoymiles Aurora Finance", description: "Premium RCE export and revenue summary.", preview: false });
+}
+
+const HOYMILES_SUPERVISOR_BINDINGS = Object.freeze({
+  supervisor_entity: "sensor.hoymiles_hit_ems_supervisor",
+  supervisor_mode_entity: "input_select.hoymiles_ems_supervisor_mode",
+  supervisor_profile_entity: "input_select.hoymiles_ems_supervisor_profile",
+  supervisor_allow_rce_entity:
+    "input_boolean.hoymiles_ems_supervisor_allow_rce",
+  supervisor_allow_tariff_entity:
+    "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+  supervisor_allow_rcm_entity:
+    "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+});
+
+const HOYMILES_SUPERVISOR_MODE_OPTIONS = Object.freeze(["Off", "Shadow"]);
+const HOYMILES_SUPERVISOR_PROFILE_OPTIONS = Object.freeze([
+  "Balanced",
+  "Maximum Profit",
+  "High Reserve — Winter",
+]);
+const HOYMILES_SUPERVISOR_CONTROL_KINDS = Object.freeze({
+  mode: Object.freeze({
+    type: "select",
+    configKey: "supervisor_mode_entity",
+    entityId: "input_select.hoymiles_ems_supervisor_mode",
+    options: HOYMILES_SUPERVISOR_MODE_OPTIONS,
+  }),
+  profile: Object.freeze({
+    type: "select",
+    configKey: "supervisor_profile_entity",
+    entityId: "input_select.hoymiles_ems_supervisor_profile",
+    options: HOYMILES_SUPERVISOR_PROFILE_OPTIONS,
+  }),
+  allowRce: Object.freeze({
+    type: "boolean",
+    configKey: "supervisor_allow_rce_entity",
+    entityId: "input_boolean.hoymiles_ems_supervisor_allow_rce",
+  }),
+  allowTariff: Object.freeze({
+    type: "boolean",
+    configKey: "supervisor_allow_tariff_entity",
+    entityId: "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+  }),
+  allowRcm: Object.freeze({
+    type: "boolean",
+    configKey: "supervisor_allow_rcm_entity",
+    entityId: "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+  }),
+});
+const HOYMILES_SUPERVISOR_POLICY_IDS = Object.freeze([
+  "rce",
+  "tariff",
+  "rcm",
+]);
+
+const HOYMILES_SUPERVISOR_REASON_COPY = Object.freeze({
+  candidate_ready: Object.freeze({
+    pl: "Kandydat gotowy",
+    en: "Candidate ready",
+  }),
+  live_emergency: Object.freeze({
+    pl: "Pilna reakcja na stan bieżący",
+    en: "Live emergency response",
+  }),
+  required_energy_restore: Object.freeze({
+    pl: "Wymagane odtworzenie energii",
+    en: "Required energy restoration",
+  }),
+  preventive_voltage_action: Object.freeze({
+    pl: "Prewencyjna reakcja napięciowa",
+    en: "Preventive voltage action",
+  }),
+  economic_candidate: Object.freeze({
+    pl: "Kandydat ekonomiczny",
+    en: "Economic candidate",
+  }),
+  no_action: Object.freeze({
+    pl: "Brak wymaganej akcji",
+    en: "No action required",
+  }),
+  no_eligible_candidate: Object.freeze({
+    pl: "Brak kwalifikującej się polityki",
+    en: "No eligible policy",
+  }),
+  not_allowed: Object.freeze({
+    pl: "Brak zgody użytkownika",
+    en: "Not allowed by user",
+  }),
+  policy_disabled: Object.freeze({
+    pl: "Istniejąca automatyka wyłączona",
+    en: "Existing automation disabled",
+  }),
+  unavailable: Object.freeze({
+    pl: "Dane niedostępne",
+    en: "Data unavailable",
+  }),
+  stale_candidate: Object.freeze({
+    pl: "Dane kandydata są nieaktualne",
+    en: "Candidate data is stale",
+  }),
+  future_candidate: Object.freeze({
+    pl: "Dane kandydata pochodzą z przyszłości",
+    en: "Candidate data is future-dated",
+  }),
+  not_started: Object.freeze({
+    pl: "Okno jeszcze się nie rozpoczęło",
+    en: "Window has not started",
+  }),
+  result_not_current: Object.freeze({
+    pl: "Plan nie jest aktualny",
+    en: "Plan is not current",
+  }),
+  recalculation_pending_new_start: Object.freeze({
+    pl: "Oczekiwanie na przeliczenie przed nowym startem",
+    en: "Waiting for recalculation before a new start",
+  }),
+  expired: Object.freeze({
+    pl: "Okno wygasło",
+    en: "Window expired",
+  }),
+  invalid_input: Object.freeze({
+    pl: "Nieprawidłowe dane wejściowe",
+    en: "Invalid input",
+  }),
+  invalid_policy_shape: Object.freeze({
+    pl: "Nieprawidłowa struktura polityki",
+    en: "Invalid policy structure",
+  }),
+  invalid_action_scope: Object.freeze({
+    pl: "Nieprawidłowy zakres akcji",
+    en: "Invalid action scope",
+  }),
+  actuator_unavailable: Object.freeze({
+    pl: "Wymagany element wykonawczy niedostępny",
+    en: "Required actuator unavailable",
+  }),
+  direction_unavailable: Object.freeze({
+    pl: "Kierunek działania niedostępny",
+    en: "Action direction unavailable",
+  }),
+  confirmed_zero_export: Object.freeze({
+    pl: "Potwierdzony zerowy eksport",
+    en: "Confirmed zero export",
+  }),
+  export_prohibited: Object.freeze({
+    pl: "Eksport zabroniony",
+    en: "Export prohibited",
+  }),
+  export_unverified: Object.freeze({
+    pl: "Eksport niezweryfikowany",
+    en: "Export unverified",
+  }),
+  local_hard_stop: Object.freeze({
+    pl: "Lokalna blokada bezpieczeństwa",
+    en: "Local hard stop",
+  }),
+  not_start_eligible: Object.freeze({
+    pl: "Warunki startu niespełnione",
+    en: "Start conditions not met",
+  }),
+  not_continuation_eligible: Object.freeze({
+    pl: "Warunki kontynuacji niespełnione",
+    en: "Continuation conditions not met",
+  }),
+  external_authority: Object.freeze({
+    pl: "Zewnętrzna automatyka ma pierwszeństwo",
+    en: "External authority has control",
+  }),
+  manual_authority: Object.freeze({
+    pl: "Sterowanie ręczne ma pierwszeństwo",
+    en: "Manual authority has control",
+  }),
+  off_grid: Object.freeze({
+    pl: "Tryb Off-Grid ma pierwszeństwo",
+    en: "Off-grid has priority",
+  }),
+  foreign_owner: Object.freeze({
+    pl: "Steruje inny właściciel",
+    en: "Another owner has control",
+  }),
+  balancing_active: Object.freeze({
+    pl: "Trwa wyrównywanie baterii",
+    en: "Battery balancing is active",
+  }),
+  owner_conflict: Object.freeze({
+    pl: "Konflikt właściciela sterowania",
+    en: "Control-owner conflict",
+  }),
+  transaction_pending: Object.freeze({
+    pl: "Oczekiwanie na zakończenie transakcji",
+    en: "Waiting for transaction completion",
+  }),
+  physical_mode_stale: Object.freeze({
+    pl: "Fizyczny tryb jest nieaktualny",
+    en: "Physical mode is stale",
+  }),
+  physical_mode_unknown: Object.freeze({
+    pl: "Fizyczny tryb jest nieznany",
+    en: "Physical mode is unknown",
+  }),
+  critical_bms_unavailable: Object.freeze({
+    pl: "Krytyczne dane BMS niedostępne",
+    en: "Critical BMS data unavailable",
+  }),
+  economic_candidates_not_comparable: Object.freeze({
+    pl: "Kandydatów ekonomicznych nie można porównać",
+    en: "Economic candidates are not comparable",
+  }),
+  economic_tie: Object.freeze({
+    pl: "Remis kandydatów ekonomicznych",
+    en: "Economic candidates are tied",
+  }),
+  active_not_implemented: Object.freeze({
+    pl: "Tryb Active nie jest zaimplementowany",
+    en: "Active mode is not implemented",
+  }),
+  structurally_inconsistent_context: Object.freeze({
+    pl: "Niespójny kontekst wykonania",
+    en: "Structurally inconsistent execution context",
+  }),
+  invalid_pending_owner_relationship: Object.freeze({
+    pl: "Nieprawidłowa relacja oczekującej transakcji z właścicielem",
+    en: "Invalid pending-transaction owner relationship",
+  }),
+  multiple_active_commitments: Object.freeze({
+    pl: "Wiele aktywnych zobowiązań",
+    en: "Multiple active commitments",
+  }),
+  owner_commitment_mismatch: Object.freeze({
+    pl: "Właściciel nie odpowiada aktywnemu zobowiązaniu",
+    en: "Owner does not match the active commitment",
+  }),
+  inconsistent_priority_tie: Object.freeze({
+    pl: "Niespójny remis priorytetów",
+    en: "Inconsistent priority tie",
+  }),
+});
+
+const HOYMILES_SUPERVISOR_COPY = Object.freeze({
+  pl: Object.freeze({
+    title: "Nadzorca EMS",
+    observationOnly: "Tylko obserwacja",
+    heroIntro:
+      "Nadzorca EMS porównuje dostępne automatyki i pokazuje, która z nich byłaby najlepsza w danej chwili. W obecnej wersji działa wyłącznie obserwacyjnie i nie steruje falownikiem.",
+    currentMode: "Bieżący tryb",
+    currentProfile: "Bieżący profil",
+    currentSupervisorState: "Stan Nadzorcy",
+    liveControls: "Ustawienia Nadzorcy",
+    currentDecision: "Bieżąca decyzja",
+    mode: "Tryb",
+    profile: "Profil",
+    allowRce: "Uwzględniaj RCE",
+    allowTariff: "Uwzględniaj tanie ładowanie",
+    allowRcm: "Uwzględniaj RCEm",
+    state: "Stan",
+    selectedPolicy: "Wybrana polityka",
+    decisionReason: "Powód decyzji",
+    blockedReason: "Powód blokady",
+    phase: "Faza",
+    physicalExecution: "Fizyczne wykonanie",
+    legacyExecution: "Istniejąca automatyka",
+    existingAutomation: "Istniejąca automatyka",
+    notAuthorizedObservation: "Niedozwolone — tryb obserwacyjny",
+    legacyUnchanged: "Bez zmian",
+    howItWorksTitle: "Jak to działa",
+    howItWorksIntro:
+      "Nadzorca tworzy wynik obserwacyjny w pięciu prostych krokach.",
+    flowPolicies: "RCE / tanie ładowanie / RCEm",
+    flowValidation: "Sprawdzenie danych i warunków bezpieczeństwa",
+    flowComparison: "Porównanie priorytetu, potrzeby i opłacalności",
+    flowWinner: "Logiczny zwycięzca",
+    flowObservation: "Wynik obserwacyjny — bez sterowania",
+    modesTitle: "Tryby",
+    modeOffTitle: "OFF",
+    modeOffDescription:
+      "Nadzorca jest wyłączony. Istniejące automatyki działają dokładnie tak jak wcześniej.",
+    modeShadowTitle: "SHADOW",
+    modeShadowDescription:
+      "Nadzorca analizuje dostępne automatyki, wybiera teoretycznego zwycięzcę i pokazuje powód decyzji. Nie zatrzymuje, nie uruchamia i nie przełącza żadnej automatyki.",
+    modeActiveTitle: "ACTIVE — PRZYSZŁY / NIEDOSTĘPNY",
+    modeActiveDescription:
+      "Tryb planowany na późniejszy etap. Nie jest dostępny w tej wersji i nie można go wybrać.",
+    profilesTitle: "Profile",
+    balancedTitle: "BALANCED",
+    balancedDescription:
+      "Profil ogólnego przeznaczenia, który równoważy wynik ekonomiczny i rezerwę energii.",
+    maximumProfitTitle: "MAXIMUM PROFIT",
+    maximumProfitDescription: "Planowany nacisk na wynik ekonomiczny.",
+    highReserveTitle: "HIGH RESERVE — WINTER",
+    highReserveDescription:
+      "Planowany nacisk na wyższą rezerwę baterii.",
+    permissionsTitle: "Co oznaczają zgody",
+    permissionMeaning:
+      "Zgoda Nadzorcy oznacza: „ta automatyka może być uwzględniona w porównaniu Shadow”.",
+    permissionNotMeaning:
+      "Zgoda nie włącza istniejącej automatyki, nie rozpoczyna ładowania ani rozładowania, nie zmienia ustawień falownika i nie daje fizycznej władzy.",
+    rcePlain:
+      "RCE ocenia plan sprzedaży energii na podstawie cen rynkowych. Zgoda pozwala tylko uwzględnić jego wynik w porównaniu Shadow.",
+    tariffPlain:
+      "Tanie ładowanie ocenia, czy zaplanować ładowanie baterii w tańszych godzinach taryfy. Zgoda tylko dopuszcza ten wynik do porównania.",
+    rcemPlain:
+      "RCEm analizuje potrzebę ograniczenia eksportu przy podwyższonym napięciu sieci. Zgoda tylko dopuszcza ten wynik do porównania.",
+    permissionDoesNotEnable: "Nie włącza istniejącej automatyki",
+    permissionDoesNotStart: "Nie uruchamia ładowania ani rozładowania",
+    permissionDoesNotWrite: "Nie zmienia ustawień falownika",
+    permissionDoesNotGrant: "Nie przyznaje fizycznego sterowania",
+    readResultTitle: "Jak czytać wynik",
+    resultIdleTitle: "Shadow idle",
+    resultIdleDescription:
+      "Brak obecnie kandydata, którego Nadzorca mógłby logicznie wybrać. Nic nie jest uruchamiane.",
+    resultSelectedTitle: "Shadow selected — RCE",
+    resultSelectedDescription:
+      "RCE jest logicznym zwycięzcą porównania, ale żadna automatyka nie została fizycznie uruchomiona.",
+    resultBlockedTitle: "Zablokowany",
+    resultBlockedDescription:
+      "Dane, tryb, warunki bezpieczeństwa lub stan sterowania uniemożliwiają wiarygodną decyzję.",
+    resultUnavailableTitle: "Niedostępny",
+    resultUnavailableDescription:
+      "Brakuje wymaganych danych źródłowych albo są one niespójne.",
+    resultCommitmentTitle: "Trwająca decyzja istniejącej automatyki",
+    resultCommitmentDescription:
+      "Jedna z istniejących automatyk już działa lub utrzymuje rozpoczętą decyzję. Nadzorca tylko to pokazuje.",
+    safetyTitle: "Bezpieczeństwo i ograniczenia",
+    safetyIntro: "Obecny Nadzorca nie może:",
+    cannotModbus: "zapisywać rejestrów Modbus ani innych ustawień falownika;",
+    cannotMode: "zmieniać trybu pracy falownika;",
+    cannotOwner: "przejmować sterowania;",
+    cannotGrant: "udzielać zgody na fizyczne wykonanie;",
+    cannotHandover: "przekazywać sterowania między automatykami;",
+    cannotLegacy: "uruchamiać ani zatrzymywać istniejących automatyk;",
+    cannotActive: "wykonywać trybu Active.",
+    safetyScope:
+      "Odczytuje ograniczone podsumowania i steruje wyłącznie pięcioma ustawieniami własnego interfejsu.",
+    technicalTitle: "Szczegóły techniczne",
+    arbitrationRevision: "Rewizja arbitrażu",
+    executionPhase: "Faza wykonania",
+    reasonCode: "Kod powodu",
+    profileEffects: "Zastosowane skutki profilu",
+    candidateRevisions: "Rewizje kandydatów",
+    notApplied: "Nie zastosowano",
+    dataOrPlan: "Dane lub plan",
+    readiness: "Gotowość",
+    supervisorSelection: "Wybór Nadzorcy",
+    requestedAction: "Żądana akcja",
+    actionWarning:
+      "Żądana akcja opisuje wynik logiczny. Nie potwierdza fizycznego wykonania.",
+    available: "dostępna",
+    notAvailable: "niedostępna",
+    upToDate: "aktualne",
+    outOfDate: "nieaktualne",
+    notReady: "niegotowe",
+    notSelected: "niewybrane",
+    none: "Brak",
+    unavailable: "Niedostępny",
+    unknownReason: "Nieznany powód",
+    off: "Wyłączony",
+    shadow: "Obserwacja",
+    balanced: "Zrównoważony",
+    maximumProfit: "Maksymalny zysk",
+    highReserveWinter: "Wysoka rezerwa — zima",
+    shadowIdle: "Obserwacja — brak wyboru",
+    shadowSelected: "Obserwacja — wybrano politykę",
+    blocked: "Zablokowany",
+    idle: "Bezczynna",
+    observedActiveLatched: "Zaobserwowane aktywne zobowiązanie",
+    phaseBlocked: "Zablokowana",
+    rce: "RCE",
+    tariff: "Tanie ładowanie",
+    rcm: "RCEm",
+    actionNone: "Brak",
+    actionRceExport: "Eksport RCE",
+    actionTariffCharge: "Tanie ładowanie",
+    actionRcmAbsorbPv: "Absorpcja PV RCEm",
+    actionRcmLimitExport: "Ograniczenie eksportu RCEm",
+    actionRcmPreDischarge: "Wstępne rozładowanie RCEm",
+    unknownAction: "Nieznana akcja",
+    selected: "Wybrane",
+    ready: "Gotowe",
+    noNeed: "Brak potrzeby",
+    notAllowed: "Niedozwolone",
+    automationDisabled: "Automatyka wyłączona",
+    dataUnavailable: "Dane niedostępne",
+    waitingCurrentPlan: "Oczekiwanie na aktualny plan",
+    candidateBlocked: "Zablokowane",
+    activeCommitment: "Aktywne zobowiązanie",
+    permission: "Zgoda",
+    automation: "Automatyka",
+    dataPlan: "Dane/plan",
+    startReadiness: "Start",
+    continuationReadiness: "Kontynuacja",
+    reason: "Powód",
+    action: "Akcja",
+    yes: "tak",
+    no: "nie",
+    enabled: "wł.",
+    disabled: "wył.",
+    current: "gotowe",
+    waiting: "oczekiwanie",
+    unverified: "Niepotwierdzone",
+    authorizedFalse: "Niedozwolone — tryb obserwacyjny",
+    authorizationUnverified:
+      "Niepotwierdzone — panel pozostaje tylko do obserwacji",
+    unchanged: "Bez zmian",
+    profileLimitation:
+      "Profile wpływają obecnie wyłącznie na decyzję obserwacyjną, a ich skutki fizyczne nie są jeszcze stosowane.",
+    controlUnavailable: "Sterowanie niedostępne",
+    serviceError: "Nie udało się zapisać ustawienia",
+    physicalAuthority: "Nadzorca nie ma fizycznej władzy nad falownikiem.",
+    physicalControl: "Sterowanie fizyczne",
+    physicalControlValue: "Nie — tylko obserwacja",
+    noInverterControl: "Bez sterowania falownikiem",
+    heroOffResult:
+      "Nadzorca jest wyłączony. Istniejące automatyki działają bez zmian.",
+    heroIdleResult:
+      "Nadzorca analizuje sytuację. Obecnie nie ma logicznego zwycięzcy.",
+    heroSelectedResult:
+      "Logicznie wybrano: {policy}. Nic nie zostało fizycznie uruchomione.",
+    heroBlockedResult:
+      "Nie można obecnie wydać wiarygodnej decyzji. Zobacz powód poniżej.",
+    heroUnavailableResult: "Brakuje danych potrzebnych do oceny.",
+    permissionContext:
+      "Zgoda pozwala tylko uwzględnić wynik w analizie Shadow.",
+    logicallySelected: "Wybrane logicznie",
+    notConsidered: "Poza analizą",
+    knowledgeTitle: "Dowiedz się, jak działa Nadzorca",
+    modesProfilesDetailsTitle: "Tryby i profile",
+    modesProfilesDetailsHint: "OFF, Shadow oraz znaczenie profilu.",
+    permissionsDetailsHint: "Co zgoda dopuszcza do analizy Shadow.",
+    resultDetailsHint: "Znaczenie stanów i logicznego wyboru.",
+    safetyDetailsHint: "Granice sterowania i bezpieczny zakres.",
+    technicalDetailsHint: "Ograniczone dane diagnostyczne decyzji.",
+    safetyStrip:
+      "Nadzorca nie steruje falownikiem. Pokazuje wyłącznie wynik analizy i może zmieniać tylko pięć ustawień własnego interfejsu.",
+  }),
+  en: Object.freeze({
+    title: "EMS Supervisor",
+    observationOnly: "Observation only",
+    heroIntro:
+      "EMS Supervisor compares the available automations and shows which one would be the best choice at a given moment. In this version it works in observation mode only and does not control the inverter.",
+    currentMode: "Current mode",
+    currentProfile: "Current profile",
+    currentSupervisorState: "Supervisor state",
+    liveControls: "Supervisor controls",
+    currentDecision: "Current decision",
+    mode: "Mode",
+    profile: "Profile",
+    allowRce: "Consider RCE",
+    allowTariff: "Consider tariff charging",
+    allowRcm: "Consider RCEm",
+    state: "State",
+    selectedPolicy: "Selected policy",
+    decisionReason: "Decision reason",
+    blockedReason: "Blocked reason",
+    phase: "Phase",
+    physicalExecution: "Physical execution",
+    legacyExecution: "Existing automation",
+    existingAutomation: "Existing automation",
+    notAuthorizedObservation: "Not authorized — observation mode",
+    legacyUnchanged: "Unchanged",
+    howItWorksTitle: "How it works",
+    howItWorksIntro:
+      "The Supervisor produces an observation-only result in five simple steps.",
+    flowPolicies: "RCE / tariff charging / RCEm",
+    flowValidation: "Validation of data and safety conditions",
+    flowComparison: "Comparison of priority, need, and economics",
+    flowWinner: "Logical winner",
+    flowObservation: "Observation-only result — no control",
+    modesTitle: "Modes",
+    modeOffTitle: "OFF",
+    modeOffDescription:
+      "The Supervisor is off. Existing automations work exactly as before.",
+    modeShadowTitle: "SHADOW",
+    modeShadowDescription:
+      "The Supervisor analyzes the available automations, chooses a theoretical winner, and shows the reason for the decision. It does not stop, start, or switch any automation.",
+    modeActiveTitle: "ACTIVE — FUTURE / UNAVAILABLE",
+    modeActiveDescription:
+      "A mode planned for a later phase. It is not available in this version and cannot be selected.",
+    profilesTitle: "Profiles",
+    balancedTitle: "BALANCED",
+    balancedDescription:
+      "General-purpose profile balancing economic value and reserve.",
+    maximumProfitTitle: "MAXIMUM PROFIT",
+    maximumProfitDescription: "Future intended emphasis on economic result.",
+    highReserveTitle: "HIGH RESERVE — WINTER",
+    highReserveDescription:
+      "Future intended emphasis on higher battery reserve.",
+    permissionsTitle: "What the permissions mean",
+    permissionMeaning:
+      "A Supervisor permission means: “this policy may be considered in the Shadow comparison”.",
+    permissionNotMeaning:
+      "Permission does not enable the existing automation, start charging or discharging, change an inverter setting, or grant physical authority.",
+    rcePlain:
+      "RCE evaluates an energy-sale plan using market prices. Permission only allows its result to be considered in the Shadow comparison.",
+    tariffPlain:
+      "Tariff charging evaluates whether battery charging should be planned for lower-price tariff hours. Permission only admits that result to the comparison.",
+    rcemPlain:
+      "RCEm analyzes whether export should be limited when grid voltage is elevated. Permission only admits that result to the comparison.",
+    permissionDoesNotEnable: "Does not enable the existing automation",
+    permissionDoesNotStart: "Does not start charging or discharging",
+    permissionDoesNotWrite: "Does not change inverter settings",
+    permissionDoesNotGrant: "Does not grant physical control",
+    readResultTitle: "How to read the result",
+    resultIdleTitle: "Shadow idle",
+    resultIdleDescription:
+      "There is currently no candidate the Supervisor can logically select. Nothing is started.",
+    resultSelectedTitle: "Shadow selected — RCE",
+    resultSelectedDescription:
+      "RCE is the logical winner, but nothing was physically started.",
+    resultBlockedTitle: "Blocked",
+    resultBlockedDescription:
+      "Data, mode, safety, or control-state facts prevent a valid decision.",
+    resultUnavailableTitle: "Unavailable",
+    resultUnavailableDescription:
+      "Required source data is missing or inconsistent.",
+    resultCommitmentTitle: "Active commitment",
+    resultCommitmentDescription:
+      "An existing legacy automation is already running or latched; the Supervisor only reports it.",
+    safetyTitle: "Safety and limitations",
+    safetyIntro: "The current Supervisor cannot:",
+    cannotModbus: "write Modbus registers or other inverter settings;",
+    cannotMode: "change inverter Mode;",
+    cannotOwner: "acquire control ownership;",
+    cannotGrant: "grant physical execution;",
+    cannotHandover: "hand over control between automations;",
+    cannotLegacy: "start or stop existing automations;",
+    cannotActive: "perform Active execution.",
+    safetyScope:
+      "It reads bounded summaries and controls only its five UI settings.",
+    technicalTitle: "Technical details",
+    arbitrationRevision: "Arbitration revision",
+    executionPhase: "Execution phase",
+    reasonCode: "Reason code",
+    profileEffects: "Profile effects applied",
+    candidateRevisions: "Candidate revisions",
+    notApplied: "Not applied",
+    dataOrPlan: "Data or plan",
+    readiness: "Readiness",
+    supervisorSelection: "Supervisor selection",
+    requestedAction: "Requested action",
+    actionWarning:
+      "Requested action describes a logical result. It does not confirm physical execution.",
+    available: "available",
+    notAvailable: "unavailable",
+    upToDate: "current",
+    outOfDate: "stale",
+    notReady: "not ready",
+    notSelected: "not selected",
+    none: "None",
+    unavailable: "Unavailable",
+    unknownReason: "Unknown reason",
+    off: "Off",
+    shadow: "Shadow",
+    balanced: "Balanced",
+    maximumProfit: "Maximum Profit",
+    highReserveWinter: "High Reserve — Winter",
+    shadowIdle: "Observation — no selection",
+    shadowSelected: "Observation — policy selected",
+    blocked: "Blocked",
+    idle: "Idle",
+    observedActiveLatched: "Observed active commitment",
+    phaseBlocked: "Blocked",
+    rce: "RCE",
+    tariff: "Tariff charging",
+    rcm: "RCEm",
+    actionNone: "None",
+    actionRceExport: "RCE export",
+    actionTariffCharge: "Tariff charging",
+    actionRcmAbsorbPv: "RCEm PV absorption",
+    actionRcmLimitExport: "RCEm export limiting",
+    actionRcmPreDischarge: "RCEm pre-discharge",
+    unknownAction: "Unknown action",
+    selected: "Selected",
+    ready: "Ready",
+    noNeed: "No need",
+    notAllowed: "Not allowed",
+    automationDisabled: "Automation disabled",
+    dataUnavailable: "Data unavailable",
+    waitingCurrentPlan: "Waiting for a current plan",
+    candidateBlocked: "Blocked",
+    activeCommitment: "Active commitment",
+    permission: "Permission",
+    automation: "Automation",
+    dataPlan: "Data/plan",
+    startReadiness: "Start",
+    continuationReadiness: "Continuation",
+    reason: "Reason",
+    action: "Action",
+    yes: "yes",
+    no: "no",
+    enabled: "on",
+    disabled: "off",
+    current: "ready",
+    waiting: "waiting",
+    unverified: "Unverified",
+    authorizedFalse: "Not authorized — observation mode",
+    authorizationUnverified:
+      "Unverified — panel remains observation only",
+    unchanged: "Unchanged",
+    profileLimitation:
+      "Profiles currently affect only the observation decision and their physical effects are not yet applied.",
+    controlUnavailable: "Control unavailable",
+    serviceError: "Could not save the setting",
+    physicalAuthority: "The Supervisor has no physical authority over the inverter.",
+    physicalControl: "Physical control",
+    physicalControlValue: "No — observation only",
+    noInverterControl: "No inverter control",
+    heroOffResult:
+      "The Supervisor is off. Existing automations continue to work unchanged.",
+    heroIdleResult:
+      "The Supervisor is analyzing the situation. There is currently no logical winner.",
+    heroSelectedResult:
+      "Logically selected: {policy}. Nothing was physically started.",
+    heroBlockedResult:
+      "A reliable decision cannot currently be made. See the reason below.",
+    heroUnavailableResult: "Data required for evaluation is unavailable.",
+    permissionContext:
+      "Permission only allows the result to be considered in Shadow analysis.",
+    logicallySelected: "Logically selected",
+    notConsidered: "Not considered",
+    knowledgeTitle: "Learn how the Supervisor works",
+    modesProfilesDetailsTitle: "Modes and profiles",
+    modesProfilesDetailsHint: "OFF, Shadow, and what the profile means.",
+    permissionsDetailsHint: "What permission admits to Shadow analysis.",
+    resultDetailsHint: "Meaning of states and logical selection.",
+    safetyDetailsHint: "Control boundaries and safe scope.",
+    technicalDetailsHint: "Bounded decision diagnostics.",
+    safetyStrip:
+      "The Supervisor does not control the inverter. It only shows the analysis result and can change only its five UI settings.",
+  }),
+});
+
+const HOYMILES_SUPERVISOR_POLICY_ICONS = Object.freeze({
+  rce: "mdi:chart-line",
+  tariff: "mdi:battery-clock-outline",
+  rcm: "mdi:transmission-tower",
+});
+
+function hoymilesSupervisorIsRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hoymilesSupervisorReason(code, language) {
+  if (typeof code !== "string" || !code) {
+    return HOYMILES_SUPERVISOR_COPY[language].none;
+  }
+  return (
+    HOYMILES_SUPERVISOR_REASON_COPY[code]?.[language] ||
+    HOYMILES_SUPERVISOR_COPY[language].unknownReason
+  );
+}
+
+function hoymilesNormalizeSupervisor(sensor) {
+  const unavailableStates = new Set(["", "unknown", "unavailable"]);
+  const rawState = String(sensor?.state ?? "").trim().toLowerCase();
+  const attributes = hoymilesSupervisorIsRecord(sensor?.attributes)
+    ? sensor.attributes
+    : null;
+  const candidateInput = attributes?.candidate_summaries;
+  const collectionValid =
+    Array.isArray(candidateInput) && candidateInput.length <= 3;
+  const candidates = new Map();
+  const duplicates = new Set();
+  if (collectionValid) {
+    for (const candidate of candidateInput) {
+      if (!hoymilesSupervisorIsRecord(candidate)) continue;
+      const policyId = candidate.policy_id;
+      if (!HOYMILES_SUPERVISOR_POLICY_IDS.includes(policyId)) continue;
+      if (candidates.has(policyId)) {
+        duplicates.add(policyId);
+        candidates.delete(policyId);
+      } else if (!duplicates.has(policyId)) {
+        candidates.set(policyId, candidate);
+      }
+    }
+  }
+  for (const policyId of duplicates) candidates.delete(policyId);
+
+  const requestedSelection = HOYMILES_SUPERVISOR_POLICY_IDS.includes(
+    attributes?.selected_policy
+  )
+    ? attributes.selected_policy
+    : null;
+  const selectedPolicy =
+    rawState === "shadow_selected" &&
+    requestedSelection &&
+    candidates.has(requestedSelection)
+      ? requestedSelection
+      : null;
+  const knownState = ["off", "shadow_idle", "shadow_selected", "blocked"].includes(
+    rawState
+  );
+  const selectionConsistent =
+    rawState !== "shadow_selected" || selectedPolicy !== null;
+  const malformed =
+    !sensor ||
+    unavailableStates.has(rawState) ||
+    !knownState ||
+    !attributes ||
+    !collectionValid ||
+    !selectionConsistent;
+  const state = malformed ? "unavailable" : rawState;
+  const tone =
+    state === "off"
+      ? "off"
+      : state === "shadow_idle"
+        ? "shadow-idle"
+        : state === "shadow_selected"
+          ? "shadow-selected"
+          : state === "blocked"
+            ? "blocked"
+            : "unavailable";
+  return {
+    state,
+    tone,
+    attributes: attributes || {},
+    candidates: HOYMILES_SUPERVISOR_POLICY_IDS.map((policyId) => ({
+      policyId,
+      candidate:
+        collectionValid && !duplicates.has(policyId)
+          ? candidates.get(policyId) || null
+          : null,
+    })),
+    selectedPolicy,
+    selectionReason:
+      typeof attributes?.selection_reason === "string"
+        ? attributes.selection_reason
+        : null,
+    blockedReason:
+      typeof attributes?.execution_blocked_reason === "string"
+        ? attributes.execution_blocked_reason
+        : null,
+    phase:
+      typeof attributes?.execution_phase === "string"
+        ? attributes.execution_phase
+        : null,
+    authorizationFalse: attributes?.supervisor_execution_authorized === false,
+    legacyUnchanged: attributes?.legacy_execution_unchanged === true,
+    profileEffectsVerified:
+      Array.isArray(attributes?.profile_effects_applied) &&
+      attributes.profile_effects_applied.length === 0,
+  };
+}
+
+const HOYMILES_EMS_SUPERVISOR_CSS = `
+  :host {
+    container-type: inline-size;
+    display: block;
+    /* SUPERVISOR_SEMANTIC_PALETTE_REV28 — the only raw color block. */
+    --supervisor-cyan: #43d5ff;
+    --supervisor-blue: #4c91ff;
+    --supervisor-violet: #9b7cff;
+    --supervisor-rce: #f2b84b;
+    --supervisor-tariff: #49a5ff;
+    --supervisor-rcm: #b07cff;
+    --supervisor-ready: #47df91;
+    --supervisor-warning: #f1b84b;
+    --supervisor-error: #ff647c;
+    --supervisor-deep: #081425;
+    --supervisor-neutral: #8491a6;
+    --supervisor-on-deep: #f5f9ff;
+    --hoymiles-aurora-accent: var(--supervisor-cyan);
+    --supervisor-tone: var(--supervisor-neutral);
+    --supervisor-tone-secondary: var(--supervisor-blue);
+    --supervisor-muted: var(--hoymiles-aurora-muted, var(--secondary-text-color));
+    --supervisor-base: var(--card-background-color, var(--primary-background-color));
+    --supervisor-page-base: color-mix(in srgb, var(--primary-background-color, var(--supervisor-deep)) 91%, var(--supervisor-blue) 9%);
+    --supervisor-page-cyan-glow: color-mix(in srgb, var(--supervisor-cyan) 13%, transparent);
+    --supervisor-page-violet-glow: color-mix(in srgb, var(--supervisor-violet) 11%, transparent);
+    --supervisor-surface: color-mix(in srgb, var(--supervisor-base) 91%, var(--supervisor-blue) 9%);
+    --supervisor-surface-strong: color-mix(in srgb, var(--supervisor-base) 95%, var(--supervisor-cyan) 5%);
+    --supervisor-border: color-mix(in srgb, var(--supervisor-tone) 30%, var(--divider-color));
+    --supervisor-soft: color-mix(in srgb, var(--supervisor-tone) 12%, transparent);
+  }
+  * { box-sizing: border-box; }
+  ha-card {
+    background:
+      radial-gradient(circle at 12% 0%, var(--supervisor-page-cyan-glow), transparent 34%),
+      radial-gradient(circle at 88% 3%, var(--supervisor-page-violet-glow), transparent 38%),
+      linear-gradient(155deg, var(--supervisor-page-base), color-mix(in srgb, var(--supervisor-page-base) 93%, var(--supervisor-violet) 7%));
+    border: 1px solid color-mix(in srgb, var(--supervisor-cyan) 22%, var(--divider-color));
+    border-radius: 24px;
+    box-shadow: var(--hoymiles-aurora-shadow);
+    color: var(--hoymiles-aurora-text);
+    display: block;
+    overflow: clip;
+  }
+  .ems-supervisor,
+  .supervisor-panel {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  .supervisor-panel {
+    isolation: isolate;
+    overflow: clip;
+    position: relative;
+  }
+  .supervisor-panel[data-tone="shadow-idle"] {
+    --supervisor-tone: var(--supervisor-cyan);
+    --supervisor-tone-secondary: var(--supervisor-blue);
+  }
+  .supervisor-panel[data-tone="shadow-selected"] {
+    --supervisor-tone: var(--supervisor-violet);
+    --supervisor-tone-secondary: var(--supervisor-cyan);
+  }
+  .supervisor-panel[data-tone="blocked"] {
+    --supervisor-tone: var(--supervisor-warning);
+    --supervisor-tone-secondary: var(--supervisor-rce);
+  }
+  .supervisor-panel[data-tone="unavailable"] {
+    --supervisor-tone: var(--supervisor-error);
+    --supervisor-tone-secondary: var(--supervisor-error);
+  }
+  .supervisor-backdrop,
+  .supervisor-blob,
+  .supervisor-points,
+  .supervisor-vignette {
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+  }
+  .supervisor-backdrop { overflow: hidden; z-index: 0; }
+  .supervisor-blob {
+    height: 62%;
+    opacity: .2;
+    width: 62%;
+    will-change: transform, opacity;
+  }
+  .supervisor-blob-one {
+    animation: supervisor-aurora-one 24s ease-in-out infinite alternate;
+    background: radial-gradient(circle at 45% 45%, color-mix(in srgb, var(--supervisor-cyan) 62%, transparent), transparent 68%);
+    left: -18%;
+    top: -17%;
+  }
+  .supervisor-blob-two {
+    animation: supervisor-aurora-two 28s ease-in-out infinite alternate;
+    background: conic-gradient(from 90deg, transparent, color-mix(in srgb, var(--supervisor-violet) 45%, transparent), color-mix(in srgb, var(--supervisor-blue) 26%, transparent), transparent 62%);
+    left: auto;
+    right: -18%;
+    top: 10%;
+  }
+  .supervisor-blob-three {
+    animation: supervisor-aurora-three 22s ease-in-out infinite alternate;
+    background: radial-gradient(circle, color-mix(in srgb, var(--supervisor-violet) 34%, transparent), color-mix(in srgb, var(--supervisor-cyan) 12%, transparent), transparent 70%);
+    bottom: -22%;
+    left: 20%;
+    top: auto;
+  }
+  .supervisor-points {
+    background-image:
+      radial-gradient(circle, color-mix(in srgb, var(--supervisor-cyan) 28%, transparent) 1px, transparent 1.3px),
+      linear-gradient(color-mix(in srgb, var(--supervisor-blue) 12%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--supervisor-violet) 10%, transparent) 1px, transparent 1px);
+    background-position: 0 0, 0 0, 0 0;
+    background-size: 26px 26px, 104px 104px, 104px 104px;
+    opacity: .2;
+  }
+  .supervisor-vignette {
+    background: radial-gradient(circle at center, transparent 42%, color-mix(in srgb, var(--supervisor-page-base) 82%, transparent));
+  }
+  .supervisor-content {
+    display: grid;
+    gap: 18px;
+    margin: 0 auto;
+    max-width: 1440px;
+    min-width: 0;
+    padding: clamp(14px, 2.4vw, 34px);
+    position: relative;
+    z-index: 1;
+  }
+  .supervisor-surface {
+    background: color-mix(in srgb, var(--card-background-color, var(--ha-card-background)) 88%, transparent);
+    border: 1px solid color-mix(in srgb, var(--supervisor-tone) 18%, var(--hoymiles-aurora-border));
+    border-radius: 18px;
+    box-shadow: var(--hoymiles-aurora-shadow);
+    min-width: 0;
+    padding: clamp(14px, 2vw, 22px);
+  }
+  .supervisor-hero {
+    align-items: stretch;
+    background:
+      radial-gradient(circle at 95% 5%, color-mix(in srgb, var(--supervisor-tone) 15%, transparent), transparent 48%),
+      color-mix(in srgb, var(--card-background-color, var(--ha-card-background)) 91%, transparent);
+    display: grid;
+    gap: 22px;
+    grid-template-columns: minmax(0, 1.2fr) minmax(290px, .8fr);
+  }
+  .supervisor-heading {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+  }
+  .supervisor-icon {
+    color: var(--supervisor-tone);
+    flex: 0 0 auto;
+    height: 28px;
+    width: 28px;
+  }
+  .supervisor-title {
+    color: var(--hoymiles-aurora-text);
+    font-size: clamp(25px, 3vw, 40px);
+    font-weight: 720;
+    letter-spacing: -.035em;
+    line-height: 1.05;
+    margin: 0;
+  }
+  .supervisor-scope,
+  .supervisor-policy-badge,
+  .supervisor-selected-marker,
+  .supervisor-limitation-status {
+    align-items: center;
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    line-height: 1.2;
+    padding: 6px 10px;
+  }
+  .supervisor-scope {
+    background: color-mix(in srgb, var(--supervisor-tone) 13%, transparent);
+    border: 1px solid color-mix(in srgb, var(--supervisor-tone) 38%, transparent);
+    color: color-mix(in srgb, var(--supervisor-tone) 78%, var(--hoymiles-aurora-text));
+    margin-top: 16px;
+  }
+  .supervisor-hero-intro,
+  .supervisor-section-intro,
+  .supervisor-info-description,
+  .supervisor-callout {
+    color: var(--hoymiles-aurora-muted);
+    line-height: 1.55;
+  }
+  .supervisor-hero-intro { font-size: 14px; margin: 16px 0 0; max-width: 72ch; }
+  .supervisor-hero-state {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+  }
+  .supervisor-hero-state-item {
+    background: color-mix(in srgb, var(--card-background-color, var(--ha-card-background)) 86%, transparent);
+    border: 1px solid var(--hoymiles-aurora-border);
+    border-radius: 13px;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding: 11px 13px;
+  }
+  .supervisor-hero-state-label,
+  .supervisor-hero-state-value { font-size: 12px; line-height: 1.35; margin: 0; }
+  .supervisor-hero-state-label { color: var(--hoymiles-aurora-muted); }
+  .supervisor-hero-state-value { color: var(--hoymiles-aurora-text); font-weight: 700; text-align: right; }
+  .supervisor-live-grid {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+  }
+  .supervisor-section-title {
+    color: var(--hoymiles-aurora-text);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -.015em;
+    margin: 0 0 14px;
+  }
+  .supervisor-controls,
+  .supervisor-summary { display: grid; gap: 9px; margin: 0; }
+  .supervisor-control,
+  .supervisor-summary-row {
+    align-items: center;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(150px, .85fr) minmax(0, 1.15fr);
+    min-width: 0;
+  }
+  .supervisor-control-label,
+  .supervisor-summary-label,
+  .supervisor-summary-value { font-size: 12px; line-height: 1.35; margin: 0; }
+  .supervisor-control-label,
+  .supervisor-summary-label { color: var(--hoymiles-aurora-muted); font-weight: 620; }
+  .supervisor-summary-value { color: var(--hoymiles-aurora-text); font-weight: 600; }
+  .supervisor-control-field { display: grid; gap: 4px; justify-items: stretch; min-width: 0; }
+  .supervisor-select {
+    appearance: auto;
+    background: color-mix(in srgb, var(--card-background-color, var(--ha-card-background)) 91%, var(--supervisor-tone) 4%);
+    border: 1px solid color-mix(in srgb, var(--supervisor-tone) 28%, var(--divider-color));
+    border-radius: 11px;
+    color: var(--primary-text-color);
+    font: inherit;
+    min-height: 44px;
+    min-width: 0;
+    padding: 8px 10px;
+    width: 100%;
+  }
+  .supervisor-select:disabled,
+  .supervisor-switch:disabled { cursor: not-allowed; opacity: .55; }
+  .supervisor-select:focus-visible,
+  .supervisor-switch:focus-visible,
+  .supervisor-technical-summary:focus-visible {
+    outline: 2px solid var(--supervisor-tone);
+    outline-offset: 2px;
+  }
+  .supervisor-switch {
+    align-items: center;
+    appearance: none;
+    background: color-mix(in srgb, var(--hoymiles-aurora-offline) 28%, transparent);
+    border: 1px solid color-mix(in srgb, var(--hoymiles-aurora-offline) 42%, var(--divider-color));
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    height: 44px;
+    justify-self: end;
+    padding: 10px 3px;
+    transition: background .16s ease, border-color .16s ease;
+    width: 52px;
+  }
+  .supervisor-switch[aria-checked="true"] {
+    background: color-mix(in srgb, var(--hoymiles-aurora-accent) 50%, transparent);
+    border-color: color-mix(in srgb, var(--hoymiles-aurora-accent) 70%, var(--divider-color));
+  }
+  .supervisor-switch-thumb {
+    background: var(--primary-text-color);
+    border-radius: 50%;
+    box-shadow: var(--hoymiles-aurora-shadow);
+    display: block;
+    height: 22px;
+    transform: translateX(0);
+    transition: transform .16s ease;
+    width: 22px;
+  }
+  .supervisor-switch[aria-checked="true"] .supervisor-switch-thumb { transform: translateX(22px); }
+  .supervisor-control-error { color: var(--hoymiles-aurora-error); font-size: 11px; }
+  .supervisor-control-error:empty { display: none; }
+  .supervisor-limitation,
+  .supervisor-callout {
+    background: color-mix(in srgb, var(--hoymiles-aurora-accent) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--hoymiles-aurora-accent) 20%, var(--divider-color));
+    border-radius: 12px;
+    margin: 14px 0 0;
+    padding: 11px 12px;
+  }
+  .supervisor-limitation { align-items: flex-start; color: var(--hoymiles-aurora-muted); display: flex; font-size: 12px; gap: 8px; line-height: 1.45; }
+  .supervisor-limitation-icon { color: var(--hoymiles-aurora-accent); flex: 0 0 auto; height: 18px; width: 18px; }
+  .supervisor-limitation-text { flex: 1 1 auto; min-width: 0; }
+  .supervisor-limitation-status { color: var(--hoymiles-aurora-warn); flex: 0 0 auto; }
+  .supervisor-policy-section { min-width: 0; }
+  .supervisor-policies {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
+  }
+  .supervisor-policy,
+  .supervisor-info-card {
+    background: color-mix(in srgb, var(--card-background-color, var(--ha-card-background)) 84%, transparent);
+    border: 1px solid var(--hoymiles-aurora-border);
+    border-radius: 14px;
+    min-width: 0;
+    padding: 13px;
+  }
+  .supervisor-policy[data-tone="selected"] { border-color: color-mix(in srgb, var(--hoymiles-aurora-accent) 58%, var(--divider-color)); }
+  .supervisor-policy[data-tone="blocked"],
+  .supervisor-policy[data-tone="waiting"] { border-color: color-mix(in srgb, var(--hoymiles-aurora-warn) 46%, var(--divider-color)); }
+  .supervisor-policy[data-tone="unavailable"] { border-color: color-mix(in srgb, var(--hoymiles-aurora-error) 38%, var(--divider-color)); }
+  .supervisor-policy-top { align-items: start; display: flex; gap: 8px; justify-content: space-between; min-width: 0; }
+  .supervisor-policy-name,
+  .supervisor-info-title { color: var(--hoymiles-aurora-text); font-size: 13px; font-weight: 700; margin: 0; }
+  .supervisor-policy-badges { display: flex; flex: 0 1 auto; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+  .supervisor-policy-badge { color: var(--hoymiles-aurora-muted); }
+  .supervisor-selected-marker { color: var(--hoymiles-aurora-accent); }
+  .supervisor-policy-facts { display: grid; gap: 6px; margin-top: 12px; }
+  .supervisor-policy-fact { color: var(--hoymiles-aurora-muted); display: block; font-size: 11px; line-height: 1.4; }
+  .supervisor-policy-fact strong { color: var(--hoymiles-aurora-text); font-weight: 620; }
+  .supervisor-policy-action,
+  .supervisor-policy-reason,
+  .supervisor-policy-action-warning { font-size: 11px; line-height: 1.42; margin: 8px 0 0; overflow-wrap: anywhere; }
+  .supervisor-policy-action { color: var(--hoymiles-aurora-text); font-weight: 620; }
+  .supervisor-policy-reason,
+  .supervisor-policy-action-warning { color: var(--hoymiles-aurora-muted); }
+  .supervisor-flow {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+  }
+  .supervisor-flow-step {
+    align-items: center;
+    background: color-mix(in srgb, var(--supervisor-tone) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--supervisor-tone) 22%, var(--divider-color));
+    border-radius: 12px;
+    color: var(--hoymiles-aurora-text);
+    display: flex;
+    font-size: 11px;
+    justify-content: center;
+    line-height: 1.4;
+    min-height: 64px;
+    padding: 9px;
+    text-align: center;
+  }
+  .supervisor-doc-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; }
+  .supervisor-doc-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .supervisor-info-description { font-size: 12px; margin: 8px 0 0; }
+  .supervisor-info-disabled { border-style: dashed; opacity: 1; }
+  .supervisor-info-disabled .supervisor-info-description { color: var(--primary-text-color); }
+  .supervisor-section-intro { font-size: 13px; margin: 0 0 12px; }
+  .supervisor-callout { font-size: 12px; }
+  .supervisor-callout-warning { border-color: color-mix(in srgb, var(--hoymiles-aurora-warn) 32%, var(--divider-color)); }
+  .supervisor-limit-list { display: grid; gap: 7px; margin: 14px 0 0; padding-left: 20px; }
+  .supervisor-limit-item { color: var(--hoymiles-aurora-muted); font-size: 12px; line-height: 1.45; }
+  .supervisor-technical { padding: 0; }
+  .supervisor-technical-summary { color: var(--hoymiles-aurora-text); cursor: pointer; font-size: 15px; font-weight: 700; min-height: 44px; padding: 15px 18px; }
+  .supervisor-technical-values { display: grid; gap: 8px; margin: 0; padding: 0 18px 18px; }
+  .supervisor-technical-row { display: grid; gap: 12px; grid-template-columns: minmax(150px, .7fr) minmax(0, 1.3fr); min-width: 0; }
+  .supervisor-technical-label,
+  .supervisor-technical-value { font-size: 11px; line-height: 1.4; margin: 0; }
+  .supervisor-technical-label { color: var(--hoymiles-aurora-muted); }
+  .supervisor-technical-value { color: var(--hoymiles-aurora-text); overflow-wrap: anywhere; }
+  @keyframes supervisor-aurora-one { to { opacity: .3; transform: translate3d(9%, 8%, 0) scale(1.08); } }
+  @keyframes supervisor-aurora-two { to { opacity: .12; transform: translate3d(-10%, 7%, 0) rotate(12deg); } }
+  @keyframes supervisor-aurora-three { to { opacity: .28; transform: translate3d(6%, -9%, 0) scale(.94); } }
+  @media (prefers-reduced-motion: reduce) {
+    .supervisor-blob { animation: none; }
+    .supervisor-select,
+    .supervisor-switch,
+    .supervisor-switch-thumb { transition: none; }
+  }
+  @container (max-width: 900px) {
+    .supervisor-hero,
+    .supervisor-live-grid { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-policies,
+    .supervisor-doc-grid-three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .supervisor-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .supervisor-flow-step:last-child { grid-column: 1 / -1; }
+  }
+  @container (max-width: 620px) {
+    ha-card { border-radius: 18px; }
+    .supervisor-content { gap: 12px; padding: 11px; }
+    .supervisor-surface { border-radius: 15px; padding: 13px; }
+    .supervisor-hero-state-item,
+    .supervisor-control,
+    .supervisor-summary-row,
+    .supervisor-technical-row { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-hero-state-value { text-align: left; }
+    .supervisor-control-field,
+    .supervisor-select { width: 100%; }
+    .supervisor-switch { justify-self: start; }
+    .supervisor-policies,
+    .supervisor-doc-grid,
+    .supervisor-doc-grid-three,
+    .supervisor-flow { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-flow-step:last-child { grid-column: auto; }
+    .supervisor-policy-badges { justify-content: flex-start; }
+    .supervisor-limitation { flex-wrap: wrap; }
+    .supervisor-technical { padding: 0; }
+  }
+  @container (max-width: 390px) {
+    .supervisor-content { padding: 8px; }
+    .supervisor-surface { padding: 11px 10px; }
+    .supervisor-title { font-size: 24px; }
+    .supervisor-heading { align-items: flex-start; }
+    .supervisor-policy-top { display: grid; }
+    .supervisor-technical { padding: 0; }
+    .supervisor-technical-summary { padding: 13px 11px; }
+    .supervisor-technical-values { padding: 0 11px 13px; }
+  }
+
+  /* Revision 28 hierarchy and Aurora presentation. */
+  .supervisor-surface {
+    background: linear-gradient(145deg, color-mix(in srgb, var(--supervisor-surface-strong) 96%, transparent), color-mix(in srgb, var(--supervisor-surface) 91%, transparent));
+    border-color: color-mix(in srgb, var(--supervisor-tone) 24%, var(--divider-color));
+    box-shadow: 0 18px 48px color-mix(in srgb, var(--supervisor-deep) 18%, transparent), inset 0 1px color-mix(in srgb, var(--supervisor-cyan) 8%, transparent);
+  }
+  .supervisor-hero {
+    background:
+      radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--supervisor-cyan) 15%, transparent), transparent 38%),
+      radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--supervisor-violet) 14%, transparent), transparent 44%),
+      linear-gradient(140deg, color-mix(in srgb, var(--supervisor-surface-strong) 97%, transparent), color-mix(in srgb, var(--supervisor-surface) 91%, var(--supervisor-blue) 9%));
+    gap: clamp(22px, 3vw, 42px);
+    grid-template-columns: minmax(0, 1.08fr) minmax(330px, .92fr);
+    min-height: 286px;
+    overflow: hidden;
+    padding: clamp(20px, 3vw, 38px);
+    position: relative;
+  }
+  .supervisor-hero::before {
+    background: linear-gradient(90deg, var(--supervisor-cyan), var(--supervisor-blue), var(--supervisor-violet));
+    content: "";
+    height: 3px;
+    inset: 0 0 auto;
+    opacity: .84;
+    position: absolute;
+  }
+  .supervisor-hero-copy { align-content: center; display: grid; min-width: 0; }
+  .supervisor-icon { color: var(--supervisor-tone); height: 34px; width: 34px; }
+  .supervisor-scope {
+    background: color-mix(in srgb, var(--supervisor-cyan) 11%, transparent);
+    border-color: color-mix(in srgb, var(--supervisor-cyan) 42%, transparent);
+    color: color-mix(in srgb, var(--supervisor-cyan) 72%, var(--primary-text-color));
+    margin-top: 13px;
+  }
+  .supervisor-authority {
+    align-items: center;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--supervisor-cyan) 14%, transparent), color-mix(in srgb, var(--supervisor-blue) 7%, transparent));
+    border: 1px solid color-mix(in srgb, var(--supervisor-cyan) 42%, var(--divider-color));
+    border-left: 4px solid var(--supervisor-cyan);
+    border-radius: 13px;
+    color: var(--primary-text-color);
+    display: flex;
+    font-size: 14px;
+    font-weight: 720;
+    gap: 9px;
+    line-height: 1.45;
+    margin: 18px 0 0;
+    max-width: 68ch;
+    padding: 12px 14px;
+  }
+  .supervisor-authority ha-icon,
+  .supervisor-no-control ha-icon,
+  .supervisor-safety-strip ha-icon {
+    color: var(--supervisor-cyan);
+    flex: 0 0 auto;
+    height: 21px;
+    width: 21px;
+  }
+  .supervisor-quick-facts {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 17px 0 0;
+  }
+  .supervisor-quick-fact {
+    background: color-mix(in srgb, var(--supervisor-surface-strong) 89%, transparent);
+    border: 1px solid color-mix(in srgb, var(--supervisor-blue) 19%, var(--divider-color));
+    border-radius: 12px;
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    padding: 10px 11px;
+  }
+  .supervisor-quick-fact[data-fact="physical"] {
+    background: color-mix(in srgb, var(--supervisor-cyan) 10%, var(--supervisor-surface-strong));
+    border-color: color-mix(in srgb, var(--supervisor-cyan) 42%, var(--divider-color));
+  }
+  .supervisor-quick-fact-label,
+  .supervisor-quick-fact-value { font-size: 11px; line-height: 1.35; margin: 0; }
+  .supervisor-quick-fact-label { color: var(--supervisor-muted); font-weight: 620; }
+  .supervisor-quick-fact-value { color: var(--primary-text-color); font-size: 12px; font-weight: 720; overflow-wrap: anywhere; }
+  .supervisor-quick-fact[data-fact="physical"] .supervisor-quick-fact-value { color: color-mix(in srgb, var(--supervisor-cyan) 74%, var(--primary-text-color)); }
+  .supervisor-hero-core {
+    align-content: center;
+    background:
+      radial-gradient(circle at 50% 43%, color-mix(in srgb, var(--supervisor-tone) 20%, transparent), transparent 38%),
+      linear-gradient(150deg, color-mix(in srgb, var(--supervisor-deep) 86%, var(--supervisor-blue) 14%), color-mix(in srgb, var(--supervisor-deep) 86%, var(--supervisor-violet) 14%));
+    border: 1px solid color-mix(in srgb, var(--supervisor-tone) 40%, transparent);
+    border-radius: 22px;
+    box-shadow: 0 22px 54px color-mix(in srgb, var(--supervisor-deep) 34%, transparent), inset 0 0 36px color-mix(in srgb, var(--supervisor-tone) 8%, transparent);
+    color: color-mix(in srgb, var(--supervisor-cyan) 16%, var(--supervisor-on-deep));
+    display: grid;
+    gap: 13px;
+    min-height: 240px;
+    min-width: 0;
+    overflow: hidden;
+    padding: 17px;
+    position: relative;
+  }
+  .supervisor-core-diagram { align-items: center; display: grid; gap: 13px; justify-items: center; min-width: 0; position: relative; }
+  .supervisor-core-inputs { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; position: relative; z-index: 2; }
+  .supervisor-policy-chip {
+    --policy-accent: var(--supervisor-cyan);
+    align-items: center;
+    background: color-mix(in srgb, var(--policy-accent) 14%, var(--supervisor-deep));
+    border: 1px solid color-mix(in srgb, var(--policy-accent) 55%, transparent);
+    border-radius: 999px;
+    color: color-mix(in srgb, var(--policy-accent) 38%, var(--supervisor-on-deep));
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 720;
+    gap: 5px;
+    letter-spacing: .025em;
+    min-height: 30px;
+    padding: 6px 9px;
+  }
+  .supervisor-policy-chip[data-policy="rce"],
+  .supervisor-policy[data-policy="rce"],
+  .supervisor-control[data-policy="rce"] { --policy-accent: var(--supervisor-rce); }
+  .supervisor-policy-chip[data-policy="tariff"],
+  .supervisor-policy[data-policy="tariff"],
+  .supervisor-control[data-policy="tariff"] { --policy-accent: var(--supervisor-tariff); }
+  .supervisor-policy-chip[data-policy="rcm"],
+  .supervisor-policy[data-policy="rcm"],
+  .supervisor-control[data-policy="rcm"] { --policy-accent: var(--supervisor-rcm); }
+  .supervisor-policy-chip ha-icon { color: var(--policy-accent); height: 15px; width: 15px; }
+  .supervisor-core-orb {
+    align-items: center;
+    background:
+      radial-gradient(circle at 38% 32%, color-mix(in srgb, var(--supervisor-cyan) 56%, transparent), transparent 26%),
+      linear-gradient(145deg, color-mix(in srgb, var(--supervisor-blue) 64%, var(--supervisor-deep)), color-mix(in srgb, var(--supervisor-violet) 68%, var(--supervisor-deep)));
+    border: 1px solid color-mix(in srgb, var(--supervisor-cyan) 68%, transparent);
+    border-radius: 50%;
+    box-shadow: 0 0 28px color-mix(in srgb, var(--supervisor-tone) 34%, transparent), inset 0 0 18px color-mix(in srgb, var(--supervisor-cyan) 22%, transparent);
+    display: flex;
+    height: 66px;
+    justify-content: center;
+    position: relative;
+    width: 66px;
+    z-index: 2;
+  }
+  .supervisor-core-orb ha-icon { color: var(--supervisor-on-deep); height: 31px; width: 31px; }
+  .supervisor-core-ring {
+    animation: supervisor-core-drift 26s linear infinite;
+    border: 1px solid color-mix(in srgb, var(--supervisor-tone) 32%, transparent);
+    border-radius: 50%;
+    height: 112px;
+    position: absolute;
+    width: 112px;
+  }
+  .supervisor-core-ring-two {
+    animation-direction: reverse;
+    animation-duration: 22s;
+    border-color: color-mix(in srgb, var(--supervisor-violet) 28%, transparent);
+    height: 148px;
+    width: 148px;
+  }
+  .supervisor-hero-result {
+    background: color-mix(in srgb, var(--supervisor-tone) 10%, var(--supervisor-deep));
+    border: 1px solid color-mix(in srgb, var(--supervisor-tone) 44%, transparent);
+    border-radius: 13px;
+    display: grid;
+    gap: 6px;
+    padding: 10px 12px;
+    position: relative;
+    z-index: 2;
+  }
+  .supervisor-hero-result-badge {
+    align-items: center;
+    background: color-mix(in srgb, var(--supervisor-tone) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--supervisor-tone) 54%, transparent);
+    border-radius: 999px;
+    color: color-mix(in srgb, var(--supervisor-tone) 42%, var(--supervisor-on-deep));
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 760;
+    justify-self: start;
+    letter-spacing: .04em;
+    padding: 5px 8px;
+  }
+  .supervisor-hero-result-text { color: var(--supervisor-on-deep); font-size: 12px; font-weight: 620; line-height: 1.45; margin: 0; }
+  .supervisor-no-control { align-items: center; color: color-mix(in srgb, var(--supervisor-cyan) 45%, var(--supervisor-on-deep)); display: flex; font-size: 11px; font-weight: 720; gap: 7px; justify-content: center; letter-spacing: .02em; }
+  .supervisor-live-grid { align-items: start; }
+  .supervisor-control {
+    --policy-accent: var(--supervisor-cyan);
+    background: color-mix(in srgb, var(--supervisor-surface-strong) 92%, transparent);
+    border: 1px solid color-mix(in srgb, var(--policy-accent) 15%, var(--divider-color));
+    border-radius: 12px;
+    min-height: 54px;
+    padding: 6px 8px 6px 11px;
+  }
+  .supervisor-control-label { align-items: center; color: var(--primary-text-color); display: flex; gap: 8px; }
+  .supervisor-control-icon { color: var(--policy-accent); flex: 0 0 auto; height: 19px; width: 19px; }
+  .supervisor-switch { --control-accent: var(--policy-accent); }
+  .supervisor-switch[aria-checked="true"] {
+    background: color-mix(in srgb, var(--control-accent) 56%, transparent);
+    border-color: color-mix(in srgb, var(--control-accent) 76%, var(--divider-color));
+    box-shadow: 0 0 16px color-mix(in srgb, var(--control-accent) 21%, transparent);
+  }
+  .supervisor-permission-context {
+    background: color-mix(in srgb, var(--supervisor-cyan) 8%, transparent);
+    border-color: color-mix(in srgb, var(--supervisor-cyan) 28%, var(--divider-color));
+  }
+  .supervisor-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .supervisor-summary-row {
+    align-content: start;
+    background: color-mix(in srgb, var(--supervisor-surface-strong) 90%, transparent);
+    border: 1px solid color-mix(in srgb, var(--supervisor-blue) 14%, var(--divider-color));
+    border-radius: 12px;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 68px;
+    padding: 10px 11px;
+  }
+  .supervisor-summary-row[data-priority="prominent"] { border-color: color-mix(in srgb, var(--supervisor-tone) 26%, var(--divider-color)); }
+  .supervisor-summary-row[data-priority="secondary"] { background: color-mix(in srgb, var(--supervisor-surface) 83%, transparent); min-height: 56px; opacity: .79; }
+  .supervisor-summary-row[data-fact="decisionReason"] { grid-column: 1 / -1; }
+  .supervisor-summary-row[data-fact="state"] .supervisor-summary-value,
+  .supervisor-summary-row[data-fact="physicalExecution"] .supervisor-summary-value,
+  .supervisor-summary-row[data-fact="selectedPolicy"] .supervisor-summary-value {
+    align-items: center;
+    background: color-mix(in srgb, var(--fact-accent, var(--supervisor-tone)) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--fact-accent, var(--supervisor-tone)) 42%, transparent);
+    border-radius: 999px;
+    display: inline-flex;
+    font-weight: 740;
+    justify-self: start;
+    min-height: 28px;
+    padding: 5px 9px;
+  }
+  .supervisor-summary-row[data-fact="physicalExecution"] { --fact-accent: var(--supervisor-cyan); }
+  .supervisor-summary-row[data-policy="rce"] { --fact-accent: var(--supervisor-rce); }
+  .supervisor-summary-row[data-policy="tariff"] { --fact-accent: var(--supervisor-tariff); }
+  .supervisor-summary-row[data-policy="rcm"] { --fact-accent: var(--supervisor-rcm); }
+  .supervisor-summary-row[data-policy="none"] { --fact-accent: var(--supervisor-neutral); }
+  .supervisor-summary-row[data-priority="secondary"] .supervisor-summary-label,
+  .supervisor-summary-row[data-priority="secondary"] .supervisor-summary-value { font-size: 11px; }
+  .supervisor-policies { gap: 14px; }
+  .supervisor-policy {
+    --policy-accent: var(--supervisor-cyan);
+    background: color-mix(in srgb, var(--supervisor-surface) 94%, transparent);
+    border-color: color-mix(in srgb, var(--policy-accent) 27%, var(--divider-color));
+    border-radius: 16px;
+    box-shadow: inset 0 3px var(--policy-accent);
+    overflow: hidden;
+    padding: 0;
+    position: relative;
+  }
+  .supervisor-policy[data-permitted="false"] { filter: saturate(.68); opacity: 1; }
+  .supervisor-policy[data-tone="selected"] {
+    border-color: color-mix(in srgb, var(--policy-accent) 72%, var(--divider-color));
+    box-shadow: inset 0 3px var(--policy-accent), 0 0 26px color-mix(in srgb, var(--policy-accent) 22%, transparent);
+    opacity: 1;
+  }
+  .supervisor-policy[data-tone="blocked"],
+  .supervisor-policy[data-tone="waiting"] { border-color: color-mix(in srgb, var(--supervisor-warning) 48%, var(--policy-accent)); }
+  .supervisor-policy[data-tone="unavailable"] { border-color: color-mix(in srgb, var(--supervisor-error) 48%, var(--divider-color)); }
+  .supervisor-policy-top {
+    align-items: center;
+    background: color-mix(in srgb, var(--policy-accent) 11%, var(--supervisor-surface-strong));
+    border-bottom: 1px solid color-mix(in srgb, var(--policy-accent) 20%, var(--divider-color));
+    padding: 13px;
+  }
+  .supervisor-policy-identity { align-items: center; display: flex; gap: 8px; min-width: 0; }
+  .supervisor-policy-icon { color: var(--policy-accent); flex: 0 0 auto; height: 24px; width: 24px; }
+  .supervisor-policy-permission {
+    background: color-mix(in srgb, var(--policy-accent) 13%, transparent);
+    border: 1px solid color-mix(in srgb, var(--policy-accent) 44%, transparent);
+    color: color-mix(in srgb, var(--policy-accent) 65%, var(--primary-text-color));
+  }
+  .supervisor-policy-permission[data-allowed="false"] { background: color-mix(in srgb, var(--supervisor-neutral) 10%, transparent); border-color: color-mix(in srgb, var(--supervisor-neutral) 34%, transparent); color: var(--supervisor-muted); }
+  .supervisor-selected-marker { background: color-mix(in srgb, var(--policy-accent) 16%, transparent); border: 1px solid color-mix(in srgb, var(--policy-accent) 50%, transparent); color: color-mix(in srgb, var(--policy-accent) 72%, var(--primary-text-color)); }
+  .supervisor-policy-badge { border: 1px solid color-mix(in srgb, var(--supervisor-neutral) 28%, transparent); }
+  .supervisor-policy-badge[data-tone="ready"] { background: color-mix(in srgb, var(--supervisor-ready) 13%, transparent); border-color: color-mix(in srgb, var(--supervisor-ready) 42%, transparent); color: color-mix(in srgb, var(--supervisor-ready) 64%, var(--primary-text-color)); }
+  .supervisor-policy-badge[data-tone="blocked"],
+  .supervisor-policy-badge[data-tone="waiting"] { border-color: color-mix(in srgb, var(--supervisor-warning) 44%, transparent); color: color-mix(in srgb, var(--supervisor-warning) 62%, var(--primary-text-color)); }
+  .supervisor-policy-badge[data-tone="unavailable"] { border-color: color-mix(in srgb, var(--supervisor-error) 44%, transparent); color: color-mix(in srgb, var(--supervisor-error) 64%, var(--primary-text-color)); }
+  .supervisor-policy-body { background: color-mix(in srgb, var(--supervisor-surface) 93%, transparent); padding: 12px 13px 13px; }
+  .supervisor-policy-facts { margin-top: 0; }
+  .supervisor-flow { align-items: stretch; grid-template-columns: 1.3fr .95fr .8fr .8fr 1fr; margin-top: 12px; }
+  .supervisor-flow-step {
+    --flow-accent: var(--supervisor-cyan);
+    align-content: center;
+    background: color-mix(in srgb, var(--flow-accent) 9%, var(--supervisor-surface-strong));
+    border-color: color-mix(in srgb, var(--flow-accent) 34%, var(--divider-color));
+    display: grid;
+    gap: 7px;
+    justify-items: center;
+    min-height: 94px;
+    padding: 10px;
+    position: relative;
+  }
+  .supervisor-flow-step:not(:last-child)::after { color: var(--supervisor-blue); content: "→"; font-size: 18px; position: absolute; right: -16px; top: calc(50% - 13px); z-index: 2; }
+  .supervisor-flow-step[data-stage="validation"] { --flow-accent: var(--supervisor-cyan); }
+  .supervisor-flow-step[data-stage="comparison"] { --flow-accent: var(--supervisor-blue); }
+  .supervisor-flow-step[data-stage="winner"] { --flow-accent: var(--supervisor-violet); }
+  .supervisor-flow-step[data-stage="observation"] { --flow-accent: var(--supervisor-cyan); }
+  .supervisor-flow-icon { color: var(--flow-accent); height: 23px; width: 23px; }
+  .supervisor-flow-label { color: var(--primary-text-color); font-weight: 650; }
+  .supervisor-flow-policy-chips { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+  .supervisor-flow-policy-chips .supervisor-policy-chip { font-size: 11px; min-height: 28px; padding: 4px 7px; }
+  .supervisor-safety-strip {
+    align-items: center;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--supervisor-cyan) 14%, var(--supervisor-surface-strong)), color-mix(in srgb, var(--supervisor-blue) 8%, var(--supervisor-surface)));
+    border-color: color-mix(in srgb, var(--supervisor-cyan) 42%, var(--divider-color));
+    display: flex;
+    font-size: 13px;
+    font-weight: 650;
+    gap: 10px;
+    line-height: 1.48;
+  }
+  .supervisor-knowledge { display: grid; gap: 9px; }
+  .supervisor-knowledge .supervisor-section-title { margin-bottom: 3px; }
+  .supervisor-knowledge-detail {
+    background: color-mix(in srgb, var(--supervisor-surface-strong) 92%, transparent);
+    border: 1px solid color-mix(in srgb, var(--supervisor-blue) 18%, var(--divider-color));
+    border-radius: 13px;
+    min-width: 0;
+    overflow: hidden;
+    width: 100%;
+  }
+  .supervisor-knowledge-detail[open] { border-color: color-mix(in srgb, var(--supervisor-cyan) 34%, var(--divider-color)); }
+  .supervisor-knowledge-summary {
+    align-items: center;
+    color: var(--primary-text-color);
+    cursor: pointer;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 24px minmax(0, 1fr);
+    min-height: 56px;
+    padding: 10px 13px;
+  }
+  .supervisor-knowledge-summary::marker { color: var(--supervisor-cyan); }
+  .supervisor-knowledge-summary ha-icon { color: var(--supervisor-cyan); height: 21px; width: 21px; }
+  .supervisor-knowledge-summary-copy { display: grid; gap: 2px; min-width: 0; }
+  .supervisor-knowledge-summary-title { font-size: 13px; font-weight: 720; }
+  .supervisor-knowledge-summary-hint { color: var(--supervisor-muted); font-size: 11px; font-weight: 480; line-height: 1.35; }
+  .supervisor-knowledge-content { border-top: 1px solid color-mix(in srgb, var(--supervisor-cyan) 13%, var(--divider-color)); display: grid; gap: 13px; padding: 14px; }
+  .supervisor-knowledge-subtitle { color: var(--primary-text-color); font-size: 14px; font-weight: 700; margin: 0; }
+  .supervisor-technical-values { padding: 0; }
+  .supervisor-technical-row { background: color-mix(in srgb, var(--supervisor-surface) 94%, transparent); border-radius: 9px; padding: 8px 10px; }
+  .supervisor-select:focus-visible,
+  .supervisor-switch:focus-visible,
+  .supervisor-knowledge-summary:focus-visible { outline: 2px solid var(--supervisor-cyan); outline-offset: 2px; }
+  @keyframes supervisor-core-drift { to { transform: rotate(360deg); } }
+  @media (prefers-color-scheme: light) {
+    :host {
+      --supervisor-page-base: color-mix(in srgb, var(--primary-background-color, var(--supervisor-on-deep)) 94%, var(--supervisor-blue) 6%);
+      --supervisor-page-cyan-glow: color-mix(in srgb, var(--supervisor-cyan) 5%, transparent);
+      --supervisor-page-violet-glow: color-mix(in srgb, var(--supervisor-violet) 4%, transparent);
+      --supervisor-surface: color-mix(in srgb, var(--card-background-color, var(--primary-background-color)) 96%, var(--supervisor-blue) 4%);
+      --supervisor-surface-strong: color-mix(in srgb, var(--card-background-color, var(--primary-background-color)) 97%, var(--supervisor-cyan) 3%);
+      --supervisor-muted: color-mix(in srgb, var(--secondary-text-color) 88%, var(--primary-text-color) 12%);
+    }
+    .supervisor-blob { opacity: .08; }
+    .supervisor-points { opacity: .1; }
+    .supervisor-vignette { background: radial-gradient(circle at center, transparent 42%, color-mix(in srgb, var(--supervisor-page-base) 62%, transparent)); }
+    .supervisor-surface { box-shadow: 0 14px 34px color-mix(in srgb, var(--supervisor-deep) 8%, transparent), inset 0 1px color-mix(in srgb, var(--supervisor-cyan) 5%, transparent); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .supervisor-blob,
+    .supervisor-core-ring { animation: none; }
+    .supervisor-select,
+    .supervisor-switch,
+    .supervisor-switch-thumb,
+    .supervisor-policy { transition: none; }
+  }
+  @container (max-width: 1024px) {
+    .supervisor-hero { grid-template-columns: minmax(0, 1fr) minmax(300px, .86fr); }
+    .supervisor-quick-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .supervisor-quick-fact[data-fact="physical"] { grid-column: 1 / -1; }
+    .supervisor-flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .supervisor-flow-step:nth-child(3)::after { display: none; }
+  }
+  @container (max-width: 768px) {
+    .supervisor-hero { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-hero-core { min-height: 224px; }
+    .supervisor-live-grid,
+    .supervisor-policies { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-flow { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-flow-step:nth-child(n) { grid-column: auto; min-height: 74px; }
+    .supervisor-flow-step:not(:last-child)::after { bottom: -20px; content: "↓"; left: calc(50% - 6px); right: auto; top: auto; }
+  }
+  @container (max-width: 620px) {
+    .supervisor-summary { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-summary-row[data-fact="decisionReason"] { grid-column: auto; }
+    .supervisor-control { grid-template-columns: minmax(0, 1fr) auto; }
+    .supervisor-policy-top { align-items: flex-start; }
+    .supervisor-knowledge-detail { width: 100%; }
+  }
+  @container (max-width: 390px) {
+    .supervisor-hero { gap: 17px; padding: 15px 12px; }
+    .supervisor-quick-facts { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-quick-fact[data-fact="physical"] { grid-column: auto; }
+    .supervisor-core-inputs { gap: 4px; }
+    .supervisor-policy-chip { font-size: 11px; padding: 5px 7px; }
+    .supervisor-control { grid-template-columns: minmax(0, 1fr); }
+    .supervisor-control-field { width: 100%; }
+    .supervisor-switch { justify-self: start; }
+    .supervisor-policy-top { display: grid; }
+    .supervisor-policy-badges { justify-content: flex-start; }
+    .supervisor-knowledge-summary { padding: 10px; }
+  }
+`;
+
+class HoymilesEmsSupervisorPanel {
+  constructor(container) {
+    this._container = container;
+    this._hass = null;
+    this._config = null;
+    this._language = "en";
+    this._instanceToken = Object.freeze({});
+    this._lifecycleGeneration = 0;
+    this._requestSequence = 0;
+    this._requestTokens = new Map();
+    this._pending = new Set();
+    this._errors = new Map();
+    this._listeners = [];
+    this._connected = false;
+    this._mount();
+  }
+
+  _element(tagName, className, textValue) {
+    const element = document.createElement(tagName);
+    if (className) element.className = className;
+    if (textValue !== undefined) element.textContent = textValue;
+    return element;
+  }
+
+  _copyElement(tagName, className, copyKey) {
+    const element = this._element(tagName, className);
+    this._copyNodes.push([element, copyKey]);
+    return element;
+  }
+
+  _section(className, titleKey) {
+    const section = this._element("section", `supervisor-surface ${className}`);
+    const title = this._copyElement("h2", "supervisor-section-title", titleKey);
+    section.append(title);
+    return section;
+  }
+
+  _infoCard(parent, titleKey, descriptionKey, className = "") {
+    const card = this._element(
+      "article",
+      `supervisor-info-card ${className}`.trim()
+    );
+    const title = this._copyElement("h3", "supervisor-info-title", titleKey);
+    const description = this._copyElement(
+      "p",
+      "supervisor-info-description",
+      descriptionKey
+    );
+    card.append(title, description);
+    parent.append(card);
+    return card;
+  }
+
+  _knowledgeDetail(parent, titleKey, hintKey, iconName, className) {
+    const details = this._element(
+      "details",
+      ("supervisor-knowledge-detail " + className).trim()
+    );
+    const summary = this._element("summary", "supervisor-knowledge-summary");
+    const icon = this._element("ha-icon");
+    icon.setAttribute("icon", iconName);
+    const summaryCopy = this._element(
+      "span",
+      "supervisor-knowledge-summary-copy"
+    );
+    summaryCopy.append(
+      this._copyElement(
+        "span",
+        "supervisor-knowledge-summary-title",
+        titleKey
+      ),
+      this._copyElement(
+        "span",
+        "supervisor-knowledge-summary-hint",
+        hintKey
+      )
+    );
+    summary.append(icon, summaryCopy);
+    const body = this._element("div", "supervisor-knowledge-content");
+    details.append(summary, body);
+    parent.append(details);
+    return body;
+  }
+
+  _mount() {
+    if (this._panel) return;
+    this._copyNodes = [];
+    const panel = this._element("div", "supervisor-panel");
+    const backdrop = this._element("div", "supervisor-backdrop");
+    backdrop.setAttribute("aria-hidden", "true");
+    backdrop.append(
+      this._element("span", "supervisor-blob supervisor-blob-one"),
+      this._element("span", "supervisor-blob supervisor-blob-two"),
+      this._element("span", "supervisor-blob supervisor-blob-three"),
+      this._element("span", "supervisor-points"),
+      this._element("span", "supervisor-vignette")
+    );
+    const content = this._element("div", "supervisor-content");
+
+    const hero = this._element("header", "supervisor-hero supervisor-surface");
+    const heroCopy = this._element("div", "supervisor-hero-copy");
+    const heading = this._element("div", "supervisor-heading");
+    const icon = this._element("ha-icon", "supervisor-icon");
+    icon.setAttribute("icon", "mdi:eye-outline");
+    const title = this._element("h1", "supervisor-title");
+    heading.append(icon, title);
+    const scope = this._element("span", "supervisor-scope");
+    const heroIntro = this._copyElement("p", "supervisor-hero-intro", "heroIntro");
+    const authority = this._element("p", "supervisor-authority");
+    const authorityIcon = this._element("ha-icon");
+    authorityIcon.setAttribute("icon", "mdi:shield-eye-outline");
+    authority.append(
+      authorityIcon,
+      this._copyElement("span", "", "physicalAuthority")
+    );
+    const quickFacts = this._element("dl", "supervisor-quick-facts");
+    this._hero = {};
+    for (const [key, copyKey] of [
+      ["mode", "currentMode"],
+      ["profile", "currentProfile"],
+      ["physical", "physicalControl"],
+    ]) {
+      const item = this._element("div", "supervisor-quick-fact");
+      item.dataset.fact = key;
+      const label = this._copyElement(
+        "dt",
+        "supervisor-quick-fact-label",
+        copyKey
+      );
+      const value =
+        key === "physical"
+          ? this._copyElement(
+              "dd",
+              "supervisor-quick-fact-value",
+              "physicalControlValue"
+            )
+          : this._element("dd", "supervisor-quick-fact-value");
+      item.append(label, value);
+      quickFacts.append(item);
+      this._hero[key] = value;
+    }
+    heroCopy.append(heading, scope, heroIntro, authority, quickFacts);
+
+    const heroCore = this._element("div", "supervisor-hero-core");
+    const coreDiagram = this._element("div", "supervisor-core-diagram");
+    coreDiagram.setAttribute("aria-hidden", "true");
+    const coreInputs = this._element("div", "supervisor-core-inputs");
+    for (const policyId of HOYMILES_SUPERVISOR_POLICY_IDS) {
+      const chip = this._element("span", "supervisor-policy-chip");
+      chip.dataset.policy = policyId;
+      const chipIcon = this._element("ha-icon");
+      chipIcon.setAttribute("icon", HOYMILES_SUPERVISOR_POLICY_ICONS[policyId]);
+      chip.append(chipIcon, this._copyElement("span", "", policyId));
+      coreInputs.append(chip);
+    }
+    const coreOrb = this._element("div", "supervisor-core-orb");
+    coreOrb.append(
+      this._element("span", "supervisor-core-ring supervisor-core-ring-one"),
+      this._element("span", "supervisor-core-ring supervisor-core-ring-two")
+    );
+    const coreIcon = this._element("ha-icon");
+    coreIcon.setAttribute("icon", "mdi:eye-outline");
+    coreOrb.append(coreIcon);
+    coreDiagram.append(coreInputs, coreOrb);
+    const heroResult = this._element("div", "supervisor-hero-result");
+    heroResult.setAttribute("role", "status");
+    heroResult.setAttribute("aria-live", "polite");
+    const heroResultBadge = this._element(
+      "span",
+      "supervisor-hero-result-badge"
+    );
+    const heroResultText = this._element("p", "supervisor-hero-result-text");
+    heroResult.append(heroResultBadge, heroResultText);
+    const noControl = this._element("div", "supervisor-no-control");
+    const noControlIcon = this._element("ha-icon");
+    noControlIcon.setAttribute("icon", "mdi:power-plug-off-outline");
+    noControl.append(
+      noControlIcon,
+      this._copyElement("span", "", "noInverterControl")
+    );
+    heroCore.append(coreDiagram, heroResult, noControl);
+    hero.append(heroCopy, heroCore);
+    this._heroResultBadge = heroResultBadge;
+    this._heroResultText = heroResultText;
+    this._heroCore = heroCore;
+
+    const liveGrid = this._element("div", "supervisor-live-grid");
+    const controlsSection = this._section(
+      "supervisor-controls-section",
+      "liveControls"
+    );
+    const controls = this._element("div", "supervisor-controls");
+    this._controls = {};
+    this._createSelectControl(
+      controls,
+      "mode",
+      "supervisor_mode_entity",
+      HOYMILES_SUPERVISOR_MODE_OPTIONS
+    );
+    this._createSelectControl(
+      controls,
+      "profile",
+      "supervisor_profile_entity",
+      HOYMILES_SUPERVISOR_PROFILE_OPTIONS
+    );
+    this._createSwitchControl(
+      controls,
+      "allowRce",
+      "supervisor_allow_rce_entity"
+    );
+    this._createSwitchControl(
+      controls,
+      "allowTariff",
+      "supervisor_allow_tariff_entity"
+    );
+    this._createSwitchControl(
+      controls,
+      "allowRcm",
+      "supervisor_allow_rcm_entity"
+    );
+    controlsSection.append(controls);
+
+    const limitation = this._element(
+      "p",
+      "supervisor-limitation supervisor-permission-context"
+    );
+    const limitationIcon = this._element("ha-icon", "supervisor-limitation-icon");
+    limitationIcon.setAttribute("icon", "mdi:information-outline");
+    const limitationText = this._copyElement(
+      "span",
+      "supervisor-limitation-text",
+      "permissionContext"
+    );
+    limitation.append(limitationIcon, limitationText);
+    controlsSection.append(limitation);
+
+    const decisionSection = this._section(
+      "supervisor-decision-section",
+      "currentDecision"
+    );
+    const summary = this._element("dl", "supervisor-summary");
+    this._summary = {};
+    for (const key of [
+      "state",
+      "selectedPolicy",
+      "decisionReason",
+      "physicalExecution",
+      "blockedReason",
+      "phase",
+      "existingAutomation",
+    ]) {
+      const row = this._element("div", "supervisor-summary-row");
+      row.dataset.fact = key;
+      row.dataset.priority = [
+        "state",
+        "selectedPolicy",
+        "decisionReason",
+        "physicalExecution",
+      ].includes(key)
+        ? "prominent"
+        : "secondary";
+      const label = this._element("dt", "supervisor-summary-label");
+      const value = this._element("dd", "supervisor-summary-value");
+      row.append(label, value);
+      summary.append(row);
+      this._summary[key] = { row, label, value };
+    }
+    decisionSection.append(summary);
+    liveGrid.append(controlsSection, decisionSection);
+
+    const policySection = this._section(
+      "supervisor-policy-section",
+      "flowPolicies"
+    );
+    const policies = this._element("div", "supervisor-policies");
+    this._policyRows = {};
+    for (const policyId of HOYMILES_SUPERVISOR_POLICY_IDS) {
+      const row = this._element("article", "supervisor-policy");
+      row.dataset.policyId = policyId;
+      row.dataset.policy = policyId;
+      const top = this._element("div", "supervisor-policy-top");
+      const identity = this._element("div", "supervisor-policy-identity");
+      const policyIcon = this._element("ha-icon", "supervisor-policy-icon");
+      policyIcon.setAttribute(
+        "icon",
+        HOYMILES_SUPERVISOR_POLICY_ICONS[policyId]
+      );
+      const name = this._element("h3", "supervisor-policy-name");
+      identity.append(policyIcon, name);
+      const badges = this._element("div", "supervisor-policy-badges");
+      const selected = this._element("span", "supervisor-selected-marker");
+      const permissionBadge = this._element(
+        "span",
+        "supervisor-policy-badge supervisor-policy-permission"
+      );
+      const badge = this._element("span", "supervisor-policy-badge");
+      badges.append(selected, permissionBadge, badge);
+      top.append(identity, badges);
+      const body = this._element("div", "supervisor-policy-body");
+      const facts = this._element("div", "supervisor-policy-facts");
+      const action = this._element("p", "supervisor-policy-action");
+      const actionWarning = this._element(
+        "p",
+        "supervisor-policy-action-warning"
+      );
+      const reason = this._element("p", "supervisor-policy-reason");
+      body.append(facts, action, actionWarning, reason);
+      row.append(top, body);
+      policies.append(row);
+      this._policyRows[policyId] = {
+        row,
+        policyIcon,
+        name,
+        selected,
+        permissionBadge,
+        badge,
+        action,
+        actionWarning,
+        facts,
+        reason,
+      };
+    }
+    policySection.append(policies);
+
+    const howSection = this._section("supervisor-how", "howItWorksTitle");
+    howSection.append(
+      this._copyElement("p", "supervisor-section-intro", "howItWorksIntro")
+    );
+    const flow = this._element("ol", "supervisor-flow");
+    const policiesStep = this._element("li", "supervisor-flow-step");
+    policiesStep.dataset.stage = "policies";
+    const flowPolicyChips = this._element(
+      "span",
+      "supervisor-flow-policy-chips"
+    );
+    for (const policyId of HOYMILES_SUPERVISOR_POLICY_IDS) {
+      const chip = this._element("span", "supervisor-policy-chip");
+      chip.dataset.policy = policyId;
+      const chipIcon = this._element("ha-icon");
+      chipIcon.setAttribute("icon", HOYMILES_SUPERVISOR_POLICY_ICONS[policyId]);
+      chip.append(chipIcon, this._copyElement("span", "", policyId));
+      flowPolicyChips.append(chip);
+    }
+    policiesStep.append(flowPolicyChips);
+    flow.append(policiesStep);
+    for (const [stage, iconName, key] of [
+      ["validation", "mdi:shield-check-outline", "flowValidation"],
+      ["comparison", "mdi:compare", "flowComparison"],
+      ["winner", "mdi:trophy-outline", "flowWinner"],
+      ["observation", "mdi:eye-outline", "flowObservation"],
+    ]) {
+      const step = this._element("li", "supervisor-flow-step");
+      step.dataset.stage = stage;
+      const stepIcon = this._element("ha-icon", "supervisor-flow-icon");
+      stepIcon.setAttribute("icon", iconName);
+      step.append(
+        stepIcon,
+        this._copyElement("span", "supervisor-flow-label", key)
+      );
+      flow.append(step);
+    }
+    howSection.append(flow);
+
+    const safetyStrip = this._element(
+      "aside",
+      "supervisor-safety-strip supervisor-surface"
+    );
+    safetyStrip.setAttribute("role", "note");
+    const safetyStripIcon = this._element("ha-icon");
+    safetyStripIcon.setAttribute("icon", "mdi:shield-eye-outline");
+    safetyStrip.append(
+      safetyStripIcon,
+      this._copyElement("span", "", "safetyStrip")
+    );
+
+    const knowledgeSection = this._section(
+      "supervisor-knowledge",
+      "knowledgeTitle"
+    );
+    const modesProfilesBody = this._knowledgeDetail(
+      knowledgeSection,
+      "modesProfilesDetailsTitle",
+      "modesProfilesDetailsHint",
+      "mdi:tune-variant",
+      "supervisor-knowledge-modes"
+    );
+    modesProfilesBody.append(
+      this._copyElement("h3", "supervisor-knowledge-subtitle", "modesTitle")
+    );
+    const modes = this._element(
+      "div",
+      "supervisor-doc-grid supervisor-doc-grid-three"
+    );
+    this._infoCard(modes, "modeOffTitle", "modeOffDescription");
+    this._infoCard(modes, "modeShadowTitle", "modeShadowDescription");
+    const activeCard = this._infoCard(
+      modes,
+      "modeActiveTitle",
+      "modeActiveDescription",
+      "supervisor-info-disabled"
+    );
+    activeCard.setAttribute("aria-disabled", "true");
+    modesProfilesBody.append(
+      modes,
+      this._copyElement("h3", "supervisor-knowledge-subtitle", "profilesTitle")
+    );
+    const profiles = this._element(
+      "div",
+      "supervisor-doc-grid supervisor-doc-grid-three"
+    );
+    this._infoCard(profiles, "balancedTitle", "balancedDescription");
+    this._infoCard(
+      profiles,
+      "maximumProfitTitle",
+      "maximumProfitDescription"
+    );
+    this._infoCard(
+      profiles,
+      "highReserveTitle",
+      "highReserveDescription"
+    );
+    modesProfilesBody.append(
+      profiles,
+      this._copyElement("p", "supervisor-callout", "profileLimitation")
+    );
+
+    const permissionsBody = this._knowledgeDetail(
+      knowledgeSection,
+      "permissionsTitle",
+      "permissionsDetailsHint",
+      "mdi:check-decagram-outline",
+      "supervisor-knowledge-permissions"
+    );
+    permissionsBody.append(
+      this._copyElement("p", "supervisor-section-intro", "permissionMeaning"),
+      this._copyElement(
+        "p",
+        "supervisor-callout supervisor-callout-warning",
+        "permissionNotMeaning"
+      )
+    );
+    const permissionCards = this._element(
+      "div",
+      "supervisor-doc-grid supervisor-doc-grid-three"
+    );
+    for (const [titleKey, copyKey] of [
+      ["rce", "rcePlain"],
+      ["tariff", "tariffPlain"],
+      ["rcm", "rcemPlain"],
+    ]) {
+      const card = this._element("article", "supervisor-info-card");
+      card.append(
+        this._copyElement("h3", "supervisor-info-title", titleKey),
+        this._copyElement("p", "supervisor-info-description", copyKey)
+      );
+      permissionCards.append(card);
+    }
+    const permissionLimits = this._element("ul", "supervisor-limit-list");
+    for (const key of [
+      "permissionDoesNotEnable",
+      "permissionDoesNotStart",
+      "permissionDoesNotWrite",
+      "permissionDoesNotGrant",
+    ]) {
+      permissionLimits.append(
+        this._copyElement("li", "supervisor-limit-item", key)
+      );
+    }
+    permissionsBody.append(permissionCards, permissionLimits);
+
+    const resultBody = this._knowledgeDetail(
+      knowledgeSection,
+      "readResultTitle",
+      "resultDetailsHint",
+      "mdi:eye-check-outline",
+      "supervisor-knowledge-result"
+    );
+    const resultCards = this._element("div", "supervisor-doc-grid");
+    for (const [titleKey, descriptionKey] of [
+      ["resultIdleTitle", "resultIdleDescription"],
+      ["resultSelectedTitle", "resultSelectedDescription"],
+      ["resultBlockedTitle", "resultBlockedDescription"],
+      ["resultUnavailableTitle", "resultUnavailableDescription"],
+      ["resultCommitmentTitle", "resultCommitmentDescription"],
+    ]) {
+      this._infoCard(resultCards, titleKey, descriptionKey);
+    }
+    resultBody.append(resultCards);
+
+    const safetyBody = this._knowledgeDetail(
+      knowledgeSection,
+      "safetyTitle",
+      "safetyDetailsHint",
+      "mdi:shield-check-outline",
+      "supervisor-knowledge-safety"
+    );
+    safetyBody.append(
+      this._copyElement("p", "supervisor-section-intro", "safetyIntro")
+    );
+    const safetyList = this._element("ul", "supervisor-limit-list");
+    for (const key of [
+      "cannotModbus",
+      "cannotMode",
+      "cannotOwner",
+      "cannotGrant",
+      "cannotHandover",
+      "cannotLegacy",
+      "cannotActive",
+    ]) {
+      safetyList.append(this._copyElement("li", "supervisor-limit-item", key));
+    }
+    safetyBody.append(
+      safetyList,
+      this._copyElement("p", "supervisor-callout", "safetyScope")
+    );
+
+    const technicalBody = this._knowledgeDetail(
+      knowledgeSection,
+      "technicalTitle",
+      "technicalDetailsHint",
+      "mdi:code-json",
+      "supervisor-knowledge-technical"
+    );
+    const technicalValues = this._element("dl", "supervisor-technical-values");
+    this._technical = {};
+    for (const [key, copyKey] of [
+      ["arbitrationRevision", "arbitrationRevision"],
+      ["executionPhase", "executionPhase"],
+      ["reasonCode", "reasonCode"],
+      ["profileEffects", "profileEffects"],
+      ["candidateRevisions", "candidateRevisions"],
+    ]) {
+      const row = this._element("div", "supervisor-technical-row");
+      const label = this._copyElement("dt", "supervisor-technical-label", copyKey);
+      const value = this._element("dd", "supervisor-technical-value");
+      row.append(label, value);
+      technicalValues.append(row);
+      this._technical[key] = value;
+    }
+    technicalBody.append(technicalValues);
+
+    content.append(
+      hero,
+      liveGrid,
+      policySection,
+      howSection,
+      safetyStrip,
+      knowledgeSection
+    );
+    panel.append(backdrop, content);
+    this._container.replaceChildren(panel);
+    this._panel = panel;
+    this._title = title;
+    this._scope = scope;
+    this._icon = icon;
+  }
+
+  _createControlShell(parent, key) {
+    const row = this._element("div", "supervisor-control");
+    row.dataset.control = key;
+    const policyId = {
+      allowRce: "rce",
+      allowTariff: "tariff",
+      allowRcm: "rcm",
+    }[key];
+    if (policyId) row.dataset.policy = policyId;
+    const label = this._element("label", "supervisor-control-label");
+    const labelIcon = this._element("ha-icon", "supervisor-control-icon");
+    labelIcon.setAttribute(
+      "icon",
+      {
+        mode: "mdi:eye-settings-outline",
+        profile: "mdi:tune-variant",
+        allowRce: HOYMILES_SUPERVISOR_POLICY_ICONS.rce,
+        allowTariff: HOYMILES_SUPERVISOR_POLICY_ICONS.tariff,
+        allowRcm: HOYMILES_SUPERVISOR_POLICY_ICONS.rcm,
+      }[key]
+    );
+    const labelText = this._element("span", "supervisor-control-label-text");
+    label.append(labelIcon, labelText);
+    const field = this._element("div", "supervisor-control-field");
+    const error = this._element("span", "supervisor-control-error");
+    error.setAttribute("role", "status");
+    field.append(error);
+    row.append(label, field);
+    parent.append(row);
+    return { row, label, labelText, field, error };
+  }
+
+  _createSelectControl(parent, key, configKey, whitelist) {
+    const control = this._createControlShell(parent, key);
+    const select = this._element("select", "supervisor-select");
+    const selectId = `hoymiles-supervisor-${key}`;
+    select.id = selectId;
+    control.label.htmlFor = selectId;
+    control.field.prepend(select);
+    this._controls[key] = {
+      ...control,
+      element: select,
+      type: "select",
+      configKey,
+      whitelist,
+    };
+  }
+
+  _createSwitchControl(parent, key, configKey) {
+    const control = this._createControlShell(parent, key);
+    const button = this._element("button", "supervisor-switch");
+    button.type = "button";
+    button.setAttribute("role", "switch");
+    const policyId = {
+      allowRce: "rce",
+      allowTariff: "tariff",
+      allowRcm: "rcm",
+    }[key];
+    if (policyId) button.dataset.policy = policyId;
+    const thumb = this._element("span", "supervisor-switch-thumb");
+    button.append(thumb);
+    control.field.prepend(button);
+    this._controls[key] = {
+      ...control,
+      element: button,
+      type: "switch",
+      configKey,
+    };
+  }
+
+  _listen(element, type, listener) {
+    element.addEventListener(type, listener);
+    this._listeners.push([element, type, listener]);
+  }
+
+  connect() {
+    if (this._connected) return;
+    this._connected = true;
+    for (const [key, control] of Object.entries(this._controls)) {
+      if (control.type === "select") {
+        this._listen(control.element, "change", () => {
+          void this._selectOption(key, control.element.value);
+        });
+      } else {
+        this._listen(control.element, "click", () => {
+          void this._toggleBoolean(key);
+        });
+      }
+    }
+  }
+
+  disconnect() {
+    for (const [element, type, listener] of this._listeners) {
+      element.removeEventListener(type, listener);
+    }
+    this._listeners = [];
+    this._connected = false;
+    this._invalidateLifecycle();
+    this._hass = null;
+    this._render();
+  }
+
+  update(hass, config, language) {
+    const nextHass = hass || null;
+    const nextConfig = config || null;
+    const nextLanguage = hoymilesNormalizeLanguage(language);
+    const lifecycleChanged =
+      this._config !== nextConfig || this._language !== nextLanguage;
+    if (lifecycleChanged) {
+      this._invalidateLifecycle();
+    } else if (this._hass !== nextHass && this._pending.size > 0) {
+      this._clearRequestOwnership();
+    }
+    this._hass = nextHass;
+    this._config = nextConfig;
+    this._language = nextLanguage;
+    if (!this._connected) return;
+    this._render();
+  }
+
+  _clearRequestOwnership() {
+    this._requestTokens.clear();
+    this._pending.clear();
+  }
+
+  _invalidateLifecycle() {
+    this._lifecycleGeneration += 1;
+    this._clearRequestOwnership();
+    this._errors.clear();
+  }
+
+  _copy() {
+    return HOYMILES_SUPERVISOR_COPY[this._language];
+  }
+
+  _controlKind(key) {
+    if (!Object.prototype.hasOwnProperty.call(HOYMILES_SUPERVISOR_CONTROL_KINDS, key)) {
+      return null;
+    }
+    const kind = HOYMILES_SUPERVISOR_CONTROL_KINDS[key];
+    return this._config?.[kind.configKey] === kind.entityId ? kind : null;
+  }
+
+  _helper(key) {
+    const kind = this._controlKind(key);
+    return kind ? this._hass?.states?.[kind.entityId] : undefined;
+  }
+
+  _validHelperState(helper) {
+    return (
+      Boolean(helper) &&
+      typeof helper.state === "string" &&
+      !["", "unknown", "unavailable"].includes(helper.state.trim().toLowerCase())
+    );
+  }
+
+  _optionLabel(value) {
+    const copy = this._copy();
+    return (
+      {
+        Off: copy.off,
+        Shadow: copy.shadow,
+        Balanced: copy.balanced,
+        "Maximum Profit": copy.maximumProfit,
+        "High Reserve — Winter": copy.highReserveWinter,
+      }[value] || copy.unavailable
+    );
+  }
+
+  _renderSelect(key, control) {
+    const copy = this._copy();
+    const kind = this._controlKind(key);
+    const helper = this._helper(key);
+    const configuredOptions = helper?.attributes?.options;
+    const options =
+      kind?.type === "select" &&
+      Array.isArray(configuredOptions) &&
+      configuredOptions.every((value) => typeof value === "string")
+      ? kind.options.filter(
+          (option) =>
+            configuredOptions.includes(option) &&
+            configuredOptions.filter((value) => value === option).length === 1
+        )
+      : [];
+    const current = options.includes(helper?.state) ? helper.state : null;
+    control.element.replaceChildren();
+    if (!current) {
+      const placeholder = this._element("option", "", copy.controlUnavailable);
+      placeholder.value = "";
+      placeholder.selected = true;
+      control.element.append(placeholder);
+    }
+    for (const optionValue of options) {
+      const option = this._element("option", "", this._optionLabel(optionValue));
+      option.value = optionValue;
+      option.selected = optionValue === current;
+      control.element.append(option);
+    }
+    const available =
+      Boolean(kind) &&
+      this._validHelperState(helper) &&
+      options.length > 0 &&
+      current !== null;
+    control.element.disabled = !available || this._pending.has(key);
+    control.element.setAttribute("aria-label", control.labelText.textContent);
+    control.element.setAttribute("aria-busy", String(this._pending.has(key)));
+  }
+
+  _renderSwitch(key, control) {
+    const kind = this._controlKind(key);
+    const helper = this._helper(key);
+    const available =
+      kind?.type === "boolean" &&
+      this._validHelperState(helper) &&
+      ["on", "off"].includes(helper?.state);
+    const checked = available && helper.state === "on";
+    control.element.disabled = !available || this._pending.has(key);
+    control.element.setAttribute("aria-checked", String(checked));
+    control.element.setAttribute("aria-label", control.labelText.textContent);
+    control.element.setAttribute("aria-busy", String(this._pending.has(key)));
+  }
+
+  _reason(code) {
+    return hoymilesSupervisorReason(code, this._language);
+  }
+
+  _stateText(state) {
+    const copy = this._copy();
+    return (
+      {
+        off: copy.off,
+        shadow_idle: copy.shadowIdle,
+        shadow_selected: copy.shadowSelected,
+        blocked: copy.blocked,
+      }[state] || copy.unavailable
+    );
+  }
+
+  _phaseText(phase) {
+    const copy = this._copy();
+    return (
+      {
+        idle: copy.idle,
+        observed_active_latched: copy.observedActiveLatched,
+        blocked: copy.phaseBlocked,
+      }[phase] || copy.unavailable
+    );
+  }
+
+  _policyText(policyId) {
+    return this._copy()[policyId] || this._copy().none;
+  }
+
+  _actionText(action) {
+    const copy = this._copy();
+    return (
+      {
+        none: copy.actionNone,
+        rce_export: copy.actionRceExport,
+        tariff_charge: copy.actionTariffCharge,
+        rcm_absorb_pv: copy.actionRcmAbsorbPv,
+        rcm_limit_export: copy.actionRcmLimitExport,
+        rcm_pre_discharge: copy.actionRcmPreDischarge,
+      }[action] || copy.unknownAction
+    );
+  }
+
+  _booleanText(value, trueText, falseText) {
+    const copy = this._copy();
+    if (value === true) return trueText;
+    if (value === false) return falseText;
+    return copy.unverified;
+  }
+
+  _candidatePresentation(candidate, selected) {
+    const copy = this._copy();
+    if (!hoymilesSupervisorIsRecord(candidate)) {
+      return { tone: "unavailable", badge: copy.dataUnavailable };
+    }
+    if (candidate.active_latched === true) {
+      return { tone: "commitment", badge: copy.activeCommitment };
+    }
+    if (selected) return { tone: "selected", badge: copy.selected };
+    if (candidate.allowed_by_user !== true) {
+      return { tone: "muted", badge: copy.notAllowed };
+    }
+    if (candidate.enabled !== true) {
+      return { tone: "muted", badge: copy.automationDisabled };
+    }
+    if (candidate.available !== true) {
+      return { tone: "unavailable", badge: copy.dataUnavailable };
+    }
+    if (
+      candidate.result_current !== true ||
+      candidate.recalculation_pending === true
+    ) {
+      return { tone: "waiting", badge: copy.waitingCurrentPlan };
+    }
+    const hardRejection =
+      typeof candidate.rejection_reason === "string" &&
+      candidate.rejection_reason &&
+      ![
+        "no_action",
+        "not_allowed",
+        "policy_disabled",
+        "unavailable",
+        "result_not_current",
+        "recalculation_pending_new_start",
+      ].includes(candidate.rejection_reason);
+    if (
+      candidate.local_hard_stop === true ||
+      (typeof candidate.blocked_reason === "string" && candidate.blocked_reason) ||
+      hardRejection
+    ) {
+      return { tone: "blocked", badge: copy.candidateBlocked };
+    }
+    if (
+      candidate.requested_action === "none" ||
+      candidate.reason_code === "no_action"
+    ) {
+      return { tone: "muted", badge: copy.noNeed };
+    }
+    if (candidate.start_eligible === true) {
+      return { tone: "ready", badge: copy.ready };
+    }
+    return { tone: "blocked", badge: copy.candidateBlocked };
+  }
+
+  _candidateReason(candidate) {
+    if (!hoymilesSupervisorIsRecord(candidate)) return "unavailable";
+    for (const key of ["blocked_reason", "rejection_reason", "reason_code"]) {
+      if (typeof candidate[key] === "string" && candidate[key]) {
+        return candidate[key];
+      }
+    }
+    return null;
+  }
+
+  _appendFact(container, label, value) {
+    const fact = this._element("span", "supervisor-policy-fact");
+    const factLabel = this._element("span", "supervisor-policy-fact-label", label);
+    const factValue = this._element("strong", "", value);
+    fact.append(factLabel, document.createTextNode(": "), factValue);
+    container.append(fact);
+  }
+
+  _renderPolicy(entry, selectedPolicy) {
+    const copy = this._copy();
+    const { policyId, candidate } = entry;
+    const view = this._policyRows[policyId];
+    const selected = selectedPolicy === policyId;
+    const presentation = this._candidatePresentation(candidate, selected);
+    view.row.dataset.tone = selected ? "selected" : presentation.tone;
+    const permitted = candidate?.allowed_by_user === true;
+    view.row.dataset.permitted = String(permitted);
+    view.name.textContent = this._policyText(policyId);
+    view.selected.textContent = selected ? copy.logicallySelected : "";
+    view.selected.hidden = !selected;
+    view.permissionBadge.dataset.allowed = String(permitted);
+    view.permissionBadge.textContent = permitted
+      ? copy.permission + ": " + copy.yes
+      : copy.notConsidered;
+    view.badge.textContent = presentation.badge;
+    view.badge.dataset.tone = presentation.tone;
+    view.facts.replaceChildren();
+    this._appendFact(
+      view.facts,
+      copy.permission,
+      this._booleanText(candidate?.allowed_by_user, copy.yes, copy.no)
+    );
+    this._appendFact(
+      view.facts,
+      copy.existingAutomation,
+      !hoymilesSupervisorIsRecord(candidate)
+        ? copy.unavailable
+        : `${this._booleanText(
+            candidate?.available,
+            copy.available,
+            copy.notAvailable
+          )} / ${this._booleanText(
+            candidate?.enabled,
+            copy.enabled,
+            copy.disabled
+          )}`
+    );
+    const dataPlan =
+      !hoymilesSupervisorIsRecord(candidate)
+        ? copy.dataUnavailable
+        : candidate.available === true &&
+      candidate?.result_current === true &&
+      candidate?.recalculation_pending === false
+        ? copy.current
+        : candidate?.available === false
+          ? copy.dataUnavailable
+          : candidate?.result_current === false ||
+              candidate?.recalculation_pending === true
+            ? copy.waiting
+            : copy.unverified;
+    this._appendFact(view.facts, copy.dataOrPlan, dataPlan);
+    const commitment = candidate?.active_latched === true;
+    this._appendFact(
+      view.facts,
+      copy.readiness,
+      this._booleanText(
+        commitment ? candidate?.continuation_eligible : candidate?.start_eligible,
+        copy.ready,
+        copy.notReady
+      )
+    );
+    this._appendFact(
+      view.facts,
+      copy.supervisorSelection,
+      selected ? copy.selected : copy.notSelected
+    );
+    view.action.textContent = `${copy.requestedAction}: ${this._actionText(
+      candidate?.requested_action
+    )}`;
+    view.actionWarning.textContent = copy.actionWarning;
+    view.reason.textContent = `${copy.reason}: ${this._reason(
+      this._candidateReason(candidate)
+    )}`;
+  }
+
+  _render() {
+    const copy = this._copy();
+    for (const [node, key] of this._copyNodes) {
+      node.textContent = copy[key] || copy.unavailable;
+    }
+    const supervisorEntity =
+      this._config?.supervisor_entity ===
+      HOYMILES_SUPERVISOR_BINDINGS.supervisor_entity
+        ? this._config.supervisor_entity
+        : null;
+    const normalized = hoymilesNormalizeSupervisor(
+      supervisorEntity ? this._hass?.states?.[supervisorEntity] : undefined
+    );
+    this._container.dataset.tone = normalized.tone;
+    this._panel.dataset.tone = normalized.tone;
+    this._icon.setAttribute(
+      "icon",
+      {
+        off: "mdi:eye-off-outline",
+        "shadow-idle": "mdi:eye-outline",
+        "shadow-selected": "mdi:eye-check-outline",
+        blocked: "mdi:alert-outline",
+        unavailable: "mdi:alert-circle-outline",
+      }[normalized.tone]
+    );
+    this._title.textContent = copy.title;
+    this._scope.textContent = copy.observationOnly;
+
+    const modeHelper = this._helper("mode");
+    const profileHelper = this._helper("profile");
+    this._hero.mode.textContent = HOYMILES_SUPERVISOR_MODE_OPTIONS.includes(
+      modeHelper?.state
+    )
+      ? this._optionLabel(modeHelper.state)
+      : copy.unavailable;
+    this._hero.profile.textContent =
+      HOYMILES_SUPERVISOR_PROFILE_OPTIONS.includes(profileHelper?.state)
+        ? this._optionLabel(profileHelper.state)
+        : copy.unavailable;
+    this._heroCore.dataset.tone = normalized.tone;
+    this._heroResultBadge.dataset.tone = normalized.tone;
+    this._heroResultBadge.textContent = this._stateText(normalized.state);
+    this._heroResultText.textContent =
+      normalized.tone === "off"
+        ? copy.heroOffResult
+        : normalized.tone === "shadow-idle"
+          ? copy.heroIdleResult
+          : normalized.tone === "shadow-selected"
+            ? copy.heroSelectedResult.replace(
+                "{policy}",
+                normalized.selectedPolicy
+                  ? this._policyText(normalized.selectedPolicy)
+                  : copy.none
+              )
+            : normalized.tone === "blocked"
+              ? copy.heroBlockedResult
+              : copy.heroUnavailableResult;
+
+    const labels = {
+      mode: copy.mode,
+      profile: copy.profile,
+      allowRce: copy.allowRce,
+      allowTariff: copy.allowTariff,
+      allowRcm: copy.allowRcm,
+    };
+    for (const [key, control] of Object.entries(this._controls)) {
+      control.labelText.textContent = labels[key];
+      control.error.textContent = this._errors.has(key) ? copy.serviceError : "";
+      if (control.type === "select") this._renderSelect(key, control);
+      else this._renderSwitch(key, control);
+    }
+
+    const summaryValues = {
+      state: this._stateText(normalized.state),
+      selectedPolicy: normalized.selectedPolicy
+        ? this._policyText(normalized.selectedPolicy)
+        : copy.none,
+      decisionReason: this._reason(normalized.selectionReason),
+      blockedReason: this._reason(normalized.blockedReason),
+      phase: this._phaseText(normalized.phase),
+      physicalExecution: normalized.authorizationFalse
+        ? copy.authorizedFalse
+        : copy.authorizationUnverified,
+      existingAutomation: normalized.legacyUnchanged
+        ? copy.unchanged
+        : copy.unverified,
+    };
+    for (const [key, target] of Object.entries(this._summary)) {
+      target.label.textContent =
+        key === "existingAutomation" ? copy.legacyExecution : copy[key];
+      target.value.textContent = summaryValues[key];
+      if (key === "state") target.row.dataset.tone = normalized.tone;
+      if (key === "selectedPolicy") {
+        target.row.dataset.policy = normalized.selectedPolicy || "none";
+      }
+      if (key === "blockedReason") {
+        target.row.dataset.empty = String(!normalized.blockedReason);
+      }
+    }
+    for (const entry of normalized.candidates) {
+      this._renderPolicy(entry, normalized.selectedPolicy);
+    }
+
+    const boundedScalar = (value) => {
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed && trimmed.length <= 96 ? trimmed : null;
+      }
+      return typeof value === "number" && Number.isSafeInteger(value)
+        ? String(value)
+        : null;
+    };
+    const attributes = normalized.attributes;
+    const candidateRevisions = normalized.candidates
+      .map(({ policyId, candidate }) => {
+        const input = boundedScalar(candidate?.input_revision);
+        const revision = boundedScalar(candidate?.candidate_revision);
+        return input && revision ? `${policyId}: ${input}/${revision}` : null;
+      })
+      .filter(Boolean)
+      .join(" · ");
+    const effects = Array.isArray(attributes.profile_effects_applied)
+      ? attributes.profile_effects_applied
+          .slice(0, 3)
+          .map(boundedScalar)
+          .filter(Boolean)
+          .join(" · ")
+      : "";
+    this._technical.arbitrationRevision.textContent =
+      boundedScalar(attributes.arbitration_revision) || copy.unavailable;
+    this._technical.executionPhase.textContent =
+      boundedScalar(attributes.execution_phase) || copy.unavailable;
+    this._technical.reasonCode.textContent =
+      boundedScalar(normalized.blockedReason || normalized.selectionReason) ||
+      copy.none;
+    this._technical.profileEffects.textContent = effects || copy.notApplied;
+    this._technical.candidateRevisions.textContent =
+      candidateRevisions || copy.unavailable;
+  }
+
+  async _selectOption(key, option) {
+    const control = this._controls[key];
+    if (!control || control.type !== "select") return;
+    await this._callHelperService(key, option);
+  }
+
+  async _toggleBoolean(key) {
+    const control = this._controls[key];
+    if (!control || control.type !== "switch") return;
+    const helper = this._helper(key);
+    const targetState =
+      helper?.state === "on" ? "off" : helper?.state === "off" ? "on" : null;
+    await this._callHelperService(key, targetState);
+  }
+
+  _requestOwnsCurrentPanel(request) {
+    return (
+      this._connected &&
+      this._lifecycleGeneration === request.lifecycleGeneration &&
+      this._instanceToken === request.instanceToken &&
+      this._requestTokens.get(request.key) === request.controlToken &&
+      this._hass === request.hass
+    );
+  }
+
+  _attestHelperCommand(request, intendedState) {
+    if (!this._requestOwnsCurrentPanel(request)) return null;
+    const kind = this._controlKind(request.key);
+    if (!kind) return null;
+    const helper = request.hass?.states?.[kind.entityId];
+    const currentState = helper?.state;
+    const liveOptions = helper?.attributes?.options;
+    if (!this._requestOwnsCurrentPanel(request)) return null;
+
+    if (kind.type === "select") {
+      const liveOptionsSafe =
+        Array.isArray(liveOptions) &&
+        liveOptions.every((value) => typeof value === "string");
+      const currentSafe =
+        typeof currentState === "string" &&
+        kind.options.includes(currentState) &&
+        liveOptionsSafe &&
+        liveOptions.filter((value) => value === currentState).length === 1;
+      const requestedSafe =
+        typeof intendedState === "string" &&
+        kind.options.includes(intendedState) &&
+        liveOptionsSafe &&
+        liveOptions.filter((value) => value === intendedState).length === 1;
+      return currentSafe && requestedSafe
+        ? {
+            domain: "input_select",
+            service: "select_option",
+            data: { entity_id: kind.entityId, option: intendedState },
+          }
+        : null;
+    }
+
+    const currentSafe = currentState === "on" || currentState === "off";
+    const targetSafe = intendedState === "on" || intendedState === "off";
+    const exactToggle =
+      targetSafe && intendedState === (currentState === "on" ? "off" : "on");
+    return currentSafe && exactToggle
+      ? {
+          domain: "input_boolean",
+          service: intendedState === "on" ? "turn_on" : "turn_off",
+          data: { entity_id: kind.entityId },
+        }
+      : null;
+  }
+
+  _rejectCurrentRequest(request) {
+    if (!this._requestOwnsCurrentPanel(request)) return;
+    this._requestTokens.delete(request.key);
+    this._pending.delete(request.key);
+    this._errors.set(request.key, true);
+    this._render();
+  }
+
+  async _callHelperService(key, intendedState) {
+    if (arguments.length !== 2) return;
+    const hass = this._hass;
+    const callService = hass?.callService;
+    if (
+      !this._connected ||
+      this._pending.has(key) ||
+      !this._controls[key] ||
+      typeof callService !== "function"
+    ) {
+      return;
+    }
+    const controlToken = Object.freeze({
+      key,
+      sequence: ++this._requestSequence,
+    });
+    const request = Object.freeze({
+      lifecycleGeneration: this._lifecycleGeneration,
+      instanceToken: this._instanceToken,
+      controlToken,
+      hass,
+      key,
+    });
+    this._requestTokens.set(key, controlToken);
+    this._pending.add(key);
+    this._errors.delete(key);
+    this._render();
+    const command = this._attestHelperCommand(request, intendedState);
+    if (!command || !this._requestOwnsCurrentPanel(request)) {
+      this._rejectCurrentRequest(request);
+      return;
+    }
+    try {
+      await Promise.resolve(
+        callService.call(hass, command.domain, command.service, command.data)
+      );
+    } catch (_error) {
+      if (this._requestOwnsCurrentPanel(request)) {
+        this._errors.set(key, true);
+      }
+    } finally {
+      if (this._requestOwnsCurrentPanel(request)) {
+        this._requestTokens.delete(key);
+        this._pending.delete(key);
+        this._render();
+      }
+    }
+  }
+}
+
+class HoymilesEmsSupervisorCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = null;
+    this._hass = null;
+    this._mounted = false;
+  }
+
+  setConfig(config) {
+    const source = hoymilesSupervisorIsRecord(config) ? config : {};
+    this._config = {
+      language: source.language,
+      ...HOYMILES_SUPERVISOR_BINDINGS,
+    };
+    this._mount();
+    this._update();
+  }
+
+  set hass(hass) {
+    this._hass = hass || null;
+    this._update();
+  }
+
+  connectedCallback() {
+    this._mount();
+    this._panelController?.connect();
+    this._update();
+  }
+
+  disconnectedCallback() {
+    this._panelController?.disconnect();
+    this._hass = null;
+  }
+
+  _mount() {
+    if (!this.isConnected || !this._config || this._mounted) return;
+    const style = document.createElement("style");
+    style.textContent = `${HOYMILES_AURORA_THEME_CSS}\n${HOYMILES_EMS_SUPERVISOR_CSS}`;
+    const card = document.createElement("ha-card");
+    const host = document.createElement("section");
+    host.className = "ems-supervisor";
+    host.setAttribute("data-supervisor-card", "");
+    card.append(host);
+    this.shadowRoot.replaceChildren(style, card);
+    this._panelController = new HoymilesEmsSupervisorPanel(host);
+    this._panelController.connect();
+    this._card = card;
+    this._mounted = true;
+    this._update();
+  }
+
+  _language() {
+    return hoymilesLanguage(this._hass, this._config?.language);
+  }
+
+  _update() {
+    if (!this._mounted || !this._config) return;
+    this._panelController?.update(
+      this._hass,
+      this._config,
+      this._language()
+    );
+  }
+
+  getCardSize() {
+    return 16;
+  }
+
+  getGridOptions() {
+    return { columns: 12, rows: 18, min_columns: 6 };
+  }
+
+  static getStubConfig() {
+    return { ...HOYMILES_SUPERVISOR_BINDINGS };
+  }
+}
+
+if (!customElements.get("hoymiles-ems-supervisor-card")) {
+  customElements.define(
+    "hoymiles-ems-supervisor-card",
+    HoymilesEmsSupervisorCard
+  );
+}
+
+if (
+  !window.customCards.some(
+    (card) => card.type === "hoymiles-ems-supervisor-card"
+  )
+) {
+  window.customCards.push({
+    type: "hoymiles-ems-supervisor-card",
+    name: "Hoymiles EMS Supervisor",
+    description: "Observation-only EMS policy comparison and UI controls.",
+    preview: false,
+  });
 }
 
 class HoymilesAuroraEnergyCard extends HTMLElement {
