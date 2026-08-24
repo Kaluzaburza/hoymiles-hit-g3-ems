@@ -4,6 +4,148 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.5.8] - 2026-08-24
+
+> **Release gate / Bramka wydania:** publish this hotfix only after the exact
+> candidate commit passes the complete offline suite, exact-version 30-minute
+> field acceptance, required CI, HACS Action and Hassfest; the unchanged
+> exhaustive automation matrix must report **2064/2064** scenarios. Offline
+> evidence and one installation-specific field run do not replace electrical
+> commissioning, certified protection or manufacturer declarations.
+>
+> Hotfix publikuj wyłącznie po przejściu przez dokładny commit kandydata pełnego
+> zestawu offline, 30-minutowej akceptacji terenowej exact-version, wymaganego
+> CI, HACS Action i Hassfest; niezmieniona pełna macierz automatyzacji musi
+> zgłosić **2064/2064** scenariuszy. Dowody offline oraz test jednej instalacji
+> nie zastępują odbioru elektrycznego, certyfikowanych zabezpieczeń ani
+> deklaracji producenta.
+
+### User update steps / Kroki po aktualizacji
+
+1. **Safety / Bezpieczeństwo:** disable RCE and every other automatic EMS
+   writer before the update. Confirm no discharge/charge cycle is active,
+   **Self-Use** is physically read back and there is no active control owner.
+   **PL:** przed aktualizacją wyłącz RCE i wszystkie pozostałe automatyczne
+   zapisy EMS. Potwierdź brak aktywnego cyklu rozładowania/ładowania, fizyczny
+   odczyt **Self-Use** oraz brak aktywnego właściciela sterowania.
+2. **HACS:** update **EMS for Hoymiles HIT-(5–20)L-G3** to **v1.5.8**.
+   Keep every writer disabled until the verification step passes.
+   **PL:** zaktualizuj w HACS integrację
+   **EMS for Hoymiles HIT-(5–20)L-G3** do **v1.5.8**. Do zakończenia
+   weryfikacji pozostaw wszystkie automatyczne zapisy wyłączone.
+3. **Home Assistant:** the empirically verified standard install/update path
+   requires exactly **two Home Assistant restarts** after HACS finishes.
+   Restart 1 loads the v1.5.8 Python runtime and installs/upgrades an unchanged
+   managed scheduler; validate the configuration, then restart 2 to load the
+   v1.5.8 package automations (and to expose **/local** after a fresh **www**
+   directory was created). The installer deliberately preserves a locally
+   modified scheduler. Back up and explicitly rebase/replace such a file with
+   the canonical v1.5.8 package between the two restarts; otherwise v1.5.8 RCE
+   lifecycle behavior is not active and all writers must remain disabled.
+   **PL:** empirycznie zweryfikowana standardowa instalacja/aktualizacja wymaga
+   dokładnie **dwóch restartów Home Assistanta** po zakończeniu aktualizacji
+   HACS. Restart 1 ładuje runtime Python v1.5.8 i instaluje/aktualizuje
+   niezmieniony zarządzany scheduler; sprawdź konfigurację, a następnie wykonaj
+   restart 2, aby załadować automatyki pakietu v1.5.8 (oraz udostępnić
+   **/local**, gdy katalog **www** powstał dopiero podczas pierwszego startu).
+   Instalator celowo zachowuje lokalnie zmodyfikowany scheduler. Wykonaj jego
+   kopię i jawnie przenieś zmiany na kanoniczny pakiet v1.5.8 albo zastąp plik
+   między restartami; w przeciwnym razie poprawiony lifecycle RCE v1.5.8 nie
+   jest aktywny i wszystkie automatyczne zapisy muszą pozostać wyłączone.
+4. **ESP32 / ESPHome:** No ESP32 / ESPHome rebuild or upload is required for
+   v1.5.8. Firmware from the last compatible immutable tag **v1.5.6** remains
+   valid, and HACS does not flash ESP32.
+   **PL:** Wersja v1.5.8 nie wymaga ponownej kompilacji ani wgrywania firmware
+   ESP32 / ESPHome. Firmware z ostatniego zgodnego, niezmiennego tagu
+   **v1.5.6** pozostaje właściwe, a HACS nie wgrywa ESP32.
+5. **Verification / Weryfikacja:** confirm integration and managed package
+   version **1.5.8**, no relevant Repair/error, physical **Self-Use**, no active
+   owner/conflict and no unexpected register write before re-enabling policies.
+   For a configured HIT-20L, confirm diagnostics report nameplate
+   **inverter_nameplate_power_each_kw=20**, battery-effective
+   **inverter_power_each_kw=16**, the correct **system_power_kw** and
+   **requested_export_power_kw**. Only then restore the policies that were
+   enabled before the update.
+   **PL:** przed ponownym włączeniem polityk potwierdź wersję integracji i
+   zarządzanego pakietu **1.5.8**, brak istotnych Napraw/błędów, fizyczny
+   **Self-Use**, brak aktywnego ownera/konfliktu i brak nieoczekiwanego zapisu
+   rejestru. Dla skonfigurowanego HIT-20L sprawdź diagnostykę:
+   **inverter_nameplate_power_each_kw=20**,
+   **inverter_power_each_kw=16**, właściwe **system_power_kw** oraz
+   **requested_export_power_kw**. Dopiero wtedy przywróć polityki aktywne przed
+   aktualizacją.
+
+### Fixed / Naprawiono
+
+- RCE now separates pre-ACK start authority from post-ACK continuation. A new
+  cycle still requires **current_slot_start_eligible=true**; an already active,
+  physically acknowledged cycle no longer rolls back merely because that
+  new-start condition expires. Continuation still requires a planned slot,
+  continuation eligibility, a valid latched run/slot relationship, exclusive
+  RCE ownership, matching physical mode/readback, fresh critical inputs and
+  every existing hard stop.
+- A newly current optimizer result may precede its dependent execution sensors
+  by one event. An active, physically acknowledged RCE cycle may bridge only
+  that specific cohort transition for at most **5 seconds** while
+  **control_data_ready=off**. The bridge grants no authority, performs zero
+  writes, does not repeat Mode 5 or 4306, does not change the latched target
+  and ends immediately on readiness, timeout, missing/unavailable data,
+  conflict, mode mismatch, loss of plan/continuation or any hard stop.
+- The start verifier keeps the transaction-frozen slot, percentage and expected
+  battery-power target. It collects six newer complete aggregate generations
+  and evaluates the four exact three-sample windows **[1,2,3]**, **[2,3,4]**,
+  **[3,4,5]**, **[4,5,6]** within the accepted **155-second** horizon. One
+  isolated sampled transition peak remains best-effort diagnostics and cannot
+  poison a separate clean window. Two consecutive central peaks, persistent
+  mismatch, missing export and absence of a stable window still fail closed
+  through the existing neutral rollback.
+- The configured HIT-20L nameplate remains **20 kW**. Its battery-only RCE
+  model now uses **16 kW per inverter**, so two units provide a **32 kW**
+  battery base and the requested RCE percentage applies to that base. This
+  calibration is not a hardware AC power cap and does not constrain register
+  4306. PV and LOAD remain separate in the physical balance, total
+  instantaneous AC power may exceed 16 kW per inverter with PV, and charging
+  power is unchanged. The 5/10/12/15 kW profiles are unchanged.
+- The patch changes no ESPHome/firmware source, Modbus map, full-block write
+  semantics, GCF policy, tariff, RCEm, manual control, Aurora, EMS Supervisor
+  or AP-1 timeline. Master FC03 remains acknowledgement of Master
+  configuration only; no per-Slave protocol acknowledgement is claimed.
+
+- RCE rozdziela teraz autoryzację startu przed ACK od kontynuacji po ACK. Nowy
+  cykl nadal wymaga **current_slot_start_eligible=true**; aktywny, fizycznie
+  potwierdzony cykl nie wykonuje rollbacku tylko dlatego, że wygasł warunek
+  nowego startu. Kontynuacja nadal wymaga planowanego slotu, kwalifikacji
+  kontynuacji, ważnej relacji zatrzaśniętego cyklu/slotu, wyłącznej własności
+  RCE, zgodnego fizycznego trybu/readbacku, świeżych danych krytycznych i
+  wszystkich dotychczasowych hard-stopów.
+- Nowy aktualny wynik optymalizatora może zostać opublikowany jedno zdarzenie
+  przed zależnymi sensorami wykonawczymi. Aktywny, fizycznie potwierdzony cykl
+  RCE może podtrzymać wyłącznie to konkretne przejście kohorty przez maksymalnie
+  **5 sekund**, gdy **control_data_ready=off**. Bridge nie nadaje authority,
+  wykonuje zero zapisów, nie ponawia Mode 5 ani 4306, nie zmienia
+  zatrzaśniętego celu i kończy się natychmiast po gotowości, timeoutcie,
+  braku/niedostępności danych, konflikcie, błędnym trybie, utracie
+  planu/kontynuacji lub dowolnym hard-stopie.
+- Weryfikator startowy zachowuje zatrzaśnięty dla transakcji slot, procent i
+  oczekiwaną moc baterii. Zbiera sześć nowszych kompletnych generacji
+  sumarycznych i ocenia cztery dokładne trzypróbkowe okna **[1,2,3]**,
+  **[2,3,4]**, **[3,4,5]**, **[4,5,6]** w zaakceptowanym horyzoncie
+  **155 sekund**. Pojedynczy próbkowany skok przejściowy pozostaje diagnostyką
+  best-effort i nie zatruwa osobnego czystego okna. Dwa kolejne centralne skoki,
+  trwała niezgodność, brak eksportu i brak stabilnego okna nadal kończą się
+  fail-closed przez istniejący neutralny rollback.
+- Skonfigurowana moc znamionowa HIT-20L nadal wynosi **20 kW**. Model RCE
+  rozładowania wyłącznie z baterii używa teraz **16 kW na falownik**, więc dwie
+  jednostki dają bateryjną bazę **32 kW**, do której stosowany jest procent RCE.
+  Kalibracja nie jest sprzętowym ograniczeniem mocy AC i nie ogranicza rejestru
+  4306. PV i LOAD pozostają osobnymi składnikami bilansu, chwilowa całkowita moc
+  AC z PV może przekroczyć 16 kW/falownik, a moc ładowania się nie zmienia.
+  Profile 5/10/12/15 kW pozostają bez zmian.
+- Hotfix nie zmienia źródeł ESPHome/firmware, map Modbus, semantyki zapisu
+  pełnego bloku, GCF, taryfy, RCEm, sterowania ręcznego, Aurora, EMS Supervisor
+  ani osi AP-1. FC03 Mastera nadal potwierdza wyłącznie konfigurację Mastera;
+  nie deklarujemy protokołowego ACK żadnego Slave'a.
+
 ## [1.5.7] - 2026-08-22
 
 > **Status:** RCE GCF cohort stability hotfix. Publication is permitted only

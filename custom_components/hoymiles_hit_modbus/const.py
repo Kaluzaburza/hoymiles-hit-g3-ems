@@ -7,11 +7,11 @@ from homeassistant.const import Platform
 
 DOMAIN = "hoymiles_hit_modbus"
 NAME = "EMS for Hoymiles HIT-(5–20)L-G3"
-VERSION = "1.5.7"
+VERSION = "1.5.8"
 
 # Version of the managed Home Assistant EMS package schema. It changes only
 # when the package YAML changes, independently from dashboard-only releases.
-EMS_PACKAGE_VERSION = "1.5.7"
+EMS_PACKAGE_VERSION = "1.5.8"
 
 # Existing helper created by the managed Home Assistant EMS package. Keep the
 # setup-status sensor and Repairs check on this single shared sentinel so they

@@ -6,7 +6,6 @@ import asyncio
 import ast
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-import hashlib
 import importlib.util
 from itertools import product
 import math
@@ -70,17 +69,19 @@ NOW = datetime(2026, 7, 28, 0, 0, tzinfo=WARSAW)
 # ceiling for the heavy 96/110-slot regressions; event-loop safety is proved by
 # the separate executor/offload contract rather than by this benchmark.
 SHARED_RUNNER_SOLVER_CEILING_SECONDS = 1.0
-V156_RCE_OPTIMIZER_SHA256 = (
-    "f95ca95d8290995016ced33f12a9feec8306ca7e6bf224da385c956774866870"
-)
+def test_battery_discharge_base_is_separate_from_ac_bridge_power() -> None:
+    """A model calibration must not reduce PV/LOAD/charge AC headroom."""
 
-
-def test_v156_rce_optimizer_source_is_frozen() -> None:
-    """The cohort hotfix cannot alter any RCE economic implementation byte."""
-
-    assert hashlib.sha256(MODULE_PATH.read_bytes()).hexdigest() == (
-        V156_RCE_OPTIMIZER_SHA256
+    settings = base_input(
+        inverter_power_kw=16.0,
+        inverter_ac_power_kw=20.0,
+        inverter_count=1,
     )
+    assert RCE._inverter_ac_power_kw(settings) == 20.0
+    assert RCE._slot_export_limit_kwh(settings, 0.0, 0.0, 1.0) == 8.0
+    assert RCE._slot_charge_input_limit_kwh(
+        settings, 0.0, 20.0, 1.0
+    ) == 10.0
 
 
 def slots(day_offset: int, hour: int, count: int, price: float):
@@ -145,9 +146,15 @@ def _independent_short_simulation(
     export_efficiency = settings.export_efficiency_percent / 100.0
     charge_efficiency = settings.charge_efficiency_percent / 100.0
     house_efficiency = settings.house_discharge_efficiency_percent / 100.0
-    system_power = settings.inverter_power_kw * settings.inverter_count
+    battery_system_power = settings.inverter_power_kw * settings.inverter_count
+    ac_power_each = (
+        settings.inverter_ac_power_kw
+        if settings.inverter_ac_power_kw is not None
+        else settings.inverter_power_kw
+    )
+    ac_system_power = ac_power_each * settings.inverter_count
     requested_power = (
-        system_power * settings.discharge_power_percent / 100.0
+        battery_system_power * settings.discharge_power_percent / 100.0
     )
     revenue = 0.0
     exported_dc = 0.0
@@ -156,7 +163,7 @@ def _independent_short_simulation(
         load = max(load_by_slot.get(start, 0.0), 0.0)
         export = max(exports.get(start, 0.0), 0.0)
         load_deficit = max(load - pv, 0.0)
-        system_energy = system_power * 0.5
+        system_energy = ac_system_power * 0.5
         export_caps = [
             max(requested_power * 0.5 - load_deficit, 0.0),
             max(system_energy - min(load, system_energy), 0.0),
@@ -4023,7 +4030,7 @@ def test_self_use_reserve_uses_fresh_physical_readback() -> None:
 def main() -> None:
     """Run without pytest so the release validator has no extra dependency."""
     tests = [
-        test_v156_rce_optimizer_source_is_frozen,
+        test_battery_discharge_base_is_separate_from_ac_bridge_power,
         test_higher_tomorrow_price_wins,
         test_low_market_prices_still_use_the_best_48h_slots,
         test_negative_prices_do_not_dump_stored_energy,

@@ -2163,8 +2163,8 @@ ENGLISH_REPLACEMENTS = {
     "Aktywne RCE utraciło autoryzację przed zapisem progu SOC": (
         "Active RCE lost authorization before writing the SOC threshold"
     ),
-    "RCE przelicza plan; aktywny zatwierdzony cykl pozostaje bez zmian": (
-        "RCE is recalculating; the accepted active cycle remains unchanged"
+    "RCE synchronizuje kohortę planu; aktywny zatwierdzony cykl pozostaje bez zmian": (
+        "RCE is synchronizing the plan cohort; the accepted active cycle remains unchanged"
     ),
     "Decyzja optymalizatora": "Optimizer decision",
     "Cena RCE teraz": "Current RCE price",

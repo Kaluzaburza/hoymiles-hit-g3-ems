@@ -74,6 +74,10 @@ class OptimizerInput:
     inverter_count: int
     discharge_power_percent: float
     export_efficiency_percent: float
+    # Optional nameplate AC bridge power.  ``inverter_power_kw`` remains the
+    # battery-only RCE base so discharge percentages and verification targets
+    # are not conflated with PV/LOAD/charging conversion headroom.
+    inverter_ac_power_kw: float | None = None
     bms_max_discharge_current_a: float | None = None
     bms_max_charge_current_a: float | None = None
     battery_voltage_v: float | None = None
@@ -1033,6 +1037,14 @@ def _bms_start_suppression_reason(settings: OptimizerInput) -> str | None:
     return None
 
 
+def _inverter_ac_power_kw(settings: OptimizerInput) -> float:
+    """Return nameplate AC bridge power, falling back for old callers."""
+
+    if settings.inverter_ac_power_kw is None:
+        return settings.inverter_power_kw
+    return settings.inverter_ac_power_kw
+
+
 def _slot_export_limit_kwh(
     settings: OptimizerInput,
     load_kwh: float,
@@ -1044,8 +1056,11 @@ def _slot_export_limit_kwh(
     hours = 0.5 * fraction
     if hours <= 0.0:
         return 0.0
-    system_power = settings.inverter_power_kw * settings.inverter_count
-    requested_power = system_power * min(
+    battery_system_power = (
+        settings.inverter_power_kw * settings.inverter_count
+    )
+    ac_system_power = _inverter_ac_power_kw(settings) * settings.inverter_count
+    requested_power = battery_system_power * min(
         max(settings.discharge_power_percent, 0.0), 100.0
     ) / 100.0
     load_deficit_ac = max(load_kwh - pv_kwh, 0.0)
@@ -1053,7 +1068,11 @@ def _slot_export_limit_kwh(
     # inverter AC bridge is shared by PV/LOAD and every grid-export branch.
     shared_limits = [max(requested_power * hours - load_deficit_ac, 0.0)]
     shared_limits.append(
-        max(system_power * hours - min(load_kwh, system_power * hours), 0.0)
+        max(
+            ac_system_power * hours
+            - min(load_kwh, ac_system_power * hours),
+            0.0,
+        )
     )
 
     bms_dc_power = _bms_dc_power_limit_kw(settings)
@@ -1097,7 +1116,9 @@ def _slot_charge_input_limit_kwh(
     hours = 0.5 * fraction
     if hours <= 0.0:
         return 0.0
-    system_energy = settings.inverter_power_kw * settings.inverter_count * hours
+    system_energy = (
+        _inverter_ac_power_kw(settings) * settings.inverter_count * hours
+    )
     remaining_conversion = max(
         system_energy
         - min(load_kwh, system_energy)
@@ -1189,7 +1210,7 @@ def _simulate(
         if pv >= load:
             unallocated_pv = max(pv - load - charge_input_ac, 0.0)
             system_energy = (
-                settings.inverter_power_kw
+                _inverter_ac_power_kw(settings)
                 * settings.inverter_count
                 * 0.5
                 * fraction
@@ -1939,6 +1960,9 @@ def optimize_rce(settings: OptimizerInput) -> OptimizerResult:
         capacity <= 0
         or settings.average_daily_load_kwh < 0
         or settings.inverter_power_kw <= 0
+        or not math.isfinite(settings.inverter_power_kw)
+        or _inverter_ac_power_kw(settings) <= 0
+        or not math.isfinite(_inverter_ac_power_kw(settings))
         or settings.inverter_count <= 0
     ):
         return OptimizerResult(

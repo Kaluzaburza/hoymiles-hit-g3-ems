@@ -1588,6 +1588,16 @@ def main() -> int:
         f"CHANGELOG lacks the {manifest['version']} release section",
     )
     release_notes = release_match.group(1)
+    github_release_body = re.match(
+        rf"^# v{re.escape(manifest['version'])}[^\n]*\n\n(.*)\Z",
+        github_release_notes,
+        re.S,
+    )
+    require(
+        github_release_body is not None
+        and github_release_body.group(1).strip() == release_notes.strip(),
+        "Versioned GitHub Release body differs from the CHANGELOG release section",
+    )
     normalized_readme = " ".join(readme.split())
     require(
         readme.startswith(f"# {EXPECTED_PROJECT_NAME}\n")
@@ -1607,14 +1617,28 @@ def main() -> int:
         "Release changelog lacks the HACS-visible user update steps",
     )
     for update_step in (
-        "1. **HACS:**",
-        "2. **Home Assistant:**",
-        "3. **ESP32 / ESPHome:**",
-        "4. **Verification / Weryfikacja:**",
+        "1. **Safety / Bezpieczeństwo:**",
+        "2. **HACS:**",
+        "3. **Home Assistant:**",
+        "4. **ESP32 / ESPHome:**",
+        "5. **Verification / Weryfikacja:**",
     ):
         require(
             update_step in release_notes,
             f"Release changelog lacks required user step: {update_step}",
+        )
+    normalized_release_notes = " ".join(release_notes.split())
+    for release_contract in (
+        "exactly **two Home Assistant restarts**",
+        "locally modified scheduler",
+        "No ESP32 / ESPHome rebuild or upload is required for",
+        "Wersja v1.5.8 nie wymaga ponownej kompilacji ani wgrywania firmware",
+        "inverter_nameplate_power_each_kw=20",
+        "inverter_power_each_kw=16",
+    ):
+        require(
+            release_contract in normalized_release_notes,
+            f"Release changelog lacks hotfix update contract: {release_contract}",
         )
     release_procedure = (ROOT / "RELEASING.md").read_text(encoding="utf-8")
     require(
@@ -1641,7 +1665,7 @@ def main() -> int:
         "English and Polish READMEs must expose the beginner quick-start guide",
     )
     require(
-        "## User update steps / Kroki po aktualizacji" in github_release_notes
+        "### User update steps / Kroki po aktualizacji" in github_release_notes
         and "ESP32 / ESPHome" in github_release_notes
         and "2064/2064" in github_release_notes,
         "GitHub Release notes are incomplete for HACS users",

@@ -72,6 +72,20 @@ _FORECAST_GCF_SUPPORT_MAX_AGE_SECONDS = 10.0
 _FORECAST_GCF_READBACK_MAX_AGE_SECONDS = 180.0
 _FORECAST_GCF_READBACK_MAX_SKEW_SECONDS = 5.0
 
+# The HIT-20L-G3 nameplate describes total inverter AC capability.  Its
+# battery-only Grid Discharge base used by RCE is 16 kW per inverter; PV,
+# LOAD, charging, and every other configured inverter profile stay separate.
+_HIT_20L_BATTERY_DISCHARGE_POWER_KW = 16.0
+
+
+def _rce_inverter_discharge_power_kw(rated_power_kw: float) -> float:
+    """Return the model-specific battery-only discharge base for RCE."""
+
+    if abs(rated_power_kw - 20.0) < 0.01:
+        return _HIT_20L_BATTERY_DISCHARGE_POWER_KW
+    return rated_power_kw
+
+
 FORECAST_GCF_ENABLE_ENTITY = (
     "sensor.hoymiles_hit_gcf_enable_readback_code"
 )
@@ -2112,6 +2126,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         )
         if rated_power is None:
             required["input_select.hoymiles_rce_inverter_rated_power"] = None
+        rce_inverter_power = (
+            _rce_inverter_discharge_power_kw(rated_power)
+            if rated_power is not None
+            else None
+        )
 
         sun = self.hass.states.get("sun.sun")
         rising = (
@@ -2657,6 +2676,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         assert block_end is not None
         assert average_load is not None
         assert rated_power is not None
+        assert rce_inverter_power is not None
         price_slots = parse_rce_rows(
             [*today_rows, *usable_tomorrow_rows],
             timezone,
@@ -3433,7 +3453,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     1,
                 ),
                 "inverter_count": inverter_count,
-                "inverter_power_each_kw": rated_power,
+                "inverter_power_each_kw": rce_inverter_power,
+                "inverter_nameplate_power_each_kw": rated_power,
+                "battery_discharge_calibration_applied": (
+                    abs(rce_inverter_power - rated_power) >= 0.01
+                ),
                 "market_slots": len(price_slots),
                 "night_window": (
                     f"{night_start // 60:02d}:{night_start % 60:02d}"
@@ -3469,7 +3493,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 average_night_load_kwh=night_load,
                 night_start_minute=night_start,
                 night_end_minute=night_end,
-                inverter_power_kw=rated_power,
+                inverter_power_kw=rce_inverter_power,
+                inverter_ac_power_kw=rated_power,
                 inverter_count=inverter_count,
                 discharge_power_percent=required[
                     "input_number.hoymiles_rce_requested_discharge_power"

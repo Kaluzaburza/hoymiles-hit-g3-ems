@@ -936,7 +936,7 @@ template:
       - name: "Hoymiles EMS Package Version"
         unique_id: hoymiles_ems_package_version
         icon: mdi:package-variant-closed-check
-        state: "1.5.7"
+        state: "1.5.8"
         attributes:
           # One changing attribute per local day gives Recorder a recent
           # boundary report even when the package version itself is stable.
@@ -1064,7 +1064,7 @@ template:
           individual_inverter_acknowledgement: unavailable
           formula: "P_battery = P_grid + P_load - P_pv"
           transition_grace_seconds: 20
-          candidate_generations: 5
+          candidate_generations: 6
           required_stable_generations: 3
           detected_inverters: >-
             {{ trigger.event.data.detected_inverters | default(none) }}
@@ -1091,7 +1091,7 @@ template:
           sampled_transition_scope: >-
             best_effort_post_master_ack_boundaries_and_complete_candidates
           verification_horizon_seconds: >-
-            {{ trigger.event.data.verification_horizon_seconds | default(135) }}
+            {{ trigger.event.data.verification_horizon_seconds | default(155) }}
           stable_window_start: >-
             {{ trigger.event.data.stable_window_start | default(none) }}
           tolerance_kw: >-
@@ -1652,10 +1652,11 @@ template:
         unit_of_measurement: "%"
         state_class: measurement
         availability: >-
-          {% set rated =
-            states('input_select.hoymiles_rce_inverter_rated_power')
-            | replace(' kW', '') | float(0) %}
-           {{ rated > 0
+          {% set system_power = state_attr(
+            'sensor.hoymiles_hit_rce_optimized_plan',
+            'system_power_kw') %}
+           {{ is_number(system_power)
+              and (system_power | float(0)) > 0
               and is_number(states(
                 'sensor.hoymiles_rce_bms_safe_discharge_power'))
               and is_number(states(
@@ -1664,17 +1665,9 @@ template:
                 'sensor.hoymiles_hit_rce_optimized_plan',
                 'current_slot_execution_power_percent')) }}
         state: >-
-          {% set rated =
-            states('input_select.hoymiles_rce_inverter_rated_power')
-            | replace(' kW', '') | float(0) %}
-          {% set raw_count =
-            states(
-              'sensor.hoymiles_hit_number_of_machines_master_and_slave') %}
-          {% set count =
-            raw_count | float(1) | round(0) | int
-            if is_number(raw_count) else 1 %}
-          {% set count = [[count, 1] | max, 10] | min %}
-          {% set system_power = rated * count %}
+          {% set system_power = state_attr(
+            'sensor.hoymiles_hit_rce_optimized_plan',
+            'system_power_kw') | float(0) %}
           {% set requested =
             states('input_number.hoymiles_rce_requested_discharge_power')
             | float(0) %}
@@ -3962,7 +3955,7 @@ script:
           latched_esp_uptime_seconds: >-
             {{ response_latched_esp_uptime_seconds | float(-1) }}
           pending_at: "{{ response_pending_at }}"
-          verification_horizon_seconds: 135
+          verification_horizon_seconds: 155
           detected_inverters: "{{ response_machine_count }}"
           latched_machine_type: "{{ response_machine_type }}"
           topology_known: "{{ response_topology_known | bool(false) }}"
@@ -3995,7 +3988,7 @@ script:
                   latched_esp_uptime_seconds: >-
                     {{ response_latched_esp_uptime_seconds | float(-1) }}
                   pending_at: "{{ response_pending_at }}"
-                  verification_horizon_seconds: 135
+                  verification_horizon_seconds: 155
                   detected_inverters: "{{ response_machine_count }}"
                   latched_machine_type: "{{ response_machine_type }}"
                   topology_known: false
@@ -4042,7 +4035,7 @@ script:
                   latched_esp_uptime_seconds: >-
                     {{ response_latched_esp_uptime_seconds | float(-1) }}
                   pending_at: "{{ response_pending_at }}"
-                  verification_horizon_seconds: 135
+                  verification_horizon_seconds: 155
                   detected_inverters: "{{ response_machine_count }}"
                   latched_machine_type: "{{ response_machine_type }}"
                   topology_known: true
@@ -4092,7 +4085,7 @@ script:
                   latched_esp_uptime_seconds: >-
                     {{ response_latched_esp_uptime_seconds | float(-1) }}
                   pending_at: "{{ response_pending_at }}"
-                  verification_horizon_seconds: 135
+                  verification_horizon_seconds: 155
                   detected_inverters: "{{ response_machine_count }}"
                   latched_machine_type: "{{ response_machine_type }}"
                   topology_known: >-
@@ -4162,7 +4155,7 @@ script:
               latched_esp_uptime_seconds: >-
                 {{ response_latched_esp_uptime_seconds | float(-1) }}
               pending_at: "{{ response_pending_at }}"
-              verification_horizon_seconds: 135
+              verification_horizon_seconds: 155
               detected_inverters: "{{ response_machine_count }}"
               latched_machine_type: "{{ response_machine_type }}"
               topology_known: "{{ response_topology_known | bool(false) }}"
@@ -4214,7 +4207,7 @@ script:
               latched_esp_uptime_seconds: >-
                 {{ response_latched_esp_uptime_seconds | float(-1) }}
               pending_at: "{{ response_pending_at }}"
-              verification_horizon_seconds: 135
+              verification_horizon_seconds: 155
               detected_inverters: "{{ response_machine_count }}"
               latched_machine_type: "{{ response_machine_type }}"
               topology_known: "{{ response_topology_known | bool(false) }}"
@@ -4248,9 +4241,9 @@ script:
             error: false
       # Each wait accepts exactly one newer firmware generation. The power
       # timestamps must also be newer than this transaction, so a cached
-      # pre-command value cannot become physical-response evidence. Five
-      # candidates allow the stable three-sample window to restart twice after
-      # a normal transition peak without treating that peak as a failure.
+      # pre-command value cannot become physical-response evidence. Six
+      # candidates provide a clean fourth window after one central transition
+      # generation without treating that isolated peak as a failure.
       - wait_template: >-
           {% set battery = states.sensor.hoymiles_hit_overview_battery_power %}
           {% set grid =
@@ -4518,6 +4511,62 @@ script:
               states.sensor.hoymiles_hit_overview_grid_total_active_power %}
             {{ as_timestamp(item.last_reported
                  if item.last_reported is defined else item.last_updated, 0) }}
+      # One additional fresh generation lets a single central transition spike
+      # age out of every three-sample window without weakening target checks.
+      - wait_template: >-
+          {% set battery = states.sensor.hoymiles_hit_overview_battery_power %}
+          {% set grid =
+            states.sensor.hoymiles_hit_overview_grid_total_active_power %}
+          {% set battery_reported = battery.last_reported
+            if battery.last_reported is defined else battery.last_updated %}
+          {% set grid_reported = grid.last_reported
+            if grid.last_reported is defined else grid.last_updated %}
+          {{ not is_state('sensor.hoymiles_ems_hardware_mode', 'grid_discharge')
+             or not is_number(states('sensor.hoymiles_hit_esp_uptime'))
+             or (states('sensor.hoymiles_hit_esp_uptime') | float(-1))
+                  < (response_latched_esp_uptime_seconds | float(-1))
+             or (is_number(states(
+                   'sensor.hoymiles_hit_parallel_aggregate_power_readback_generation'))
+                 and is_number(states('sensor.hoymiles_hit_esp_uptime'))
+                 and (states('sensor.hoymiles_hit_esp_uptime') | float(-1))
+                   >= (response_latched_esp_uptime_seconds | float(-1))
+                 and (states(
+                   'sensor.hoymiles_hit_parallel_aggregate_power_readback_generation')
+                   | float(-1)) > (response_generation_5 | float(-1))
+                 and (states(
+                   'sensor.hoymiles_hit_parallel_aggregate_power_readback_generation')
+                   | float(-1))
+                   > (response_collection_baseline_generation | float(-1))
+                 and is_number(battery.state)
+                 and is_number(grid.state)
+                 and as_timestamp(battery_reported, 0)
+                   >= (response_started_epoch | float(0))
+                 and as_timestamp(grid_reported, 0)
+                   >= (response_started_epoch | float(0))) }}
+        timeout: "00:00:20"
+        continue_on_timeout: true
+      - variables:
+          response_generation_6: >-
+            {{ states(
+              'sensor.hoymiles_hit_parallel_aggregate_power_readback_generation')
+               | float(-1) }}
+          response_esp_uptime_6: >-
+            {{ states('sensor.hoymiles_hit_esp_uptime') | float(-1) }}
+          response_sample_6_kw: >-
+            {{ states('sensor.hoymiles_hit_overview_battery_power')
+               | float(-999000) / 1000 }}
+          response_grid_6_kw: >-
+            {{ states('sensor.hoymiles_hit_overview_grid_total_active_power')
+               | float(-999000) / 1000 }}
+          response_battery_reported_6: >-
+            {% set item = states.sensor.hoymiles_hit_overview_battery_power %}
+            {{ as_timestamp(item.last_reported
+                 if item.last_reported is defined else item.last_updated, 0) }}
+          response_grid_reported_6: >-
+            {% set item =
+              states.sensor.hoymiles_hit_overview_grid_total_active_power %}
+            {{ as_timestamp(item.last_reported
+                 if item.last_reported is defined else item.last_updated, 0) }}
       - variables:
           response_sample_1_valid: >-
             {{ (response_generation_1 | float(-1))
@@ -4572,13 +4621,25 @@ script:
                  >= (response_started_epoch | float(0))
                and (response_grid_reported_5 | float(0))
                  >= (response_started_epoch | float(0)) }}
+          response_sample_6_valid: >-
+            {{ (response_generation_6 | float(-1))
+                  > (response_generation_5 | float(-1))
+               and (response_generation_6 | float(-1))
+                 > (response_collection_baseline_generation | float(-1))
+               and (response_esp_uptime_6 | float(-1))
+                 >= (response_latched_esp_uptime_seconds | float(-1))
+               and (response_battery_reported_6 | float(0))
+                 >= (response_started_epoch | float(0))
+               and (response_grid_reported_6 | float(0))
+                 >= (response_started_epoch | float(0)) }}
       - variables:
           response_candidate_sample_count: >-
             {{ (response_sample_1_valid | bool(false) | int)
                + (response_sample_2_valid | bool(false) | int)
                + (response_sample_3_valid | bool(false) | int)
                + (response_sample_4_valid | bool(false) | int)
-               + (response_sample_5_valid | bool(false) | int) }}
+               + (response_sample_5_valid | bool(false) | int)
+               + (response_sample_6_valid | bool(false) | int) }}
           response_expected_valid: >-
             {{ response_authoritative_requested | bool(false)
                and is_number(response_expected_kw)
@@ -4595,6 +4656,10 @@ script:
             {{ response_sample_3_valid | bool(false)
                and response_sample_4_valid | bool(false)
                and response_sample_5_valid | bool(false) }}
+          response_window_4_valid: >-
+            {{ response_sample_4_valid | bool(false)
+               and response_sample_5_valid | bool(false)
+               and response_sample_6_valid | bool(false) }}
           response_window_1_direction: >-
             {{ ([response_sample_1_kw | float(-999),
                  response_sample_2_kw | float(-999),
@@ -4616,9 +4681,17 @@ script:
                  response_sample_4_kw | float(-999),
                  response_sample_5_kw | float(-999)] | min) >= 0.5
                and (not response_authoritative_requested | bool(false)
-                    or ([response_grid_3_kw | float(-999),
-                         response_grid_4_kw | float(-999),
-                         response_grid_5_kw | float(-999)] | min) >= 0.25) }}
+                     or ([response_grid_3_kw | float(-999),
+                          response_grid_4_kw | float(-999),
+                          response_grid_5_kw | float(-999)] | min) >= 0.25) }}
+          response_window_4_direction: >-
+            {{ ([response_sample_4_kw | float(-999),
+                 response_sample_5_kw | float(-999),
+                 response_sample_6_kw | float(-999)] | min) >= 0.5
+               and (not response_authoritative_requested | bool(false)
+                    or ([response_grid_4_kw | float(-999),
+                         response_grid_5_kw | float(-999),
+                         response_grid_6_kw | float(-999)] | min) >= 0.25) }}
           response_window_1_median_kw: >-
             {% set samples = [response_sample_1_kw | float(-999),
                               response_sample_2_kw | float(-999),
@@ -4634,6 +4707,11 @@ script:
                               response_sample_4_kw | float(-999),
                               response_sample_5_kw | float(-999)] | sort %}
             {{ samples[1] }}
+          response_window_4_median_kw: >-
+            {% set samples = [response_sample_4_kw | float(-999),
+                              response_sample_5_kw | float(-999),
+                              response_sample_6_kw | float(-999)] | sort %}
+            {{ samples[1] }}
           response_window_1_spread_kw: >-
             {% set samples = [response_sample_1_kw | float(-999),
                               response_sample_2_kw | float(-999),
@@ -4648,6 +4726,11 @@ script:
             {% set samples = [response_sample_3_kw | float(-999),
                               response_sample_4_kw | float(-999),
                               response_sample_5_kw | float(-999)] %}
+            {{ (samples | max) - (samples | min) }}
+          response_window_4_spread_kw: >-
+            {% set samples = [response_sample_4_kw | float(-999),
+                              response_sample_5_kw | float(-999),
+                              response_sample_6_kw | float(-999)] %}
             {{ (samples | max) - (samples | min) }}
           response_tolerance_kw: >-
             {{ [1.0, (response_expected_kw | float(0)) * 0.15] | max }}
@@ -4682,6 +4765,15 @@ script:
                        if response_expected_valid | bool(false)
                        else (response_window_3_median_kw | float(0))) * 0.10]
                      | max) }}
+          response_window_4_stable: >-
+            {{ response_window_4_valid | bool(false)
+               and response_window_4_direction | bool(false)
+               and (response_window_4_spread_kw | float(999))
+                 <= ([1.0,
+                      ((response_expected_kw | float(0))
+                       if response_expected_valid | bool(false)
+                       else (response_window_4_median_kw | float(0))) * 0.10]
+                     | max) }}
       - variables:
           # For an authoritative RCE transaction a stable transition plateau
           # outside the target band is not selected while a later candidate
@@ -4700,6 +4792,11 @@ script:
           response_window_3_target_compatible: >-
             {{ not response_expected_valid | bool(false)
                or ((response_window_3_median_kw | float(-999))
+                    - (response_expected_kw | float(0))) | abs
+                     <= (response_tolerance_kw | float(0)) }}
+          response_window_4_target_compatible: >-
+            {{ not response_expected_valid | bool(false)
+               or ((response_window_4_median_kw | float(-999))
                    - (response_expected_kw | float(0))) | abs
                     <= (response_tolerance_kw | float(0)) }}
       - variables:
@@ -4713,6 +4810,9 @@ script:
             {% elif response_window_3_stable | bool(false)
                     and response_window_3_target_compatible | bool(false) %}
               3
+            {% elif response_window_4_stable | bool(false)
+                    and response_window_4_target_compatible | bool(false) %}
+              4
             {% else %}
               0
             {% endif %}
@@ -4725,7 +4825,8 @@ script:
                 response_sample_2_kw | float(-999),
                 response_sample_3_kw | float(-999),
                 response_sample_4_kw | float(-999),
-                response_sample_5_kw | float(-999)] | max }}
+                response_sample_5_kw | float(-999),
+                response_sample_6_kw | float(-999)] | max }}
       - variables:
           response_sample_count: >-
             {{ 3 if response_stable_window_start | int(0) > 0
@@ -4737,6 +4838,8 @@ script:
               {{ response_window_2_median_kw }}
             {% elif response_stable_window_start | int(0) == 3 %}
               {{ response_window_3_median_kw }}
+            {% elif response_stable_window_start | int(0) == 4 %}
+              {{ response_window_4_median_kw }}
             {% else %}
               0
             {% endif %}
@@ -4747,6 +4850,8 @@ script:
               {{ response_window_2_spread_kw }}
             {% elif response_stable_window_start | int(0) == 3 %}
               {{ response_window_3_spread_kw }}
+            {% elif response_stable_window_start | int(0) == 4 %}
+              {{ response_window_4_spread_kw }}
             {% else %}
               0
             {% endif %}
@@ -4774,6 +4879,7 @@ script:
                               response_esp_uptime_3 | float(-1),
                               response_esp_uptime_4 | float(-1),
                               response_esp_uptime_5 | float(-1),
+                              response_esp_uptime_6 | float(-1),
                               states('sensor.hoymiles_hit_esp_uptime')
                                 | float(-1)] %}
             {{ (uptimes | min)
@@ -4815,7 +4921,8 @@ script:
                     and response_expected_valid | bool(false)
                     and (response_window_1_stable | bool(false)
                          or response_window_2_stable | bool(false)
-                         or response_window_3_stable | bool(false)) %}
+                         or response_window_3_stable | bool(false)
+                         or response_window_4_stable | bool(false)) %}
               authoritative_target_mismatch_after_transition_grace
             {% elif response_stable_window_start | int(0) == 0
                     and response_candidate_sample_count | int(0) < 3 %}
@@ -4823,7 +4930,8 @@ script:
             {% elif response_stable_window_start | int(0) == 0
                     and not (response_window_1_direction | bool(false)
                              or response_window_2_direction | bool(false)
-                             or response_window_3_direction | bool(false)) %}
+                             or response_window_3_direction | bool(false)
+                             or response_window_4_direction | bool(false)) %}
               missing_required_direction_after_transition_grace
             {% elif response_stable_window_start | int(0) == 0 %}
               stable_sample_window_timeout
@@ -4848,7 +4956,7 @@ script:
           latched_esp_uptime_seconds: >-
             {{ response_latched_esp_uptime_seconds | float(-1) }}
           pending_at: "{{ response_pending_at }}"
-          verification_horizon_seconds: 135
+          verification_horizon_seconds: 155
           detected_inverters: "{{ response_machine_count }}"
           latched_machine_type: "{{ response_machine_type }}"
           topology_known: "{{ response_topology_known | bool(false) }}"
@@ -4885,6 +4993,10 @@ script:
               {{ [response_sample_3_kw | float(0) | round(3),
                   response_sample_4_kw | float(0) | round(3),
                   response_sample_5_kw | float(0) | round(3)] }}
+            {% elif response_stable_window_start | int(0) == 4 %}
+              {{ [response_sample_4_kw | float(0) | round(3),
+                  response_sample_5_kw | float(0) | round(3),
+                  response_sample_6_kw | float(0) | round(3)] }}
             {% else %}
               []
             {% endif %}
@@ -4901,6 +5013,10 @@ script:
               {{ [response_grid_3_kw | float(0) | round(3),
                   response_grid_4_kw | float(0) | round(3),
                   response_grid_5_kw | float(0) | round(3)] }}
+            {% elif response_stable_window_start | int(0) == 4 %}
+              {{ [response_grid_4_kw | float(0) | round(3),
+                  response_grid_5_kw | float(0) | round(3),
+                  response_grid_6_kw | float(0) | round(3)] }}
             {% else %}
               []
             {% endif %}
@@ -4908,7 +5024,7 @@ script:
             {{ response_baseline_generation | float(-1) }}
           collection_baseline_generation: >-
             {{ response_collection_baseline_generation | float(-1) }}
-          final_generation: "{{ response_generation_5 | float(-1) }}"
+          final_generation: "{{ response_generation_6 | float(-1) }}"
           completed_at: "{{ now().isoformat() }}"
       # Event dispatch and trigger-based template rendering are asynchronous.
       # Do not return to a policy caller until this transaction owns the sensor.
@@ -8973,17 +9089,9 @@ automation:
                   {{ as_timestamp(states(
                        'input_datetime.hoymiles_rce_latched_slot_end'), 0)
                        > as_timestamp(now())
-                     and not (
-                     state_attr('sensor.hoymiles_hit_rce_optimized_plan',
-                                  'current_slot_continue_eligible')
-                         is sameas false
-                       and is_number(state_attr(
-                         'sensor.hoymiles_hit_rce_optimized_plan',
-                         'current_slot_continue_stable_seconds'))
-                       and (state_attr(
-                         'sensor.hoymiles_hit_rce_optimized_plan',
-                         'current_slot_continue_stable_seconds')
-                           | float(0)) >= 60) }}
+                     and state_attr(
+                       'sensor.hoymiles_hit_rce_optimized_plan',
+                       'current_slot_continue_eligible') is sameas true }}
             sequence:
               - variables:
                   rce_live_authorization_checked: true
@@ -8993,7 +9101,10 @@ automation:
           # execution-safety input remains valid.
           #
           # Important: do not infer safety from the stale/latched optimizer
-          # result while recalculation is pending.
+          # result while recalculation is pending.  After a new result commits,
+          # its dependent template sensors may settle one event later; that
+          # bounded cohort transition also preserves only the already latched
+          # cycle and never grants authority for a new start or write.
           # Hard-stop conditions must continue to be evaluated independently
           # from current physical/live safety inputs.
           # A normal planning-input change may preserve the active latched
@@ -9004,6 +9115,7 @@ automation:
                 value_template: &rce_pending_latched_execution_safe >-
                   {% set plan =
                     states.sensor.hoymiles_hit_rce_optimized_plan %}
+                  {% set plan_reported = plan.last_updated %}
                   {% set soc =
                     states.sensor.hoymiles_hit_overview_battery_soc %}
                   {% set bms_current =
@@ -9027,6 +9139,8 @@ automation:
                   {% set power_reported = power.last_reported
                     if power.last_reported is defined else power.last_updated %}
                   {% set now_ts = as_timestamp(now()) %}
+                  {% set plan_age =
+                    now_ts - as_timestamp(plan_reported, 0) %}
                   {% set soc_age = now_ts - as_timestamp(soc_reported, 0) %}
                   {% set current_age =
                     now_ts - as_timestamp(current_reported, 0) %}
@@ -9050,9 +9164,6 @@ automation:
                   {% set continue_eligible = state_attr(
                     'sensor.hoymiles_hit_rce_optimized_plan',
                     'current_slot_continue_eligible') %}
-                  {% set continue_seconds = state_attr(
-                    'sensor.hoymiles_hit_rce_optimized_plan',
-                    'current_slot_continue_stable_seconds') %}
                   {% set machine_type =
                     states('sensor.hoymiles_hit_machines_type') %}
                   {% set machine_count = states(
@@ -9084,25 +9195,33 @@ automation:
                       'input_boolean.hoymiles_charge_cycle_active', 'off')
                     and not is_state('timer.hoymiles_discharge', 'active')
                     and not is_state('timer.hoymiles_charge', 'active') %}
-                  {% set committed_stop =
-                    continue_eligible is sameas false
-                    and is_number(continue_seconds)
-                    and (continue_seconds | float(0)) >= 60 %}
                   {% set price_stop =
                     not is_number(current_price)
                     or not is_number(automatic_floor)
                     or (current_price | float(0))
                        < (automatic_floor | float(0)) %}
+                  {% set result_current = state_attr(
+                    'sensor.hoymiles_hit_rce_optimized_plan',
+                    'result_current') %}
+                  {% set recalculation_pending = state_attr(
+                    'sensor.hoymiles_hit_rce_optimized_plan',
+                    'recalculation_pending') %}
+                  {% set optimizer_pending =
+                    result_current is sameas false
+                    and recalculation_pending is sameas true %}
+                  {% set current_cohort_settling =
+                    result_current is sameas true
+                    and recalculation_pending is sameas false
+                    and is_state(
+                      'binary_sensor.hoymiles_rce_control_data_ready', 'off')
+                    and plan_age >= 0 and plan_age <= 5 %}
+                  {% set optimizer_transition =
+                    optimizer_pending or current_cohort_settling %}
                   {{ is_state(
                        'input_boolean.hoymiles_rce_discharge_active', 'on')
                      and is_state(
                        'input_boolean.hoymiles_rce_discharge_enabled', 'on')
-                     and state_attr(
-                       'sensor.hoymiles_hit_rce_optimized_plan',
-                       'result_current') is sameas false
-                     and state_attr(
-                       'sensor.hoymiles_hit_rce_optimized_plan',
-                       'recalculation_pending') is sameas true
+                     and optimizer_transition
                      and is_state(
                        'binary_sensor.hoymiles_ems_execution_ready', 'on')
                      and is_state(
@@ -9121,7 +9240,7 @@ automation:
                      and state_attr(
                        'sensor.hoymiles_hit_rce_optimized_plan',
                        'current_slot_planned') | default(false, true)
-                     and not committed_stop
+                     and continue_eligible is sameas true
                      and not price_stop
                      and is_number(committed_power)
                      and (committed_power | float(0)) > 0
@@ -9153,7 +9272,7 @@ automation:
                             floor.state | float(100)] | max }}
             sequence:
               - stop: >-
-                  RCE is recalculating; the accepted active cycle remains unchanged
+                  RCE is synchronizing the plan cohort; the accepted active cycle remains unchanged
           - conditions:
               - condition: state
                 entity_id: input_boolean.hoymiles_rce_discharge_active
@@ -9268,20 +9387,12 @@ automation:
                      | default(false, true) }}
               - condition: template
                 value_template: >-
-                  {{ as_timestamp(states(
-                       'input_datetime.hoymiles_rce_latched_slot_end'), 0)
-                       > as_timestamp(now())
-                     and not (
-                       state_attr('sensor.hoymiles_hit_rce_optimized_plan',
-                                  'current_slot_continue_eligible')
-                         is sameas false
-                       and is_number(state_attr(
-                         'sensor.hoymiles_hit_rce_optimized_plan',
-                         'current_slot_continue_stable_seconds'))
-                       and (state_attr(
-                         'sensor.hoymiles_hit_rce_optimized_plan',
-                         'current_slot_continue_stable_seconds')
-                           | float(0)) >= 60) }}
+                 {{ as_timestamp(states(
+                      'input_datetime.hoymiles_rce_latched_slot_end'), 0)
+                      > as_timestamp(now())
+                     and state_attr(
+                       'sensor.hoymiles_hit_rce_optimized_plan',
+                       'current_slot_continue_eligible') is sameas true }}
             sequence:
               - variables:
                   rce_live_authorization_checked: true
@@ -9290,7 +9401,7 @@ automation:
                 value_template: *rce_pending_latched_execution_safe
             sequence:
               - stop: >-
-                  RCE is recalculating; the accepted active cycle remains unchanged
+                  RCE is synchronizing the plan cohort; the accepted active cycle remains unchanged
           - conditions:
               - condition: state
                 entity_id: input_boolean.hoymiles_rce_discharge_active
@@ -9474,17 +9585,9 @@ automation:
                       {{ as_timestamp(states(
                            'input_datetime.hoymiles_rce_latched_slot_end'), 0)
                            > as_timestamp(now())
-                         and not (
-                           state_attr('sensor.hoymiles_hit_rce_optimized_plan',
-                                      'current_slot_continue_eligible')
-                             is sameas false
-                           and is_number(state_attr(
-                             'sensor.hoymiles_hit_rce_optimized_plan',
-                             'current_slot_continue_stable_seconds'))
-                           and (state_attr(
-                             'sensor.hoymiles_hit_rce_optimized_plan',
-                             'current_slot_continue_stable_seconds')
-                               | float(0)) >= 60) }}
+                         and state_attr(
+                           'sensor.hoymiles_hit_rce_optimized_plan',
+                           'current_slot_continue_eligible') is sameas true }}
                 sequence:
                   - action: script.hoymiles_verified_set_ems_force_discharge_soc
                     data:
@@ -9532,7 +9635,7 @@ automation:
                     value_template: *rce_pending_latched_execution_safe
                 sequence:
                   - stop: >-
-                      RCE is recalculating; the accepted active cycle remains unchanged
+                      RCE is synchronizing the plan cohort; the accepted active cycle remains unchanged
             default:
               - action: script.hoymiles_rollback_rce_transaction
               - stop: >-
@@ -9910,10 +10013,6 @@ automation:
                                'sensor.hoymiles_rce_effective_discharge_power_percent')
                                | float(0)) > 0
                              and ((states(
-                               'sensor.hoymiles_rce_effective_discharge_power_percent')
-                               | float(-999)) - (rce_start_power | float(0)))
-                               | abs < 0.5
-                             and ((states(
                                'sensor.hoymiles_hit_ems_maximum_discharge_power_readback')
                                | float(0)) - (rce_start_power | float(0)))
                                | abs < 0.5
@@ -10046,8 +10145,9 @@ automation:
                   - stop: >-
                       RCE did not receive a matching aggregate power response
               # A successful mode ACK is not permission to accept an obsolete
-              # start. Re-evaluate the entire live transaction once more after
-              # the helper returns; dropped state triggers cannot bypass it.
+              # transaction. After aggregate physical confirmation, re-evaluate
+              # the live continuation contract; new-start eligibility no longer
+              # applies once Grid Discharge has been physically accepted.
               - choose:
                   - conditions:
                       - condition: state
@@ -10140,10 +10240,7 @@ automation:
                                'current_slot_planned') | default(false, true)
                              and state_attr(
                                'sensor.hoymiles_hit_rce_optimized_plan',
-                               'current_slot_start_eligible') | default(false, true)
-                             and state_attr(
-                               'sensor.hoymiles_hit_rce_optimized_plan',
-                               'current_slot_continue_eligible') is not sameas false
+                               'current_slot_continue_eligible') is sameas true
                              and as_timestamp(state_attr(
                                'sensor.hoymiles_hit_rce_optimized_plan',
                                'current_slot_end'), 0) > as_timestamp(now())
@@ -10154,10 +10251,9 @@ automation:
                                'current_slot_end'), 0)
                              and is_number(states(
                                'sensor.hoymiles_rce_effective_discharge_power_percent'))
-                             and ((states(
+                             and (states(
                                'sensor.hoymiles_rce_effective_discharge_power_percent')
-                               | float(-999)) - (rce_start_power | float(0)))
-                               | abs < 0.5
+                               | float(0)) > 0
                              and ((states(
                                'sensor.hoymiles_hit_ems_maximum_discharge_power_readback')
                                | float(-999)) - (rce_start_power | float(0)))
@@ -10187,7 +10283,7 @@ automation:
                 value_template: *rce_pending_latched_execution_safe
             sequence:
               - stop: >-
-                  RCE is recalculating; the accepted active cycle remains unchanged
+                  RCE is synchronizing the plan cohort; the accepted active cycle remains unchanged
 
           # Stop RCE: the slot left the plan, minimum SOC was reached, automation
           # was disabled, or PSE data became unavailable.
@@ -10206,16 +10302,9 @@ automation:
                      or (states(
                        'sensor.hoymiles_rce_effective_discharge_power_percent')
                        | float(0)) <= 0
-                     or (state_attr(
-                           'sensor.hoymiles_hit_rce_optimized_plan',
-                           'current_slot_continue_eligible') is sameas false
-                         and is_number(state_attr(
-                           'sensor.hoymiles_hit_rce_optimized_plan',
-                           'current_slot_continue_stable_seconds'))
-                         and (state_attr(
-                           'sensor.hoymiles_hit_rce_optimized_plan',
-                           'current_slot_continue_stable_seconds')
-                           | float(0)) >= 60)
+                     or state_attr(
+                          'sensor.hoymiles_hit_rce_optimized_plan',
+                          'current_slot_continue_eligible') is not sameas true
                      or (is_number(state_attr(
                            'sensor.hoymiles_hit_rce_optimized_plan',
                            'current_price_pln_kwh'))

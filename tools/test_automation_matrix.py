@@ -2435,9 +2435,16 @@ def assert_rce_execution_contracts() -> None:
         "# Ownership is already active, so the first export sample", 1
     )[0]
     assert "binary_sensor.hoymiles_ems_control_conflict" in final_start_guard
+    frozen_target_drift_check = (
+        "sensor.hoymiles_rce_effective_discharge_power_percent') "
+        "| float(-999)) - (rce_start_power"
+    )
+    assert frozen_target_drift_check not in " ".join(final_start_guard.split())
     post_mode_start_guard = start.split(
         "# A successful mode ACK is not permission to accept an obsolete", 1
-    )[1]
+    )[1].split(
+        "# A recalculation withdraws planning authority", 1
+    )[0]
     for marker in (
         "binary_sensor.hoymiles_ems_control_conflict",
         "input_boolean.hoymiles_rce_discharge_active",
@@ -2447,7 +2454,6 @@ def assert_rce_execution_contracts() -> None:
         "binary_sensor.hoymiles_sale_block_active",
         "binary_sensor.hoymiles_rce_reserve_ready",
         "current_slot_planned",
-        "current_slot_start_eligible",
         "current_slot_continue_eligible",
         "current_run_end",
         "rce_start_power",
@@ -2460,6 +2466,61 @@ def assert_rce_execution_contracts() -> None:
         assert marker in post_mode_start_guard, (
             f"RCE post-mode ACK guard lacks {marker}"
         )
+    assert "current_slot_start_eligible" not in post_mode_start_guard, (
+        "A physically confirmed RCE cycle still depends on new-start eligibility"
+    )
+    post_mode_guard_normalized = " ".join(post_mode_start_guard.split())
+    assert frozen_target_drift_check not in post_mode_guard_normalized
+    assert (
+        "'current_slot_continue_eligible') is sameas true"
+        in post_mode_guard_normalized
+    )
+    assert "current_slot_continue_stable_seconds" not in post_mode_start_guard
+    assert (
+        "sensor.hoymiles_rce_effective_discharge_power_percent') | float(0)) > 0"
+        in post_mode_guard_normalized
+    )
+
+    def rce_post_ack_slot_authorized(
+        *,
+        planned: bool,
+        start_eligible: bool,
+        continue_eligible: bool,
+        slot_seconds_remaining: float,
+    ) -> bool:
+        del start_eligible
+        return planned and continue_eligible and slot_seconds_remaining > 0
+
+    assert rce_post_ack_slot_authorized(
+        planned=True,
+        start_eligible=False,
+        continue_eligible=True,
+        slot_seconds_remaining=249.0,
+    ), "The under-five-minute new-start gate rolled back a confirmed RCE cycle"
+    assert not rce_post_ack_slot_authorized(
+        planned=True,
+        start_eligible=True,
+        continue_eligible=False,
+        slot_seconds_remaining=249.0,
+    ), "Loss of continuation eligibility did not stop an ACK-confirmed cycle"
+    assert not rce_post_ack_slot_authorized(
+        planned=False,
+        start_eligible=True,
+        continue_eligible=True,
+        slot_seconds_remaining=249.0,
+    ), "Loss of the planned slot did not stop an ACK-confirmed cycle"
+    assert rce_post_ack_slot_authorized(
+        planned=True,
+        start_eligible=False,
+        continue_eligible=True,
+        slot_seconds_remaining=1800.0,
+    ), "A consecutive planned slot boundary rolled back the active RCE run"
+    assert not rce_post_ack_slot_authorized(
+        planned=False,
+        start_eligible=False,
+        continue_eligible=True,
+        slot_seconds_remaining=0.0,
+    ), "The end of the last planned slot did not stop RCE"
 
     def active_rce_update_allowed(
         enabled: bool,
@@ -2472,7 +2533,6 @@ def assert_rce_execution_contracts() -> None:
         planned: bool,
         latched_seconds_remaining: float,
         continue_eligible: bool,
-        continue_stable_seconds: float,
     ) -> bool:
         return (
             enabled
@@ -2484,7 +2544,7 @@ def assert_rce_execution_contracts() -> None:
             and physical_mode == "grid_discharge"
             and planned
             and latched_seconds_remaining > 0
-            and (continue_eligible or continue_stable_seconds < 60)
+            and continue_eligible
         )
 
     rce_live = dict(
@@ -2498,7 +2558,6 @@ def assert_rce_execution_contracts() -> None:
         planned=True,
         latched_seconds_remaining=300.0,
         continue_eligible=True,
-        continue_stable_seconds=0.0,
     )
     assert active_rce_update_allowed(**rce_live)
     for changed in (
@@ -2511,7 +2570,7 @@ def assert_rce_execution_contracts() -> None:
         {"physical_mode": "off_grid"},
         {"planned": False},
         {"latched_seconds_remaining": 0.0},
-        {"continue_eligible": False, "continue_stable_seconds": 60.0},
+        {"continue_eligible": False},
     ):
         assert not active_rce_update_allowed(**(rce_live | changed)), (
             "RCE interleaving can write or extend after authorization loss"
@@ -2527,6 +2586,8 @@ def assert_rce_execution_contracts() -> None:
         enabled: bool,
         result_current: bool,
         recalculation_pending: bool,
+        control_data_ready: bool | None,
+        plan_age_seconds: float | None,
         execution_ready: bool,
         export_allowed: bool,
         sale_block: bool,
@@ -2539,7 +2600,7 @@ def assert_rce_execution_contracts() -> None:
         committed_power_percent: float | None,
         physical_power_percent: float | None,
         price_above_floor: bool,
-        continue_stop_confirmed: bool,
+        continue_eligible: bool | None,
         soc_percent: float | None,
         floor_percent: float | None,
         latched_floor_percent: float | None,
@@ -2581,14 +2642,24 @@ def assert_rce_execution_contracts() -> None:
             and committed_power_percent is not None
             and committed_power_percent > 0
             and price_above_floor
-            and not continue_stop_confirmed
+            and continue_eligible is True
         )
         if not active:
             return "unowned"
         if not live_safety or not committed_execution:
             return "rollback"
-        if not result_current:
-            return "hold" if recalculation_pending else "rollback"
+        optimizer_pending = not result_current and recalculation_pending
+        current_cohort_settling = (
+            result_current
+            and not recalculation_pending
+            and control_data_ready is False
+            and plan_age_seconds is not None
+            and 0 <= plan_age_seconds <= 5
+        )
+        if optimizer_pending or current_cohort_settling:
+            return "hold"
+        if not result_current or not control_data_ready:
+            return "rollback"
         return "continue"
 
     rce_latched = dict(
@@ -2596,6 +2667,8 @@ def assert_rce_execution_contracts() -> None:
         enabled=True,
         result_current=True,
         recalculation_pending=False,
+        control_data_ready=True,
+        plan_age_seconds=0.0,
         execution_ready=True,
         export_allowed=True,
         sale_block=False,
@@ -2608,7 +2681,7 @@ def assert_rce_execution_contracts() -> None:
         committed_power_percent=50.0,
         physical_power_percent=50.0,
         price_above_floor=True,
-        continue_stop_confirmed=False,
+        continue_eligible=True,
         soc_percent=70.0,
         floor_percent=30.0,
         latched_floor_percent=30.0,
@@ -2621,10 +2694,15 @@ def assert_rce_execution_contracts() -> None:
     harmless_recalculation = rce_latched | {
         "result_current": False,
         "recalculation_pending": True,
+        "control_data_ready": False,
+    }
+    current_cohort_settling = rce_latched | {
+        "control_data_ready": False,
+        "plan_age_seconds": 0.0,
     }
     harmless_event_orders = (
         harmless_recalculation,
-        harmless_recalculation,
+        current_cohort_settling,
     )
     lifecycle_sequence = [rce_lifecycle_action(**rce_latched)] + [
         rce_lifecycle_action(**event) for event in harmless_event_orders
@@ -2636,12 +2714,24 @@ def assert_rce_execution_contracts() -> None:
     assert rce_lifecycle_action(**harmless_recalculation) == "hold", (
         "A harmless price/PV/LOAD recalculation rolled back a latched RCE cycle"
     )
+    assert rce_lifecycle_action(**current_cohort_settling) == "hold", (
+        "A current plan rolled back before its derived readiness cohort settled"
+    )
+    assert rce_lifecycle_action(
+        **(current_cohort_settling | {"plan_age_seconds": 5.1})
+    ) == "rollback", "A missing derived readiness cohort was held without a bound"
+    assert rce_lifecycle_action(
+        **(current_cohort_settling | {"control_data_ready": None})
+    ) == "rollback", "Unavailable derived readiness was treated as cohort settling"
     assert rce_lifecycle_action(**rce_latched) == "continue", (
         "A compatible committed replacement plan did not resume normal continuation"
     )
     assert rce_lifecycle_action(
         **(rce_latched | {"planned": False})
     ) == "rollback", "A current replacement plan requiring stop was ignored"
+    assert rce_lifecycle_action(
+        **(rce_latched | {"continue_eligible": False})
+    ) == "rollback", "Lost continuation eligibility did not stop active RCE"
     assert rce_lifecycle_action(
         **(harmless_recalculation | {"bms_current_a": 0.0})
     ) == "rollback", "BMS zero was hidden by optimizer pending"
@@ -2693,6 +2783,8 @@ def assert_rce_execution_contracts() -> None:
         recalculation_pending: bool,
         control_data_ready: bool,
         physical_mode: str,
+        planned: bool,
+        start_eligible: bool,
     ) -> bool:
         return (
             not active
@@ -2700,6 +2792,8 @@ def assert_rce_execution_contracts() -> None:
             and not recalculation_pending
             and control_data_ready
             and physical_mode == "self_use"
+            and planned
+            and start_eligible
         )
 
     assert rce_new_start_allowed(
@@ -2708,18 +2802,168 @@ def assert_rce_execution_contracts() -> None:
         recalculation_pending=False,
         control_data_ready=True,
         physical_mode="self_use",
+        planned=True,
+        start_eligible=True,
     )
+    assert not rce_new_start_allowed(
+        active=False,
+        result_current=True,
+        recalculation_pending=False,
+        control_data_ready=True,
+        physical_mode="self_use",
+        planned=True,
+        start_eligible=False,
+    ), "start_eligible=false authorized a new pre-ACK cycle"
     assert not rce_new_start_allowed(
         active=False,
         result_current=False,
         recalculation_pending=True,
         control_data_ready=False,
         physical_mode="self_use",
+        planned=True,
+        start_eligible=True,
     ), "A pending optimizer result authorized a new RCE start"
+
+    def cohort_transition(
+        *,
+        active: bool = True,
+        ack_confirmed: bool = True,
+        owner_rce: bool = True,
+        conflict: bool = False,
+        physical_mode: str = "grid_discharge",
+        result_current: bool | None = True,
+        recalculation_pending: bool = False,
+        control_data_ready: bool | None = False,
+        revision: int = 100,
+        revision_started_at: float = 1000.0,
+        now_epoch: float = 1000.0,
+        hard_stop: bool = False,
+        planned: bool = True,
+        continue_eligible: bool = True,
+        latched_target_kw: float = 32.0,
+    ) -> tuple[str, int, float]:
+        """Mirror the bounded, no-write cohort transition contract."""
+
+        del revision
+        if not active or not ack_confirmed:
+            return "rollback", 0, latched_target_kw
+        if not result_current and recalculation_pending:
+            return "optimizer_pending", 0, latched_target_kw
+        if control_data_ready is True and result_current is True:
+            return "continue", 0, latched_target_kw
+        age = now_epoch - revision_started_at
+        bridge = (
+            owner_rce
+            and not conflict
+            and physical_mode == "grid_discharge"
+            and result_current is True
+            and not recalculation_pending
+            and control_data_ready is False
+            and not hard_stop
+            and planned
+            and continue_eligible
+            and 0 <= age <= 5
+        )
+        return (
+            ("bridge" if bridge else "rollback"),
+            0,
+            latched_target_kw,
+        )
+
+    assert cohort_transition(control_data_ready=True)[0] == "continue"
+    assert cohort_transition(now_epoch=1004.0)[0] == "bridge"
+    assert cohort_transition(now_epoch=1004.0, control_data_ready=True)[0] == (
+        "continue"
+    )
+    assert cohort_transition(now_epoch=1005.001)[0] == "rollback"
+    assert cohort_transition(result_current=None)[0] == "rollback"
+    assert cohort_transition(
+        result_current=False,
+        recalculation_pending=True,
+    )[0] == "optimizer_pending"
+    assert cohort_transition(hard_stop=True)[0] == "rollback"
+    assert cohort_transition(conflict=True)[0] == "rollback"
+    assert cohort_transition(physical_mode="self_use")[0] == "rollback"
+    same_revision_after_toggle = cohort_transition(
+        revision=100,
+        revision_started_at=1000.0,
+        now_epoch=1006.0,
+        control_data_ready=False,
+    )
+    assert same_revision_after_toggle[0] == "rollback", (
+        "The same source revision renewed its five-second bridge"
+    )
+    new_revision = cohort_transition(
+        revision=101,
+        revision_started_at=1006.0,
+        now_epoch=1006.0,
+    )
+    assert new_revision[0] == "bridge"
+    for transition in (
+        cohort_transition(now_epoch=1004.0),
+        same_revision_after_toggle,
+        new_revision,
+    ):
+        assert transition[1] == 0, "Cohort bridge issued a service/write call"
+        assert transition[2] == 32.0, "Cohort bridge changed the latched target"
+
+    # Reproduce the accepted field chronology without wall-clock sleeps.  The
+    # last transition is a normal end of the planned run, not a false rollback.
+    field_lifecycle = [
+        "start",
+        "physical_ack",
+        "verifier_confirmed",
+        cohort_transition(now_epoch=1001.0)[0],
+        cohort_transition(now_epoch=1002.0, control_data_ready=True)[0],
+        (
+            "continue"
+            if rce_post_ack_slot_authorized(
+                planned=True,
+                start_eligible=False,
+                continue_eligible=True,
+                slot_seconds_remaining=120.0,
+            )
+            else "rollback"
+        ),
+        (
+            "continue"
+            if rce_post_ack_slot_authorized(
+                planned=True,
+                start_eligible=False,
+                continue_eligible=True,
+                slot_seconds_remaining=900.0,
+            )
+            else "rollback"
+        ),
+        "active_at_30_minutes",
+        (
+            "rollback"
+            if rce_post_ack_slot_authorized(
+                planned=False,
+                start_eligible=False,
+                continue_eligible=False,
+                slot_seconds_remaining=0.0,
+            )
+            else "normal_stop"
+        ),
+    ]
+    assert field_lifecycle == [
+        "start",
+        "physical_ack",
+        "verifier_confirmed",
+        "bridge",
+        "continue",
+        "continue",
+        "continue",
+        "active_at_30_minutes",
+        "normal_stop",
+    ]
+    assert "rollback" not in field_lifecycle
 
     pending_marker = "rce_pending_latched_execution_safe"
     pending_stop = (
-        "RCE przelicza plan; aktywny zatwierdzony cykl pozostaje bez zmian"
+        "RCE synchronizuje kohortę planu; aktywny zatwierdzony cykl "
+        "pozostaje bez zmian"
     )
     assert scheduler.count(f"&{pending_marker}") == 1
     assert scheduler.count(f"*{pending_marker}") == 5
@@ -2729,15 +2973,25 @@ def assert_rce_execution_contracts() -> None:
     )[0]
     pending_normalized = " ".join(pending_source.split())
     pending_compact = "".join(pending_source.split())
-    assert "'result_current') is sameas false" in pending_normalized
-    assert "'recalculation_pending') is sameas true" in pending_normalized
+    assert "{% set plan_reported = plan.last_updated %}" in pending_source
+    assert "rce_control_data_ready.last_updated" not in pending_source, (
+        "Readiness toggles, rather than a source revision, renew the bridge"
+    )
+    assert "result_current is sameas false" in pending_normalized
+    assert "recalculation_pending is sameas true" in pending_normalized
+    assert "current_cohort_settling" in pending_normalized
+    assert "plan_age >= 0 and plan_age <= 5" in pending_normalized
+    assert "binary_sensor.hoymiles_rce_control_data_ready" in pending_normalized
     assert "<= (committed_power | float(0)) + 0.5" in pending_normalized
     assert ">= (latched_floor | float(100)) - 0.5" in pending_normalized
     for exact_contract in (
-        "state_attr('sensor.hoymiles_hit_rce_optimized_plan',"
-        "'result_current')issameasfalse",
-        "state_attr('sensor.hoymiles_hit_rce_optimized_plan',"
-        "'recalculation_pending')issameastrue",
+        "result_currentissameasfalse",
+        "recalculation_pendingissameastrue",
+        "result_currentissameastrue",
+        "recalculation_pendingissameasfalse",
+        "is_state('binary_sensor.hoymiles_rce_control_data_ready','off')",
+        "plan_age>=0andplan_age<=5",
+        "optimizer_pendingorcurrent_cohort_settling",
         "is_state('input_boolean.hoymiles_rce_discharge_active','on')",
         "is_state('input_boolean.hoymiles_rce_discharge_enabled','on')",
         "is_state('binary_sensor.hoymiles_ems_execution_ready','on')",
@@ -2767,7 +3021,7 @@ def assert_rce_execution_contracts() -> None:
         "as_timestamp(states('input_datetime.hoymiles_rce_latched_slot_end'),0)"
         ">now_ts",
         "'current_slot_planned')|default(false,true)",
-        "andnotcommitted_stop",
+        "continue_eligibleissameastrue",
         "andnotprice_stop",
         "(power.state|float(999))<=(committed_power|float(0))+0.5",
         "(floor.state|float(-999))>=(latched_floor|float(100))-0.5",
@@ -2780,6 +3034,9 @@ def assert_rce_execution_contracts() -> None:
     for marker in (
         "result_current",
         "recalculation_pending",
+        "current_cohort_settling",
+        "plan_age >= 0 and plan_age <= 5",
+        "binary_sensor.hoymiles_rce_control_data_ready",
         "binary_sensor.hoymiles_ems_execution_ready",
         "binary_sensor.hoymiles_ems_export_allowed",
         "binary_sensor.hoymiles_sale_block_active",
@@ -2808,7 +3065,6 @@ def assert_rce_execution_contracts() -> None:
         assert marker in pending_source, (
             f"RCE pending execution safety predicate lacks {marker}"
         )
-    assert "binary_sensor.hoymiles_rce_control_data_ready" not in pending_source
     assert "sensor.hoymiles_rce_effective_discharge_power_percent" not in pending_source
     for marker in (
         "binary_sensor.hoymiles_ems_execution_ready",
@@ -2863,7 +3119,7 @@ def assert_rce_execution_contracts() -> None:
             assert len(sequence) == 1 and set(sequence[0]) == {"stop"}
             assert tree_contains(branch, "result_current")
             assert tree_contains(branch, "recalculation_pending")
-            assert not tree_contains(
+            assert tree_contains(
                 branch, "binary_sensor.hoymiles_rce_control_data_ready"
             )
             assert not tree_contains(
@@ -2908,6 +3164,18 @@ def assert_rce_execution_contracts() -> None:
                 current_branch, "binary_sensor.hoymiles_rce_control_data_ready"
             )
             assert tree_contains(current_branch, "current_slot_planned")
+            current_conditions = current_branch.get("conditions", [])
+            assert isinstance(current_conditions, list)
+            assert any(
+                isinstance(condition, dict)
+                and condition.get("condition") == "template"
+                and "current_slot_continue_eligible"
+                in str(condition.get("value_template", ""))
+                for condition in current_conditions
+            ), (
+                "Active RCE continuation authority was folded into another "
+                "YAML scalar instead of remaining a separate condition"
+            )
             assert tree_contains(
                 rollback_branch, "input_boolean.hoymiles_rce_discharge_active"
             )
@@ -2941,12 +3209,14 @@ def assert_rce_execution_contracts() -> None:
     assert "binary_sensor.hoymiles_rce_price_above_threshold" not in stop
     for marker in (
         "current_slot_continue_eligible",
-        "current_slot_continue_stable_seconds",
-        ">= 60",
         "current_price_pln_kwh",
         "automatic_price_floor_pln_kwh",
     ):
         assert marker in stop, f"RCE active stop lacks {marker}"
+    assert (
+        "'current_slot_continue_eligible') is not sameas true"
+        in " ".join(stop.split())
+    ), "RCE does not stop immediately when continuation authority disappears"
     ready = scheduler.split(
         'name: "Hoymiles RCE Control Data Ready"', 1
     )[1].split('name: "Hoymiles EMS Export Allowed"', 1)[0]
@@ -4275,7 +4545,7 @@ def assert_physical_hardware_readback_contracts() -> None:
         "individual_inverter_acknowledgement: unavailable",
         'formula: "P_battery = P_grid + P_load - P_pv"',
         "transition_grace_seconds: 20",
-        "candidate_generations: 5",
+        "candidate_generations: 6",
         "required_stable_generations: 3",
         "transaction_started_epoch",
         "latched_esp_uptime_seconds",
@@ -4320,13 +4590,16 @@ def assert_physical_hardware_readback_contracts() -> None:
         "response_sample_3_valid",
         "response_sample_4_valid",
         "response_sample_5_valid",
+        "response_sample_6_valid",
         "response_sample_count",
         "response_window_1_stable",
         "response_window_2_stable",
         "response_window_3_stable",
+        "response_window_4_stable",
         "response_window_1_target_compatible",
         "response_window_2_target_compatible",
         "response_window_3_target_compatible",
+        "response_window_4_target_compatible",
         "response_stable_window_start",
         "response_sampled_transition_peak_kw",
         "response_sampled_transition_observed",
@@ -4346,16 +4619,16 @@ def assert_physical_hardware_readback_contracts() -> None:
         "confirmed",
     ):
         assert marker in aggregate_helper, marker
-    # One 20-second transition-grace wait plus five candidate generations.
-    assert aggregate_helper.count('timeout: "00:00:20"') == 6
-    assert aggregate_helper.count("verification_horizon_seconds: 135") == 7
+    # One 20-second transition-grace wait plus six candidate generations.
+    assert aggregate_helper.count('timeout: "00:00:20"') == 7
+    assert aggregate_helper.count("verification_horizon_seconds: 155") == 7
     assert (
         aggregate_helper.count(
             "or not is_number(states('sensor.hoymiles_hit_esp_uptime'))"
         )
-        == 5
+        == 6
     )
-    for sample in range(1, 6):
+    for sample in range(1, 7):
         assert aggregate_helper.count(f"response_esp_uptime_{sample}") >= 2
     assert "* 0.15" in aggregate_helper
     assert "* 0.10" in aggregate_helper
@@ -4380,9 +4653,9 @@ def assert_physical_hardware_readback_contracts() -> None:
         aggregate_helper.count(
             "> (response_collection_baseline_generation | float(-1))"
         )
-        == 10
+        == 12
     ), "Every wait and candidate must stay above the post-grace boot floor"
-    for generation in range(1, 5):
+    for generation in range(1, 6):
         assert (
             f"> (response_generation_{generation} | float(-1))"
             in aggregate_helper
@@ -4422,7 +4695,7 @@ def assert_physical_hardware_readback_contracts() -> None:
             previous = generation
         return True
 
-    assert generation_sequence_valid(102, [103, 104, 105, 106, 107])
+    assert generation_sequence_valid(102, [103, 104, 105, 106, 107, 108])
     assert not generation_sequence_valid(102, [1, 2, 3, 4, 5])
     assert not generation_sequence_valid(102, [103, 104, 1, 2, 3]), (
         "A reset after collection begins must not create a later valid window"
@@ -4448,9 +4721,11 @@ def assert_physical_hardware_readback_contracts() -> None:
         *,
         authoritative: bool,
     ) -> tuple[int, float | None]:
-        """Mirror the three overlapping windows encoded in the HA script."""
+        """Mirror the four overlapping windows encoded in the HA script."""
 
-        for start in range(3):
+        assert len(battery_kw) == 6
+        assert len(grid_kw) == 6
+        for start in range(4):
             battery_window = battery_kw[start : start + 3]
             grid_window = grid_kw[start : start + 3]
             median = sorted(battery_window)[1]
@@ -4469,52 +4744,83 @@ def assert_physical_hardware_readback_contracts() -> None:
                 return start + 1, median
         return 0, None
 
-    # A known constructional transition peak is recorded but excluded from
-    # both confirmation and failure. One or two peak generations simply move
-    # the stable window forward; only stable post-transition evidence is judged.
+    # Six clean generations expose the first of four exact three-sample windows.
     expected_kw = 33.75
     window, median_kw = stable_response_window(
-        [64.0, 33.65, 33.86, 33.70, 33.75],
-        [59.0, 29.10, 29.23, 29.16, 29.18],
+        [33.65, 33.75, 33.86, 33.70, 33.80, 33.72],
+        [29.10, 29.20, 29.23, 29.16, 29.25, 29.18],
         expected_kw,
         authoritative=True,
     )
-    assert window == 2 and median_kw is not None
+    assert window == 1 and median_kw is not None
     assert abs(median_kw - expected_kw) <= max(1.0, expected_kw * 0.15)
-    window, median_kw = stable_response_window(
-        [64.0, 58.0, 33.65, 33.86, 33.70],
-        [59.0, 53.0, 29.10, 29.23, 29.16],
-        expected_kw,
-        authoritative=True,
-    )
-    assert window == 3 and median_kw is not None
+
+    # One isolated constructional peak at every position remains diagnostic;
+    # confirmation must come only from a clean, separate window.
+    normal_battery = [33.65, 33.75, 33.86, 33.70, 33.80, 33.72]
+    normal_grid = [29.10, 29.20, 29.23, 29.16, 29.25, 29.18]
+    for peak_position in range(6):
+        battery_samples = list(normal_battery)
+        grid_samples = list(normal_grid)
+        battery_samples[peak_position] = 62.0
+        grid_samples[peak_position] = 57.0
+        window, median_kw = stable_response_window(
+            battery_samples,
+            grid_samples,
+            expected_kw,
+            authoritative=True,
+        )
+        assert window > 0 and median_kw is not None, peak_position + 1
+        selected_positions = set(range(window - 1, window + 2))
+        assert peak_position not in selected_positions, (
+            "An isolated sampled peak was accepted as stable evidence"
+        )
+
+    # Two consecutive central peaks intersect every candidate window. They
+    # cannot be mistaken for stable target response.
+    consecutive_peak_battery = list(normal_battery)
+    consecutive_peak_grid = list(normal_grid)
+    for peak_position in (2, 3):
+        consecutive_peak_battery[peak_position] = 62.0
+        consecutive_peak_grid[peak_position] = 57.0
     assert stable_response_window(
-        [-2.0, -1.5, -1.0, -0.8, -0.5],
-        [-2.0, -1.5, -1.0, -0.8, -0.5],
-        expected_kw,
-        authoritative=True,
-    ) == (0, None)
-    # A stable but transitional high plateau is not selected as a target
-    # mismatch while later windows are still available.
-    window, median_kw = stable_response_window(
-        [64.0, 64.0, 33.65, 33.86, 33.70],
-        [59.0, 59.0, 29.10, 29.23, 29.16],
-        expected_kw,
-        authoritative=True,
-    )
-    assert window == 3 and median_kw is not None
-    assert stable_response_window(
-        [50.0, 50.1, 49.9, 50.0, 50.1],
-        [45.0, 45.1, 44.9, 45.0, 45.1],
+        consecutive_peak_battery,
+        consecutive_peak_grid,
         expected_kw,
         authoritative=True,
     ) == (0, None)
 
+    # Missing export and persistent low/high plateaux all fail closed after
+    # all four windows have been exhausted.
+    assert stable_response_window(
+        [-2.0, -1.5, -1.0, -0.8, -0.5, -0.4],
+        [-2.0, -1.5, -1.0, -0.8, -0.5, -0.4],
+        expected_kw,
+        authoritative=True,
+    ) == (0, None)
+    assert stable_response_window(
+        [50.0, 50.1, 49.9, 50.0, 50.1, 49.9],
+        [45.0, 45.1, 44.9, 45.0, 45.1, 44.9],
+        expected_kw,
+        authoritative=True,
+    ) == (0, None)
+    assert stable_response_window(
+        [20.0, 20.1, 19.9, 20.0, 20.1, 19.9],
+        [15.0, 15.1, 14.9, 15.0, 15.1, 14.9],
+        expected_kw,
+        authoritative=True,
+    ) == (0, None)
+    assert "response_sampled_transition_peak_kw" in aggregate_helper
+    assert "best-effort sampled peak" in aggregate_helper
+    assert "verification_horizon_seconds: 155" in aggregate_helper
+    assert "stable_sample_window_timeout" in aggregate_helper
+    assert "script.hoymiles_rollback_rce_transaction" in scheduler
+
     # Under high local load the battery can discharge while the site still
     # imports. Manual/RCEm need battery direction only; authoritative RCE also
     # requires physical grid export and therefore rejects the same samples.
-    high_load_battery = [20.0, 20.1, 19.9, 20.0, 20.1]
-    high_load_grid = [-5.0, -4.9, -5.1, -5.0, -4.9]
+    high_load_battery = [20.0, 20.1, 19.9, 20.0, 20.1, 19.9]
+    high_load_grid = [-5.0, -4.9, -5.1, -5.0, -4.9, -5.1]
     assert stable_response_window(
         high_load_battery,
         high_load_grid,
@@ -4573,9 +4879,9 @@ def assert_physical_hardware_readback_contracts() -> None:
         in timer_block
     )
     # The watchdog runs every minute, while nominal verification can consume
-    # 20 s grace + five 13 s generations. Starting the exact timer first means
+    # 20 s grace + six 13 s generations. Starting the exact timer first means
     # it never observes a claimed manual owner with an idle timer in that gap.
-    helper_nominal_seconds = 20 + 5 * 13
+    helper_nominal_seconds = 20 + 6 * 13
     watchdog_period_seconds = 60
     assert helper_nominal_seconds > watchdog_period_seconds
     assert manual_timer < manual_aggregate

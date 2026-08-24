@@ -5,7 +5,9 @@ Final RC6 live audit date: 2026-08-14 (Europe/Warsaw)
 Latest shared-bus hardware/protocol observation: 2026-08-15 (Europe/Warsaw)
 Final v1.5.6 release date: 2026-08-21 (Europe/Warsaw)
 v1.5.7 GCF cohort hotfix candidate date: 2026-08-22 (Europe/Warsaw)
-Last completed offline baseline in this report: **tagged v1.5.6 source — PASS**
+v1.5.8 RCE lifecycle hotfix candidate date: 2026-08-24 (Europe/Warsaw)
+Last completed offline baseline in this report:
+**v1.5.8 pre-commit candidate worktree — PASS**
 Last accepted live runtime merge:
 **`ce4afc614a691ce70c67da2439613de90e0c61c2`**
 (implementation commit **`915337fa34529c5197ad581a41d351b78bfb1d33`**)
@@ -29,6 +31,75 @@ the RCE market-price optimizer, tariff-aware grid charging and experimental
 RCEm 253 V+ voltage management. The tests do not write to a real inverter.
 They verify arithmetic, state transitions, interlocks and fail-safe behaviour
 before field acceptance on each installation.
+
+## v1.5.8 RCE lifecycle and HIT-20L hotfix — offline GO; exact-commit field gate pending
+
+The pre-release field patch isolated two lifecycle causes. After physical ACK,
+the controller incorrectly reused new-start eligibility as continuation
+authority. A separate event-order race could publish a new current optimizer
+result just before dependent execution readiness became current. The promoted
+hotfix removes start eligibility only from post-ACK continuation and adds one
+no-write bridge, anchored to the source-plan update and bounded to **0–5
+seconds**, for an already active and physically acknowledged cycle. A new
+start still requires start eligibility. Planned-slot and continuation
+eligibility, owner/conflict, physical mode/readback, topology, fresh SOC/BMS
+and all other hard stops remain mandatory; loss of continuation eligibility is
+an immediate stop.
+
+The HIT-20L selector still denotes a **20 kW** nameplate and total AC bridge.
+RCE battery-only planning and verification use **16 kW per inverter**, so the
+two-inverter battery base is **32 kW** and the requested percentage applies to
+that base. PV, LOAD and charging continue to use their separate physical
+paths. The calibration does not add a power-cap write, does not change 4306
+semantics and does not affect the 5/10/12/15 kW profiles.
+
+The already field-accepted start verifier remains transaction-frozen and uses
+six fresh complete aggregate generations, four overlapping windows of three
+and a **155-second** horizon. A single isolated sampled transition peak remains
+best-effort diagnostics; persistent mismatch, missing export or no stable
+window still produces the existing fail-closed neutral rollback. Master FC03
+is still Master configuration acknowledgement only and no per-Slave protocol
+ACK is claimed.
+
+Pre-commit deterministic evidence on 2026-08-24:
+
+- release validator: **PASS**, manifest/package version **1.5.8**, **294**
+  localized entities;
+- RCE optimizer: **77/77 PASS**;
+- dedicated HIT-20L calibration: **10/10 PASS**;
+- automation matrix quick: **488/488 PASS**;
+- automation matrix exhaustive: **2064/2064 PASS**;
+- explicit BMS fail-closed contracts: **4/4 PASS**;
+- tariff, RCEm, RCE history, energy, LOAD, power balance, firmware-readback,
+  optimizer executor/startup, source-device rebind, diagnostics and analyzer:
+  **PASS**;
+- frontend validator: **PASS**;
+- generator: two in-place passes and clean-copy A/B: **deterministic PASS**;
+- independent out-of-tree adversarial harness: two identical runs,
+  **20/20 mutations detected**, survivors **0**, NOT RUN **0**; identical
+  result SHA-256
+  **9A24A7339D74181FCC6C1DC0330407C83E0B38BC06E2CA39047AB36694B0CC94**;
+- exact clean v1.5.7 → v1.5.8 managed-asset simulation, fresh install,
+  absent packages/www, idempotence, locally modified scheduler preservation,
+  metadata and interrupted atomic-copy rollback: **PASS**;
+- empirically exercised exact package lifecycle: exactly **two Home Assistant
+  restarts** after HACS (first loads runtime/copies the unchanged managed
+  package; second parses and activates it).
+
+The accepted precursor field window on the two-HIT-20L installation ran from
+2026-08-24 19:35:20.986 CEST through 20:05:31.047 CEST (**1810.06 s**) without
+rollback. It crossed a cohort refresh, expiration of start eligibility and the
+20:00 slot boundary. Final physical mode readback was 5, 4306 was 100%, battery
+power was about 34.1 kW and grid export about 30.4 kW. The verifier reported
+**confirmed / fresh_direction_and_target_confirmed**; its sampled transition
+peak of 64.516 kW remained diagnostic. This is installation-specific precursor
+evidence, not exact-v1.5.8 acceptance.
+
+Publication remains blocked until these exact pre-commit bytes become one
+candidate commit and that exact commit completes a natural 30-minute RCE field
+window. The external exact-commit acceptance report records the commit,
+deployment hashes, timestamps and final PASS/HOLD result; no post-acceptance
+runtime or documentation commit is permitted.
 
 ## v1.5.7 RCE GCF cohort hotfix — focused candidate evidence
 
