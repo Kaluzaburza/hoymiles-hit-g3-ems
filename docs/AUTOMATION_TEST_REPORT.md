@@ -5,7 +5,7 @@ Final RC6 live audit date: 2026-08-14 (Europe/Warsaw)
 Latest shared-bus hardware/protocol observation: 2026-08-15 (Europe/Warsaw)
 Final v1.5.6 release date: 2026-08-21 (Europe/Warsaw)
 v1.5.7 GCF cohort hotfix candidate date: 2026-08-22 (Europe/Warsaw)
-v1.5.8 RCE lifecycle hotfix candidate date: 2026-08-24 (Europe/Warsaw)
+v1.5.8 RCE lifecycle hotfix candidate date: 2026-08-25 (Europe/Warsaw)
 Last completed offline baseline in this report:
 **v1.5.8 pre-commit candidate worktree — PASS**
 Last accepted live runtime merge:
@@ -61,7 +61,30 @@ window still produces the existing fail-closed neutral rollback. Master FC03
 is still Master configuration acknowledgement only and no per-Slave protocol
 ACK is claimed.
 
-Pre-commit deterministic evidence on 2026-08-24:
+Exact candidate `23707c3d720385150e943f9fe8d375583f30ffd3` passed both
+aggregate-response verifications in the natural 2026-08-25 06:00 CEST run,
+but did not pass the exact-version field gate. The physical FC03 stream paused
+for about **115.1 seconds** while an active 4306 adjustment waited. Physical
+4306 remained **15.6%**, while the live optimizer target moved from about
+**16.2%** to **17.4%**. The active-update branch compared its final decision
+with that moving target and performed a complete rollback at
+**06:08:02.704 CEST**. The first uninterrupted window therefore ended before
+30 minutes. This was not an aggregate outlier-filter failure and publication
+remains blocked.
+
+The follow-up candidate freezes the active-update target and distinguishes a
+telemetry blackout from a fresh persistent actuator mismatch without changing
+the full-block helper or its physical-ACK rules. Only when the helper observed
+no newer FC03 generation may the existing second minute accept a later fresh
+Mode 5 generation that preserves 4300–4305 and confirms a positive physical
+4306 no higher than both the frozen and current safe targets. That state is
+explicitly under-command, not ACK of the requested update; the active cycle is
+preserved and the normal trigger retries. A fresh mismatch already observed by
+the helper, no later generation, over-command, an unconfirmed reduction or any
+hard stop still rolls back. The existing maximum two-minute decision horizon
+is unchanged.
+
+Follow-up pre-commit deterministic evidence on 2026-08-25:
 
 - release validator: **PASS**, manifest/package version **1.5.8**, **294**
   localized entities;

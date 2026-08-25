@@ -99,6 +99,18 @@ All notable changes to this project are documented in this file.
   poison a separate clean window. Two consecutive central peaks, persistent
   mismatch, missing export and absence of a stable window still fail closed
   through the existing neutral rollback.
+- Active 4306 retuning now freezes the requested value and the physical
+  4300–4305 tuple for the complete verification attempt. If the verified
+  helper sees no newer FC03 generation during its existing 60-second wait, the
+  existing second minute may observe telemetry recovery. A newer physical
+  Mode 5 generation that preserves 4300–4305 and confirms a positive 4306 no
+  higher than both the frozen and current safe targets is conservative
+  under-command: the active transaction stays in place and the update is
+  retried by the next normal trigger. Any fresh generation that mismatches
+  during the helper wait, missing recovery, stale data, over-command,
+  unconfirmed reduction or hard stop still performs the complete rollback.
+  The maximum two-minute horizon, full-block helper and physical-ACK contract
+  are unchanged; command echo is never accepted as ACK.
 - The configured HIT-20L nameplate remains **20 kW**. Its battery-only RCE
   model now uses **16 kW per inverter**, so two units provide a **32 kW**
   battery base and the requested RCE percentage applies to that base. This
@@ -134,6 +146,18 @@ All notable changes to this project are documented in this file.
   best-effort i nie zatruwa osobnego czystego okna. Dwa kolejne centralne skoki,
   trwała niezgodność, brak eksportu i brak stabilnego okna nadal kończą się
   fail-closed przez istniejący neutralny rollback.
+- Aktywna korekta 4306 zatrzaskuje teraz żądaną wartość oraz fizyczny blok
+  4300–4305 na cały przebieg weryfikacji. Jeżeli helper w istniejącym
+  60-sekundowym oczekiwaniu nie zobaczy żadnej nowszej generacji FC03, druga
+  istniejąca minuta może potwierdzić powrót telemetrii. Nowsza fizyczna
+  generacja Mode 5, która zachowuje 4300–4305 i potwierdza dodatnie 4306 nie
+  większe od zatrzaśniętego oraz aktualnego bezpiecznego celu, oznacza
+  zachowawcze under-command: aktywna transakcja pozostaje, a zapis zostanie
+  ponowiony przy kolejnym zwykłym triggerze. Świeża generacja niezgodna już
+  podczas oczekiwania helpera, brak powrotu, dane stale, over-command,
+  niepotwierdzone obniżenie lub hard-stop nadal wykonują pełny rollback.
+  Maksymalny dwuminutowy horyzont, helper pełnego bloku i kontrakt fizycznego
+  ACK pozostają bez zmian; command echo nigdy nie jest uznawane za ACK.
 - Skonfigurowana moc znamionowa HIT-20L nadal wynosi **20 kW**. Model RCE
   rozładowania wyłącznie z baterii używa teraz **16 kW na falownik**, więc dwie
   jednostki dają bateryjną bazę **32 kW**, do której stosowany jest procent RCE.

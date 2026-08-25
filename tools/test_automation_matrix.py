@@ -2314,6 +2314,149 @@ def assert_rce_execution_contracts() -> None:
     ):
         assert marker in active_power_guard
         assert active_power_guard.index(marker) < active_power_write
+
+    active_power_update = active_power_guard[active_power_write:]
+    frozen_target = active_power_guard.index("rce_power_update_target")
+    assert frozen_target < active_power_write
+    for marker in (
+        'value: "{{ rce_power_update_target }}"',
+        "rce_power_update_generation_before",
+        "rce_power_update_generation_after_helper",
+        "rce_power_update_helper_saw_new_generation",
+        "rce_power_update_exact_ack_after_helper",
+        "rce_power_update_generation_newer_than_recovery",
+        "rce_power_update_full_block_current",
+        "rce_power_update_live_authorized",
+        "rce_power_update_within_live_safe_cap",
+        "rce_power_update_safe_under_command",
+        "rce_power_update_target | float(-998)",
+        "rce_power_update_live_safe_target | float(0)]",
+        "| min + 0.5",
+        "or newer or not authorized",
+        "script.hoymiles_rollback_rce_transaction",
+        "16000000",
+    ):
+        assert marker in active_power_update, (
+            f"RCE active 4306 recovery lacks {marker}"
+        )
+    exact_ack = active_power_update.split(
+        "rce_power_update_exact_ack_after_helper:", 1
+    )[1].split("# The helper already spent", 1)[0]
+    assert "sensor.hoymiles_rce_effective_discharge_power_percent" not in exact_ack, (
+        "A moving live target can still redefine the frozen physical ACK"
+    )
+    assert "rce_power_update_current_generation" in exact_ack
+    assert "rce_power_update_generation_before" in exact_ack
+    assert "rce_power_update_full_block_current" in exact_ack
+    assert "rce_power_update_target" in exact_ack
+
+    def active_4306_outcome(
+        *,
+        exact_physical_ack: bool,
+        helper_saw_new_generation: bool,
+        newer_recovery_generation: bool,
+        full_block_preserved: bool,
+        live_authorized: bool,
+        physical_4306: float,
+        frozen_target: float,
+        live_safe_target: float,
+    ) -> str:
+        """Model the reviewed asymmetric active-4306 decision contract."""
+
+        within_live_cap = physical_4306 <= live_safe_target + 0.5
+        if exact_physical_ack and live_authorized and within_live_cap:
+            return "continue"
+        safe_under_command = (
+            not helper_saw_new_generation
+            and newer_recovery_generation
+            and full_block_preserved
+            and live_authorized
+            and physical_4306 > 0
+            and physical_4306 <= min(frozen_target, live_safe_target) + 0.5
+        )
+        return "defer" if safe_under_command else "rollback"
+
+    assert active_4306_outcome(
+        exact_physical_ack=True,
+        helper_saw_new_generation=True,
+        newer_recovery_generation=False,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=17.4,
+        frozen_target=17.4,
+        live_safe_target=18.0,
+    ) == "continue"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=False,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=17.4,
+        live_safe_target=18.0,
+    ) == "defer"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=False,
+        newer_recovery_generation=False,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=17.4,
+        live_safe_target=18.0,
+    ) == "rollback"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=False,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=12.0,
+        live_safe_target=12.0,
+    ) == "rollback"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=False,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=11.8,
+        frozen_target=12.0,
+        live_safe_target=12.0,
+    ) == "defer"
+    for full_block_preserved, live_authorized in ((False, True), (True, False)):
+        assert active_4306_outcome(
+            exact_physical_ack=False,
+            helper_saw_new_generation=False,
+            newer_recovery_generation=True,
+            full_block_preserved=full_block_preserved,
+            live_authorized=live_authorized,
+            physical_4306=15.6,
+            frozen_target=17.4,
+            live_safe_target=18.0,
+        ) == "rollback"
+    assert active_4306_outcome(
+        exact_physical_ack=True,
+        helper_saw_new_generation=True,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=15.6,
+        live_safe_target=12.0,
+    ) == "rollback"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=True,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=17.4,
+        live_safe_target=18.0,
+    ) == "rollback"
     deadline_extension = block.split(
         "# Latch the complete contiguous run", 1
     )[1].split("# The Force Discharge floor", 1)[0]

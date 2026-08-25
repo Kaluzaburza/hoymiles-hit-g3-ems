@@ -2166,6 +2166,16 @@ ENGLISH_REPLACEMENTS = {
     "RCE synchronizuje kohortę planu; aktywny zatwierdzony cykl pozostaje bez zmian": (
         "RCE is synchronizing the plan cohort; the accepted active cycle remains unchanged"
     ),
+    "RCE zachowuje świeżo potwierdzony niższy limit 4306;": (
+        "RCE keeps the freshly confirmed lower 4306 limit;"
+    ),
+    "aktualizacja zostanie ponowiona przy kolejnym wyzwoleniu": (
+        "the update will be retried on the next trigger"
+    ),
+    "RCE wycofano po niepotwierdzonej lub niebezpiecznej": (
+        "RCE was rolled back after an unconfirmed or unsafe"
+    ),
+    "aktualizacji limitu 4306": "4306 limit update",
     "Decyzja optymalizatora": "Optimizer decision",
     "Cena RCE teraz": "Current RCE price",
     "Cena graniczna planu": "Plan price floor",

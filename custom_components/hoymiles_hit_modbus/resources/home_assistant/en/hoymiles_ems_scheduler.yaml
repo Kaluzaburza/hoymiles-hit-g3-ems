@@ -9330,28 +9330,302 @@ automation:
                     'sensor.hoymiles_rce_effective_discharge_power_percent')
                       | float(0))) | abs >= 0.5 }}
         then:
-          - action: script.hoymiles_verified_set_ems_maximum_discharge_power
-            data:
-              value: >-
+          # Freeze the requested 4306 value and the complete physical tuple.
+          # The live optimizer target may legitimately move while the verified
+          # full-block helper waits, so it must never redefine this ACK.
+          - variables:
+              rce_power_update_target: >-
                 {{ states(
                      'sensor.hoymiles_rce_effective_discharge_power_percent')
                    | float(0) | round(1) }}
+              rce_power_update_generation_before: >-
+                {{ states(
+                     'sensor.hoymiles_hit_ems_control_readback_generation') }}
+              rce_power_update_expected_mode_code: >-
+                {{ states('sensor.hoymiles_hit_ems_mode_readback_code')
+                   | int(-1) }}
+              rce_power_update_expected_self_use_soc: >-
+                {{ states('sensor.hoymiles_hit_ems_self_use_soc_readback')
+                   | float(-999) }}
+              rce_power_update_expected_backup_soc: >-
+                {{ states('sensor.hoymiles_hit_ems_backup_soc_readback')
+                   | float(-999) }}
+              rce_power_update_expected_force_charge_soc: >-
+                {{ states('sensor.hoymiles_hit_ems_force_charge_soc_readback')
+                   | float(-999) }}
+              rce_power_update_expected_maximum_charge_power: >-
+                {{ states(
+                     'sensor.hoymiles_hit_ems_maximum_charge_power_readback')
+                   | float(-999) }}
+              rce_power_update_expected_force_discharge_soc: >-
+                {{ states(
+                     'sensor.hoymiles_hit_ems_force_discharge_soc_readback')
+                   | float(-999) }}
+          - action: script.hoymiles_verified_set_ems_maximum_discharge_power
+            data:
+              value: "{{ rce_power_update_target }}"
+          - variables:
+              rce_power_update_generation_after_helper: >-
+                {{ states(
+                     'sensor.hoymiles_hit_ems_control_readback_generation') }}
+              rce_power_update_current_generation: >-
+                {{ states(
+                     'sensor.hoymiles_hit_ems_control_readback_generation') }}
+          - variables:
+              rce_power_update_helper_saw_new_generation: >-
+                {% set current =
+                  rce_power_update_generation_after_helper | float(-1) %}
+                {% set baseline =
+                  rce_power_update_generation_before | float(-1) %}
+                {{ current > baseline
+                   or (baseline >= 16000000 and current >= 1
+                       and current < baseline) }}
+              rce_power_update_full_block_current: &rce_power_update_full_block >-
+                {{ rce_power_update_expected_mode_code | int(-1) == 5
+                   and is_number(states(
+                     'sensor.hoymiles_hit_ems_mode_readback_code'))
+                   and (states('sensor.hoymiles_hit_ems_mode_readback_code')
+                        | int(-1)) == 5
+                   and is_number(states(
+                     'sensor.hoymiles_hit_ems_self_use_soc_readback'))
+                   and ((states(
+                     'sensor.hoymiles_hit_ems_self_use_soc_readback')
+                        | float(-999))
+                     - (rce_power_update_expected_self_use_soc | float(-998)))
+                       | abs < 0.5
+                   and is_number(states(
+                     'sensor.hoymiles_hit_ems_backup_soc_readback'))
+                   and ((states(
+                     'sensor.hoymiles_hit_ems_backup_soc_readback')
+                        | float(-999))
+                     - (rce_power_update_expected_backup_soc | float(-998)))
+                       | abs < 0.5
+                   and is_number(states(
+                     'sensor.hoymiles_hit_ems_force_charge_soc_readback'))
+                   and ((states(
+                     'sensor.hoymiles_hit_ems_force_charge_soc_readback')
+                        | float(-999))
+                     - (rce_power_update_expected_force_charge_soc
+                        | float(-998))) | abs < 0.5
+                   and is_number(states(
+                     'sensor.hoymiles_hit_ems_maximum_charge_power_readback'))
+                   and ((states(
+                     'sensor.hoymiles_hit_ems_maximum_charge_power_readback')
+                        | float(-999))
+                     - (rce_power_update_expected_maximum_charge_power
+                        | float(-998))) | abs < 0.05
+                   and is_number(states(
+                     'sensor.hoymiles_hit_ems_force_discharge_soc_readback'))
+                   and ((states(
+                     'sensor.hoymiles_hit_ems_force_discharge_soc_readback')
+                        | float(-999))
+                     - (rce_power_update_expected_force_discharge_soc
+                        | float(-998))) | abs < 0.5 }}
+          - variables:
+              rce_power_update_exact_ack_after_helper: &rce_power_update_exact_ack >-
+                {% set current =
+                  rce_power_update_current_generation | float(-1) %}
+                {% set baseline =
+                  rce_power_update_generation_before | float(-1) %}
+                {% set newer = current > baseline
+                  or (baseline >= 16000000 and current >= 1
+                      and current < baseline) %}
+                {{ newer
+                   and rce_power_update_full_block_current | bool(false)
+                   and is_number(states(
+                     'sensor.hoymiles_hit_ems_maximum_discharge_power_readback'))
+                   and ((states(
+                     'sensor.hoymiles_hit_ems_maximum_discharge_power_readback')
+                        | float(-999))
+                     - (rce_power_update_target | float(-998)))
+                       | abs < 0.05 }}
+          # The helper already spent at most 60 seconds waiting for exact ACK.
+          # Keep the existing total horizon: use the second minute only to
+          # observe a later physical generation or abort on a live hard-stop.
           - wait_template: >-
-              {{ ((states('sensor.hoymiles_hit_ems_maximum_discharge_power_readback')
-                    | float(-999)) - (states(
-                    'sensor.hoymiles_rce_effective_discharge_power_percent')
-                    | float(0))) | abs < 0.5 }}
+              {% set current = states(
+                'sensor.hoymiles_hit_ems_control_readback_generation')
+                | float(-1) %}
+              {% set baseline =
+                rce_power_update_generation_after_helper | float(-1) %}
+              {% set newer = current > baseline
+                or (baseline >= 16000000 and current >= 1
+                    and current < baseline) %}
+              {% set authorized =
+                is_state('input_boolean.hoymiles_rce_discharge_active', 'on')
+                and is_state(
+                  'input_boolean.hoymiles_rce_discharge_enabled', 'on')
+                and is_state(
+                  'binary_sensor.hoymiles_sale_block_active', 'off')
+                and is_state(
+                  'binary_sensor.hoymiles_ems_export_allowed', 'on')
+                and is_state(
+                  'binary_sensor.hoymiles_rce_reserve_ready', 'on')
+                and is_state(
+                  'binary_sensor.hoymiles_rce_control_data_ready', 'on')
+                and is_state(
+                  'binary_sensor.hoymiles_ems_execution_ready', 'on')
+                and is_state(
+                  'binary_sensor.hoymiles_ems_control_conflict', 'off')
+                and is_state(
+                  'sensor.hoymiles_ems_hardware_mode', 'grid_discharge')
+                and state_attr('sensor.hoymiles_ems_control_owner',
+                               'owner_code') == 'rce'
+                and state_attr('sensor.hoymiles_hit_rce_optimized_plan',
+                               'current_slot_planned')
+                    | default(false, true)
+                and state_attr('sensor.hoymiles_hit_rce_optimized_plan',
+                               'current_slot_continue_eligible')
+                    is sameas true
+                and as_timestamp(states(
+                  'input_datetime.hoymiles_rce_latched_slot_end'), 0)
+                    > as_timestamp(now())
+                and is_state(
+                  'input_boolean.hoymiles_battery_balancing_active', 'off')
+                and is_state(
+                  'input_boolean.hoymiles_discharge_cycle_active', 'off')
+                and is_state(
+                  'input_boolean.hoymiles_charge_cycle_active', 'off')
+                and is_state(
+                  'input_boolean.hoymiles_tariff_charge_active', 'off')
+                and is_state(
+                  'input_boolean.hoymiles_tariff_charge_enabled', 'off')
+                and is_state('input_boolean.hoymiles_rcm_active', 'off')
+                and is_state(
+                  'input_boolean.hoymiles_rcm_pre_discharge_active', 'off')
+                and is_state(
+                  'input_boolean.hoymiles_rcm_export_control_active', 'off')
+                and (is_state('input_boolean.hoymiles_rcm_enabled', 'off')
+                     or is_state(
+                       'input_boolean.hoymiles_rcm_shadow_mode', 'on'))
+                and not is_state('timer.hoymiles_discharge', 'active')
+                and not is_state('timer.hoymiles_charge', 'active') %}
+              {{ rce_power_update_exact_ack_after_helper | bool(false)
+                 or rce_power_update_helper_saw_new_generation | bool(false)
+                 or newer or not authorized }}
             timeout: "00:01:00"
             continue_on_timeout: true
+          - variables:
+              rce_power_update_current_generation: >-
+                {{ states(
+                     'sensor.hoymiles_hit_ems_control_readback_generation') }}
+              rce_power_update_live_safe_target: >-
+                {{ states(
+                     'sensor.hoymiles_rce_effective_discharge_power_percent') }}
+              rce_power_update_physical_4306: >-
+                {{ states(
+                     'sensor.hoymiles_hit_ems_maximum_discharge_power_readback') }}
+          - variables:
+              rce_power_update_generation_newer_than_recovery: >-
+                {% set current =
+                  rce_power_update_current_generation | float(-1) %}
+                {% set baseline =
+                  rce_power_update_generation_after_helper | float(-1) %}
+                {{ current > baseline
+                   or (baseline >= 16000000 and current >= 1
+                       and current < baseline) }}
+              rce_power_update_full_block_current: *rce_power_update_full_block
+              rce_power_update_live_authorized: >-
+                {{ is_state(
+                     'input_boolean.hoymiles_rce_discharge_active', 'on')
+                   and is_state(
+                     'input_boolean.hoymiles_rce_discharge_enabled', 'on')
+                   and is_state(
+                     'binary_sensor.hoymiles_sale_block_active', 'off')
+                   and is_state(
+                     'binary_sensor.hoymiles_ems_export_allowed', 'on')
+                   and is_state(
+                     'binary_sensor.hoymiles_rce_reserve_ready', 'on')
+                   and is_state(
+                     'binary_sensor.hoymiles_rce_control_data_ready', 'on')
+                   and is_state(
+                     'binary_sensor.hoymiles_ems_execution_ready', 'on')
+                   and is_state(
+                     'binary_sensor.hoymiles_ems_control_conflict', 'off')
+                   and is_state(
+                     'sensor.hoymiles_ems_hardware_mode', 'grid_discharge')
+                   and state_attr('sensor.hoymiles_ems_control_owner',
+                                  'owner_code') == 'rce'
+                   and state_attr('sensor.hoymiles_hit_rce_optimized_plan',
+                                  'current_slot_planned')
+                       | default(false, true)
+                   and state_attr('sensor.hoymiles_hit_rce_optimized_plan',
+                                  'current_slot_continue_eligible')
+                       is sameas true
+                   and as_timestamp(states(
+                     'input_datetime.hoymiles_rce_latched_slot_end'), 0)
+                       > as_timestamp(now())
+                   and is_state(
+                     'input_boolean.hoymiles_battery_balancing_active', 'off')
+                   and is_state(
+                     'input_boolean.hoymiles_discharge_cycle_active', 'off')
+                   and is_state(
+                     'input_boolean.hoymiles_charge_cycle_active', 'off')
+                   and is_state(
+                     'input_boolean.hoymiles_tariff_charge_active', 'off')
+                   and is_state(
+                     'input_boolean.hoymiles_tariff_charge_enabled', 'off')
+                   and is_state(
+                     'input_boolean.hoymiles_rcm_active', 'off')
+                   and is_state(
+                     'input_boolean.hoymiles_rcm_pre_discharge_active', 'off')
+                   and is_state(
+                     'input_boolean.hoymiles_rcm_export_control_active', 'off')
+                   and (is_state(
+                          'input_boolean.hoymiles_rcm_enabled', 'off')
+                        or is_state(
+                          'input_boolean.hoymiles_rcm_shadow_mode', 'on'))
+                   and not is_state('timer.hoymiles_discharge', 'active')
+                   and not is_state('timer.hoymiles_charge', 'active')
+                   and is_number(rce_power_update_live_safe_target)
+                   and (rce_power_update_live_safe_target | float(0)) > 0 }}
+          - variables:
+              rce_power_update_exact_ack: *rce_power_update_exact_ack
+              rce_power_update_within_live_safe_cap: >-
+                {{ is_number(rce_power_update_physical_4306)
+                   and is_number(rce_power_update_live_safe_target)
+                   and (rce_power_update_physical_4306 | float(999))
+                     <= (rce_power_update_live_safe_target | float(0)) + 0.5 }}
+              rce_power_update_safe_under_command: >-
+                {{ not rce_power_update_helper_saw_new_generation
+                     | bool(false)
+                   and rce_power_update_generation_newer_than_recovery
+                     | bool(false)
+                   and rce_power_update_full_block_current | bool(false)
+                   and rce_power_update_live_authorized | bool(false)
+                   and is_number(rce_power_update_physical_4306)
+                   and (rce_power_update_physical_4306 | float(0)) > 0
+                   and (rce_power_update_physical_4306 | float(999))
+                     <= [rce_power_update_target | float(0),
+                         rce_power_update_live_safe_target | float(0)]
+                        | min + 0.5 }}
+          # Only a telemetry blackout may defer one update. Fresh generations
+          # that repeatedly mismatch are a proven actuator failure and roll
+          # back. A lower value first seen after telemetry recovers remains
+          # conservative under-delivery, not ACK of the requested increase.
           - if:
               - condition: template
                 value_template: >-
-                  {{ ((states('sensor.hoymiles_hit_ems_maximum_discharge_power_readback')
-                        | float(-999)) - (states(
-                        'sensor.hoymiles_rce_effective_discharge_power_percent')
-                        | float(0))) | abs >= 0.5 }}
+                  {{ not (rce_power_update_exact_ack | bool(false)
+                          and rce_power_update_live_authorized | bool(false)
+                          and rce_power_update_within_live_safe_cap
+                            | bool(false)) }}
             then:
-              - action: script.hoymiles_rollback_rce_transaction
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: >-
+                          {{ rce_power_update_safe_under_command
+                               | bool(false) }}
+                    sequence:
+                      - stop: >-
+                          RCE keeps the freshly confirmed lower 4306 limit;
+                          the update will be retried on the next trigger
+                default:
+                  - action: script.hoymiles_rollback_rce_transaction
+                  - stop: >-
+                      RCE was rolled back after an unconfirmed or unsafe
+                      4306 limit update
       # Latch the complete contiguous run, not one half-hour row. This avoids
       # a Self-Use/Grid Discharge rollover at the boundary of adjacent slots.
       - choose:
