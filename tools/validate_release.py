@@ -53,6 +53,9 @@ VALIDATOR_HISTORICAL_HASHES = {
 }
 VALIDATOR_HISTORICAL_REF = "v1.5.7"
 REV28_HISTORICAL_COMMIT = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
+AP1_CUMULATIVE_TASK_BASE = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
+AP1E_CORRECTION_BASE = "f630529ed8ddce7ba5c45986d9484fc31b246070"
+AP1_PUBLIC_BRANCH_BASE = "6617bc4de6592439ea2c64889b0a25bbe5bfa45e"
 PHASE_2_TASK_PATHS = frozenset(
     {
         "dashboard_hoymiles.yaml",
@@ -143,7 +146,7 @@ SUPERVISOR_BRANCH_PATHS = frozenset(
         "tools/validate_release.py",
     }
 )
-AP1_TASK_PATHS = frozenset(
+AP1_COMMITTED_TASK_PATHS = frozenset(
     {
         "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
         "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
@@ -163,7 +166,20 @@ AP1_TASK_PATHS = frozenset(
         "tools/validate_release.py",
     }
 )
-AP1_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1_TASK_PATHS
+AP1_COMMITTED_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1_COMMITTED_TASK_PATHS
+AP1E_CUMULATIVE_TASK_PATHS = AP1_COMMITTED_TASK_PATHS | {
+    "custom_components/hoymiles_hit_modbus/__init__.py",
+    "tests/test_timeline_platform_registration.py",
+}
+AP1E_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "tests/test_timeline_platform_registration.py",
+        "tools/validate_release.py",
+    }
+)
+AP1E_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1E_CUMULATIVE_TASK_PATHS
 VALIDATOR_STORE_CONTRACTS = {
     "input_select": (1, frozenset({1, 2})),
     "input_boolean": (1, frozenset({1})),
@@ -509,70 +525,308 @@ def validate_historical_rev28_gate() -> None:
     )
 
 
-def _ap1_manifests_match(
+def _effective_path_set(
+    committed_paths: set[str] | frozenset[str],
+    overlay_paths: set[str] | frozenset[str],
+) -> set[str]:
+    """Combine committed and overlay paths exactly once."""
+
+    return set(committed_paths) | set(overlay_paths)
+
+
+def _current_overlay_paths() -> set[str]:
+    """Return every tracked or untracked path in the current overlay."""
+
+    return _git_path_set("diff", "--name-only", "HEAD") | _git_path_set(
+        "ls-files", "--others", "--exclude-standard"
+    )
+
+
+def _effective_git_manifest(base: str, overlay_paths: set[str]) -> set[str]:
+    """Return committed base-to-HEAD paths plus the current overlay."""
+
+    committed_paths = _git_path_set("diff", "--name-only", f"{base}..HEAD")
+    return _effective_path_set(committed_paths, overlay_paths)
+
+
+def _ap1_committed_manifests_match(
     task_paths: set[str] | frozenset[str],
     branch_paths: set[str] | frozenset[str],
 ) -> bool:
-    """Return the exact current AP-1 manifest verdict for self-tests."""
+    """Return the exact frozen committed AP-1 baseline verdict."""
 
-    return task_paths == AP1_TASK_PATHS and branch_paths == AP1_BRANCH_PATHS
+    return (
+        task_paths == AP1_COMMITTED_TASK_PATHS
+        and branch_paths == AP1_COMMITTED_BRANCH_PATHS
+    )
 
 
-def validate_current_ap1_manifests() -> None:
-    """Fail closed on the actual 16-path AP-1 task and 40-path branch."""
+def _ap1e_manifests_match(
+    correction_paths: set[str] | frozenset[str],
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact current AP-1E candidate verdict."""
+
+    return (
+        correction_paths == AP1E_CORRECTION_PATHS
+        and task_paths == AP1E_CUMULATIVE_TASK_PATHS
+        and branch_paths == AP1E_BRANCH_PATHS
+    )
+
+
+def validate_current_ap1_manifests() -> str:
+    """Validate frozen AP-1 and effective AP-1E manifests independently."""
+
+    committed_ap1_task = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{AP1_CUMULATIVE_TASK_BASE}..{AP1E_CORRECTION_BASE}",
+    )
+    committed_ap1_branch = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{AP1_PUBLIC_BRANCH_BASE}..{AP1E_CORRECTION_BASE}",
+    )
+    require(
+        _ap1_committed_manifests_match(
+            committed_ap1_task,
+            committed_ap1_branch,
+        ),
+        "Committed AP-1 baseline is not exactly 16/40 paths",
+    )
 
     staged_paths = _git_path_set("diff", "--cached", "--name-only")
-    task_paths = (
-        _git_path_set("diff", "--name-only", "HEAD")
-        | staged_paths
-        | _git_path_set("ls-files", "--others", "--exclude-standard")
+    overlay_paths = _current_overlay_paths()
+    correction_paths = _effective_git_manifest(
+        AP1E_CORRECTION_BASE,
+        overlay_paths,
     )
-    branch_paths = _git_path_set(
-        "diff", "--name-only", f"{VALIDATOR_HISTORICAL_REF}...HEAD"
-    ) | task_paths
-    require(
-        _ap1_manifests_match(task_paths, branch_paths),
-        "Current AP-1 manifests are not exactly 16/40 paths: "
-        f"task_missing={sorted(AP1_TASK_PATHS - task_paths)}, "
-        f"task_extra={sorted(task_paths - AP1_TASK_PATHS)}, "
-        f"branch_missing={sorted(AP1_BRANCH_PATHS - branch_paths)}, "
-        f"branch_extra={sorted(branch_paths - AP1_BRANCH_PATHS)}",
+    task_paths = _effective_git_manifest(
+        AP1_CUMULATIVE_TASK_BASE,
+        overlay_paths,
     )
-    require(not staged_paths, "Current AP-1 validation requires zero staged paths")
+    branch_paths = _effective_git_manifest(
+        AP1_PUBLIC_BRANCH_BASE,
+        overlay_paths,
+    )
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    ).strip()
 
-    task_anchor = sorted(AP1_TASK_PATHS)[0]
-    branch_anchor = sorted(AP1_BRANCH_PATHS)[0]
+    if not correction_paths:
+        require(
+            head == AP1E_CORRECTION_BASE
+            and not overlay_paths
+            and _ap1_committed_manifests_match(task_paths, branch_paths),
+            "Clean AP-1 baseline gate differs from exact f630529 16/40 state",
+        )
+        gate_state = "clean_committed_ap1"
+    else:
+        require(
+            _ap1e_manifests_match(
+                correction_paths,
+                task_paths,
+                branch_paths,
+            ),
+            "Current AP-1E manifests are not exactly 4/18/41 paths: "
+            f"correction_missing={sorted(AP1E_CORRECTION_PATHS - correction_paths)}, "
+            f"correction_extra={sorted(correction_paths - AP1E_CORRECTION_PATHS)}, "
+            f"task_missing={sorted(AP1E_CUMULATIVE_TASK_PATHS - task_paths)}, "
+            f"task_extra={sorted(task_paths - AP1E_CUMULATIVE_TASK_PATHS)}, "
+            f"branch_missing={sorted(AP1E_BRANCH_PATHS - branch_paths)}, "
+            f"branch_extra={sorted(branch_paths - AP1E_BRANCH_PATHS)}",
+        )
+        gate_state = "ap1e_candidate"
+    require(not staged_paths, "Current AP-1E validation requires zero staged paths")
+
+    # Effective-manifest self-tests cover clean committed AP-1, an uncommitted
+    # AP-1E overlay, and the same AP-1E paths after a future clean commit.
     require(
-        not _ap1_manifests_match(
-            AP1_TASK_PATHS - {task_anchor},
-            AP1_BRANCH_PATHS,
+        _ap1_committed_manifests_match(
+            _effective_path_set(AP1_COMMITTED_TASK_PATHS, set()),
+            _effective_path_set(AP1_COMMITTED_BRANCH_PATHS, set()),
         ),
-        "AP-1 15-path count self-test did not fail",
+        "Clean committed AP-1 manifest self-test failed",
     )
     require(
-        not _ap1_manifests_match(
-            AP1_TASK_PATHS | {"__unexpected_ap1_path__"},
-            AP1_BRANCH_PATHS,
+        _ap1e_manifests_match(
+            _effective_path_set(set(), AP1E_CORRECTION_PATHS),
+            _effective_path_set(
+                AP1_COMMITTED_TASK_PATHS,
+                AP1E_CORRECTION_PATHS,
+            ),
+            _effective_path_set(
+                AP1_COMMITTED_BRANCH_PATHS,
+                AP1E_CORRECTION_PATHS,
+            ),
         ),
-        "AP-1 17-path count self-test did not fail",
+        "Uncommitted AP-1E overlay manifest self-test failed",
     )
     require(
-        not _ap1_manifests_match(
-            AP1_TASK_PATHS,
-            AP1_BRANCH_PATHS - {branch_anchor},
+        _ap1e_manifests_match(
+            _effective_path_set(AP1E_CORRECTION_PATHS, set()),
+            _effective_path_set(AP1E_CUMULATIVE_TASK_PATHS, set()),
+            _effective_path_set(AP1E_BRANCH_PATHS, set()),
         ),
-        "AP-1 branch 39-path count self-test did not fail",
+        "Committed-clean AP-1E manifest self-test failed",
+    )
+
+    missing_init = AP1E_CORRECTION_PATHS - {
+        "custom_components/hoymiles_hit_modbus/__init__.py"
+    }
+    missing_test = AP1E_CORRECTION_PATHS - {
+        "tests/test_timeline_platform_registration.py"
+    }
+    missing_timeline_sensor = AP1E_CORRECTION_PATHS - {
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py"
+    }
+    require(
+        not _ap1e_manifests_match(
+            missing_init,
+            AP1E_CUMULATIVE_TASK_PATHS
+            - {"custom_components/hoymiles_hit_modbus/__init__.py"},
+            AP1E_BRANCH_PATHS,
+        ),
+        "Missing __init__.py correction survived the AP-1E gate",
     )
     require(
-        not _ap1_manifests_match(
-            AP1_TASK_PATHS,
-            AP1_BRANCH_PATHS | {"__unexpected_ap1_branch_path__"},
+        not _ap1e_manifests_match(
+            missing_test,
+            AP1E_CUMULATIVE_TASK_PATHS
+            - {"tests/test_timeline_platform_registration.py"},
+            AP1E_BRANCH_PATHS
+            - {"tests/test_timeline_platform_registration.py"},
         ),
-        "AP-1 branch 41-path count self-test did not fail",
+        "Missing real HA test survived the AP-1E gate",
     )
     require(
-        not _ap1_manifests_match(PHASE_2_TASK_PATHS, SUPERVISOR_BRANCH_PATHS),
-        "Historical REV28 PASS was accepted as current AP-1 validation",
+        not _ap1e_manifests_match(
+            missing_timeline_sensor,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS,
+        ),
+        "Missing timeline_sensor.py correction survived the AP-1E gate",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS | {"__unexpected_ap1e_path__"},
+            AP1E_CUMULATIVE_TASK_PATHS | {"__unexpected_ap1e_path__"},
+            AP1E_BRANCH_PATHS | {"__unexpected_ap1e_path__"},
+        ),
+        "Extra fifth AP-1E correction path survived the gate",
+    )
+    task_anchor = sorted(AP1E_CUMULATIVE_TASK_PATHS)[0]
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS - {task_anchor},
+            AP1E_BRANCH_PATHS,
+        ),
+        "AP-1E task 17-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS | {"__unexpected_ap1e_task_path__"},
+            AP1E_BRANCH_PATHS,
+        ),
+        "AP-1E task 19-path self-test did not fail",
+    )
+    branch_anchor = "tests/test_timeline_platform_registration.py"
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS - {branch_anchor},
+        ),
+        "AP-1E branch 40-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS | {"__unexpected_ap1e_branch_path__"},
+        ),
+        "AP-1E branch 42-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            PHASE_2_TASK_PATHS,
+            PHASE_2_TASK_PATHS,
+            SUPERVISOR_BRANCH_PATHS,
+        ),
+        "Historical REV28 PASS was accepted as current AP-1E validation",
+    )
+    return gate_state
+
+
+def _ap1e_r2_identity_contracts(
+    timeline_source: str,
+    init_source: str,
+) -> bool:
+    """Return whether current sources keep timeline identity pre-registration."""
+
+    try:
+        normalizer_source = init_source.split(
+            "def _async_prepare_timeline_entity_registry(", 1
+        )[1].split("\n\nasync def ", 1)[0]
+        setup_source = init_source.split("async def async_setup_entry(", 1)[1].split(
+            "\n\nasync def async_unload_entry", 1
+        )[0]
+        reconcile_source = init_source.split(
+            "def _async_reconcile_entity_registry(", 1
+        )[1].split("\n\ndef _async_prepare_timeline_entity_registry(", 1)[0]
+    except (IndexError, ValueError):
+        return False
+
+    prepare_call = "_async_prepare_timeline_entity_registry(hass, entry)"
+    forward_call = "await hass.config_entries.async_forward_entry_setups("
+    reconcile_call = "_async_reconcile_entity_registry("
+    forbidden_normalizer = (
+        ".storage",
+        "deleted_entities.clear",
+        "deleted_entities.values",
+        "async_reload",
+        "async_call_later",
+        "async_track_time_interval",
+        "sleep(",
+    )
+    return (
+        'TIMELINE_POLICY_IDS = ("rce", "tariff")' in timeline_source
+        and "from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN"
+        in timeline_source
+        and 'return f"{SENSOR_DOMAIN}.hoymiles_hit_{policy_id}_automation_plan_timeline"'
+        in timeline_source
+        and "self.entity_id = timeline_entity_id(policy_id)" in timeline_source
+        and "self._attr_unique_id = timeline_unique_id(entry.entry_id, policy_id)"
+        in timeline_source
+        and "def suggested_object_id(self)" not in timeline_source
+        and "async_update_entity" not in timeline_source
+        and prepare_call in setup_source
+        and forward_call in setup_source
+        and reconcile_call in setup_source
+        and setup_source.index(prepare_call) < setup_source.index(forward_call)
+        and setup_source.index(forward_call) < setup_source.index(reconcile_call)
+        and "for policy_id in TIMELINE_POLICY_IDS:" in normalizer_source
+        and 'deleted_key = ("sensor", DOMAIN, unique_id)' in normalizer_source
+        and "deleted_entities.get(deleted_key)" in normalizer_source
+        and "deleted_entry.config_entry_id != entry.entry_id" in normalizer_source
+        and "deleted_entry.__replace__(entity_id=desired_entity_id)"
+        in normalizer_source
+        and "entity_registry.async_schedule_save()" in normalizer_source
+        and not any(token in normalizer_source for token in forbidden_normalizer)
+        and reconcile_source.count(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        == 1
     )
 
 
@@ -607,6 +861,13 @@ def validate_current_ap1_contract() -> None:
         encoding="utf-8"
     )
     sensor_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
+    init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
+    registration_test_path = ROOT / "tests" / "test_timeline_platform_registration.py"
+    require(
+        registration_test_path.is_file(),
+        "Current AP-1E real Home Assistant registration test is missing",
+    )
+    registration_test_source = registration_test_path.read_text(encoding="utf-8")
     require(
         "_unrecorded_attributes = frozenset({MATCH_ALL})" in timeline_source
         and "RestoreEntity" not in timeline_source
@@ -624,11 +885,37 @@ def validate_current_ap1_contract() -> None:
     require(
         'policy_id="rce"' in sensor_source
         and 'policy_id="tariff"' in sensor_source
-        and 'f"hoymiles_hit_{self._policy_id}_automation_plan_timeline"'
-        in timeline_source
-        and 'f"{entry.entry_id}_{policy_id}_automation_plan_timeline"'
-        in timeline_source,
+        and _ap1e_r2_identity_contracts(timeline_source, init_source),
         "Current AP-1 timeline IDs or unique-ID construction differs",
+    )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source.replace(
+                "self.entity_id = timeline_entity_id(policy_id)",
+                "# suggested_object_id-only mutation",
+                1,
+            ),
+            init_source,
+        ),
+        "Suggested-object-ID-only mutation survived the AP-1E-R2 gate",
+    )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source,
+            init_source.replace(
+                "for policy_id in TIMELINE_POLICY_IDS:",
+                "for deleted_entry in entity_registry.deleted_entities.values():",
+                1,
+            ),
+        ),
+        "Broad deleted-row normalization survived the AP-1E-R2 gate",
+    )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source + "\nentity_registry.async_update_entity(timeline.entity_id)\n",
+            init_source,
+        ),
+        "Post-add timeline rename survived the AP-1E-R2 gate",
     )
     forbidden = (
         "async_track_time_interval",
@@ -642,6 +929,71 @@ def validate_current_ap1_contract() -> None:
     require(
         not any(token in timeline_source for token in forbidden),
         "Current AP-1 gained polling, timers or physical authority",
+    )
+    reconcile_source = init_source.split(
+        "def _async_reconcile_entity_registry(", 1
+    )[1].split("\n\nasync def ", 1)[0]
+    require(
+        reconcile_source.count(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.index(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        < reconcile_source.index("for registry_entry in")
+        and reconcile_source.index(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        < reconcile_source.index("for registry_entry in")
+        and not any(
+            token in reconcile_source
+            for token in ("startswith(", "endswith(", "re.search(", "re.match(")
+        ),
+        "Current AP-1E exact timeline reconciliation keys differ",
+    )
+    for key in (
+        "rce_automation_plan_timeline",
+        "tariff_automation_plan_timeline",
+    ):
+        require(
+            not _ap1e_r2_identity_contracts(
+                timeline_source,
+                init_source.replace(
+                    f'    active_translation_keys.add("{key}")\n',
+                    "",
+                    1,
+                ),
+            ),
+            f"Missing {key} survived the AP-1E-R2 static gate",
+        )
+    real_test_tokens = (
+        'HA_VERSION == "2026.8.2"',
+        "ConfigEntry(",
+        "EntityPlatform(",
+        "sensor_platform.async_setup_entry",
+        "entity_registry.async_get_or_create",
+        "device_registry.async_get_or_create",
+        "hass.states.get",
+        "_async_prepare_timeline_entity_registry",
+        "_async_reconcile_entity_registry",
+        "platform.async_reset",
+        "pref_disable_new_entities=disable_new_entities",
+        "RegistryEntryDisabler.INTEGRATION",
+        "DeletedRegistryEntry",
+        "TimelineIdentityCollisionError",
+        "EVENT_ENTITY_REGISTRY_UPDATED",
+        "reconciliation_changed_active_timeline",
+    )
+    require(
+        all(token in registration_test_source for token in real_test_tokens)
+        and "class FakeEntityPlatform" not in registration_test_source
+        and "class StubEntityPlatform" not in registration_test_source,
+        "Current AP-1E registration test does not freeze the real HA lifecycle",
     )
 
 
@@ -2198,7 +2550,7 @@ def entity_translation_keys(translations: dict) -> dict[str, set[str]]:
 def main() -> int:
     """Validate HACS layout, translations, Python and bundled assets."""
     validate_historical_rev28_gate()
-    validate_current_ap1_manifests()
+    current_ap1e_gate = validate_current_ap1_manifests()
     validate_current_ap1_contract()
     integration_dirs = [
         path for path in COMPONENT_ROOT.iterdir() if path.is_dir()
@@ -4179,7 +4531,11 @@ def main() -> int:
 
     print(f"HACS layout: OK ({len(integration_dirs)} integration)")
     print("Historical REV28 fixture gate: OK (32-path frozen branch)")
-    print("Current AP-1 gate: OK (16-path task, 40-path branch)")
+    print("Committed AP-1 baseline gate: OK (16-path task, 40-path branch)")
+    print(
+        "Current AP-1E gate: OK "
+        f"({current_ap1e_gate}; 4-path correction, 18-path task, 41-path branch)"
+    )
     print(f"Manifest: OK (version {manifest['version']})")
     print(f"Localized entities: {len(catalog)} (English and Polish)")
     print("Bundled dashboards/EMS assets: OK")

@@ -8,7 +8,12 @@ from math import isfinite
 from typing import TYPE_CHECKING, Any, Mapping
 import weakref
 
-from homeassistant.components.sensor import SensorEntity
+try:  # Real HA exports the platform domain; deterministic stubs may not.
+    from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN, SensorEntity
+except ImportError:  # pragma: no cover - deterministic integration stubs only
+    from homeassistant.components.sensor import SensorEntity
+
+    SENSOR_DOMAIN = "sensor"
 from homeassistant.config_entries import ConfigEntry
 try:  # Real HA exports MATCH_ALL; minimal offline harnesses may not.
     from homeassistant.const import MATCH_ALL
@@ -49,6 +54,22 @@ _PHYSICAL_SOURCES: tuple[
     ("soc", "overview_battery_soc", True, 300.0, 0.0, 100.0),
 )
 _ACTIVE_MAX_AGE_SECONDS = 120.0
+TIMELINE_POLICY_IDS = ("rce", "tariff")
+
+
+def timeline_entity_id(policy_id: str) -> str:
+    """Return the exact pre-registration entity ID for one timeline."""
+
+    if policy_id not in TIMELINE_POLICY_IDS:
+        raise TimelineValidationError(f"unsupported timeline policy: {policy_id}")
+    return f"{SENSOR_DOMAIN}.hoymiles_hit_{policy_id}_automation_plan_timeline"
+
+
+def timeline_unique_id(entry_id: str, policy_id: str) -> str:
+    """Return the exact entry-local registry identity for one timeline."""
+
+    timeline_entity_id(policy_id)
+    return f"{entry_id}_{policy_id}_automation_plan_timeline"
 
 
 def _power_scale(state: Any) -> float:
@@ -237,6 +258,7 @@ class HoymilesAutomationPlanTimelineSensor(SensorEntity):
         self._entry = entry
         self._runtime = runtime
         self._policy_id = policy_id
+        self.entity_id = timeline_entity_id(policy_id)
         self._source_sensor: SensorEntity | None = source_sensor
         self._state = "unavailable"
         self._plan_revision = 0
@@ -247,9 +269,7 @@ class HoymilesAutomationPlanTimelineSensor(SensorEntity):
         self._lifecycle_generation = 1
         self._platform_added = False
         self._attr_translation_key = f"{policy_id}_automation_plan_timeline"
-        self._attr_unique_id = (
-            f"{entry.entry_id}_{policy_id}_automation_plan_timeline"
-        )
+        self._attr_unique_id = timeline_unique_id(entry.entry_id, policy_id)
         self._attributes = build_unavailable_payload(
             policy_id=policy_id,
             config_entry_id=entry.entry_id,
@@ -266,10 +286,6 @@ class HoymilesAutomationPlanTimelineSensor(SensorEntity):
             self._lifecycle_generation,
         )
         attach(self._source_proxy)
-
-    @property
-    def suggested_object_id(self) -> str:
-        return f"hoymiles_hit_{self._policy_id}_automation_plan_timeline"
 
     @property
     def native_value(self) -> str:
