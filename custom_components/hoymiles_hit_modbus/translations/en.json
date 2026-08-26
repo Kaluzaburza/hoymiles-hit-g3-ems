@@ -1707,6 +1707,14 @@
           "unavailable": "Unavailable"
         }
       },
+      "rcm_automation_plan_timeline": {
+        "name": "RCEm automation plan timeline",
+        "state": {
+          "current": "Current",
+          "pending": "Recalculation pending",
+          "unavailable": "Unavailable"
+        }
+      },
       "rcm_voltage_plan": {
         "name": "RCEm 253 V+ plan"
       },

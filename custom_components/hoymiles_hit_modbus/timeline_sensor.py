@@ -54,7 +54,7 @@ _PHYSICAL_SOURCES: tuple[
     ("soc", "overview_battery_soc", True, 300.0, 0.0, 100.0),
 )
 _ACTIVE_MAX_AGE_SECONDS = 120.0
-TIMELINE_POLICY_IDS = ("rce", "tariff")
+TIMELINE_POLICY_IDS = ("rce", "tariff", "rcm")
 
 
 def timeline_entity_id(policy_id: str) -> str:
@@ -313,7 +313,14 @@ class HoymilesAutomationPlanTimelineSensor(SensorEntity):
         if source_entry is None or source_entry.entry_id != self._entry.entry_id:
             return None, "ambiguous_entry"
         registry = er.async_get(self.hass)
-        expected_unique_id = f"{self._entry.entry_id}_{self._policy_id}_{'optimized_plan' if self._policy_id == 'rce' else 'charge_plan'}"
+        source_suffix = {
+            "rce": "rce_optimized_plan",
+            "tariff": "tariff_charge_plan",
+            "rcm": "rcm_voltage_plan",
+        }.get(self._policy_id)
+        if source_suffix is None:
+            return None, "source_unavailable"
+        expected_unique_id = f"{self._entry.entry_id}_{source_suffix}"
         return _exact_registered_entity_id(
             registry,
             config_entry_id=self._entry.entry_id,
@@ -326,11 +333,12 @@ class HoymilesAutomationPlanTimelineSensor(SensorEntity):
     ) -> tuple[bool | None, datetime | None]:
         """Capture one publication-time lifecycle fact without fake false."""
 
-        entity_id = (
-            "input_boolean.hoymiles_rce_discharge_active"
-            if self._policy_id == "rce"
-            else "input_boolean.hoymiles_tariff_charge_active"
-        )
+        entity_id = {
+            "rce": "input_boolean.hoymiles_rce_discharge_active",
+            "tariff": "input_boolean.hoymiles_tariff_charge_active",
+        }.get(self._policy_id)
+        if entity_id is None:
+            return None, None
         state = self.hass.states.get(entity_id)
         if state is None or state.state not in {"on", "off"}:
             return None, None

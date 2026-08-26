@@ -22,6 +22,7 @@ from typing import Any, Mapping, Sequence
 SCHEMA_VERSION = 1
 DISPLAY_TIMEZONE = "Europe/Warsaw"
 SLOT_MINUTES = 30
+RCM_SLOT_MINUTES = 15
 MAX_POINTS = 192
 MAX_SERIALIZED_BYTES = 262_144
 MAX_SOURCES = 16
@@ -51,7 +52,7 @@ ACTIONS = frozenset(
         "unavailable",
     }
 )
-POLICY_IDS = frozenset({"rce", "tariff"})
+POLICY_IDS = frozenset({"rce", "tariff", "rcm"})
 SENSOR_STATES = frozenset({"current", "pending", "unavailable"})
 BOUNDED_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
@@ -140,6 +141,15 @@ TARIFF_POLICY_FIELDS = frozenset(
         "expected_saving_pln",
     }
 )
+RCM_POLICY_FIELDS = frozenset(
+    {
+        "voltage_risk_code",
+        "planned_export_limit_percent",
+        "planned_pre_discharge_kw",
+        "headroom_shortfall_kwh",
+        "control_mode",
+    }
+)
 
 
 class TimelineValidationError(ValueError):
@@ -170,24 +180,36 @@ class TariffPolicyPoint:
 
 
 @dataclass(frozen=True, slots=True)
+class RCMPolicyPoint:
+    """Bounded RCEm policy context without any future-voltage projection."""
+
+    voltage_risk_code: str
+    planned_export_limit_percent: float | None
+    planned_pre_discharge_kw: float | None
+    headroom_shortfall_kwh: float | None
+    control_mode: str
+
+
+@dataclass(frozen=True, slots=True)
 class TimelineTracePoint:
     """One immutable optimizer-output trace point, expressed as slot energy."""
 
     start: datetime
     end: datetime
-    pv_kwh: float
-    load_kwh: float
-    battery_delta_kwh: float
-    grid_import_kwh: float
-    grid_export_kwh: float
-    soc_percent: float
-    baseline_soc_percent: float
-    protected_soc_floor_percent: float
+    pv_kwh: float | None
+    load_kwh: float | None
+    battery_delta_kwh: float | None
+    grid_import_kwh: float | None
+    grid_export_kwh: float | None
+    soc_percent: float | None
+    baseline_soc_percent: float | None
+    protected_soc_floor_percent: float | None
     action_code: str
     selected: bool
     quality: str
-    policy: RCEPolicyPoint | TariffPolicyPoint
+    policy: RCEPolicyPoint | TariffPolicyPoint | RCMPolicyPoint
     target_soc_percent: float | None = None
+    required_headroom_kwh: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,7 +330,9 @@ def compact_json_bytes(payload: Mapping[str, Any]) -> bytes:
     return serialized
 
 
-def _policy_dict(policy: RCEPolicyPoint | TariffPolicyPoint) -> dict[str, Any]:
+def _policy_dict(
+    policy: RCEPolicyPoint | TariffPolicyPoint | RCMPolicyPoint,
+) -> dict[str, Any]:
     if isinstance(policy, RCEPolicyPoint):
         return {
             "sell_price_pln_kwh": policy.sell_price_pln_kwh,
@@ -325,6 +349,16 @@ def _policy_dict(policy: RCEPolicyPoint | TariffPolicyPoint) -> dict[str, Any]:
             "planned_charge_kw": policy.planned_charge_kw,
             "expected_cost_pln": policy.expected_cost_pln,
             "expected_saving_pln": policy.expected_saving_pln,
+        }
+    if isinstance(policy, RCMPolicyPoint):
+        return {
+            "voltage_risk_code": policy.voltage_risk_code,
+            "planned_export_limit_percent": (
+                policy.planned_export_limit_percent
+            ),
+            "planned_pre_discharge_kw": policy.planned_pre_discharge_kw,
+            "headroom_shortfall_kwh": policy.headroom_shortfall_kwh,
+            "control_mode": policy.control_mode,
         }
     raise TimelineValidationError("wrong policy object")
 
@@ -379,9 +413,21 @@ def _trace_point_dict(
     duration_hours = (end - start).total_seconds() / 3600.0
     if duration_hours <= 0.0:
         raise TimelineValidationError("point interval must be positive")
-    grid_import_kw = point.grid_import_kwh / duration_hours
-    grid_export_kw = point.grid_export_kwh / duration_hours
-    grid_kw = grid_import_kw - grid_export_kw
+    grid_import_kw = (
+        point.grid_import_kwh / duration_hours
+        if point.grid_import_kwh is not None
+        else None
+    )
+    grid_export_kw = (
+        point.grid_export_kwh / duration_hours
+        if point.grid_export_kwh is not None
+        else None
+    )
+    grid_kw = (
+        grid_import_kw - grid_export_kw
+        if grid_import_kw is not None and grid_export_kw is not None
+        else None
+    )
     observation_interval = (
         point.selected
         and start <= generated_at.astimezone(timezone.utc) < end
@@ -391,9 +437,19 @@ def _trace_point_dict(
         "start": utc_iso(start),
         "end": utc_iso(end),
         "kind": "forecast_plan",
-        "pv_kw": point.pv_kwh / duration_hours,
-        "load_kw": point.load_kwh / duration_hours,
-        "battery_kw": point.battery_delta_kwh / duration_hours,
+        "pv_kw": (
+            point.pv_kwh / duration_hours if point.pv_kwh is not None else None
+        ),
+        "load_kw": (
+            point.load_kwh / duration_hours
+            if point.load_kwh is not None
+            else None
+        ),
+        "battery_kw": (
+            point.battery_delta_kwh / duration_hours
+            if point.battery_delta_kwh is not None
+            else None
+        ),
         "grid_kw": grid_kw,
         "grid_import_kw": grid_import_kw,
         "grid_export_kw": grid_export_kw,
@@ -408,7 +464,17 @@ def _trace_point_dict(
     }
     if point.target_soc_percent is not None:
         result["target_soc_percent"] = point.target_soc_percent
+    if point.required_headroom_kwh is not None:
+        result["required_headroom_kwh"] = point.required_headroom_kwh
     return result
+
+
+def slot_minutes_for_policy(policy_id: str) -> int:
+    """Return the frozen native resolution for one supported policy."""
+
+    if policy_id not in POLICY_IDS:
+        raise TimelineValidationError("unknown policy_id")
+    return RCM_SLOT_MINUTES if policy_id == "rcm" else SLOT_MINUTES
 
 
 def build_current_payload(
@@ -448,7 +514,7 @@ def build_current_payload(
         "actual_until": None,
         "forecast_from": horizon_start,
         "timezone": DISPLAY_TIMEZONE,
-        "slot_minutes": SLOT_MINUTES,
+        "slot_minutes": slot_minutes_for_policy(trace.policy_id),
         "point_count": len(points),
         "input_revision": input_revision,
         "plan_revision": plan_revision,
@@ -494,7 +560,7 @@ def build_unavailable_payload(
         "actual_until": None,
         "forecast_from": None,
         "timezone": DISPLAY_TIMEZONE,
-        "slot_minutes": SLOT_MINUTES,
+        "slot_minutes": slot_minutes_for_policy(policy_id),
         "point_count": 0,
         "input_revision": input_revision,
         "plan_revision": plan_revision,
@@ -648,7 +714,11 @@ def validate_payload(payload: Mapping[str, Any], *, expected_state: str) -> None
     if not isinstance(payload["config_entry_id"], str) or not payload["config_entry_id"]:
         raise TimelineValidationError("config_entry_id is required")
     parse_utc_iso(payload["generated_at"], name="generated_at")
-    if payload["timezone"] != DISPLAY_TIMEZONE or payload["slot_minutes"] != SLOT_MINUTES:
+    if (
+        payload["timezone"] != DISPLAY_TIMEZONE
+        or payload["slot_minutes"]
+        != slot_minutes_for_policy(payload["policy_id"])
+    ):
         raise TimelineValidationError("timezone or slot resolution differs")
     if payload["plan_revision_scope"] != PLAN_REVISION_SCOPE:
         raise TimelineValidationError("plan_revision_scope differs")
@@ -778,7 +848,7 @@ def _validate_points(policy_id: str, points: list[Any]) -> None:
         fields = set(point)
         if not COMMON_POINT_FIELDS <= fields or fields - COMMON_POINT_FIELDS - OPTIONAL_POINT_FIELDS:
             raise TimelineValidationError("point fields differ")
-        if "required_headroom_kwh" in point:
+        if policy_id != "rcm" and "required_headroom_kwh" in point:
             raise TimelineValidationError("AP-1 policies cannot expose required headroom")
         if policy_id == "rce" and "target_soc_percent" in point:
             raise TimelineValidationError("RCE cannot expose target SOC")
@@ -786,10 +856,23 @@ def _validate_points(policy_id: str, points: list[Any]) -> None:
         end = parse_utc_iso(point["end"], name=f"points[{index}].end")
         assert start is not None and end is not None
         duration_seconds = (end - start).total_seconds()
-        if not 0 < duration_seconds <= SLOT_MINUTES * 60:
-            raise TimelineValidationError("point is not one native 30-minute slot")
-        if index > 0 and duration_seconds != SLOT_MINUTES * 60:
-            raise TimelineValidationError("future points must remain native 30-minute slots")
+        native_minutes = slot_minutes_for_policy(policy_id)
+        native_seconds = native_minutes * 60
+        partial_first = bool(
+            policy_id in {"rce", "tariff"}
+            and index == 0
+            and 0 < duration_seconds < native_seconds
+        )
+        if duration_seconds != native_seconds and not partial_first:
+            raise TimelineValidationError("point is not one native policy slot")
+        if partial_first and (
+            end.second != 0
+            or end.microsecond != 0
+            or end.minute % native_minutes != 0
+        ):
+            raise TimelineValidationError(
+                "partial first point does not end on the native UTC grid"
+            )
         if previous_end is not None and start != previous_end:
             raise TimelineValidationError("timeline contains a gap or overlap")
         identity = (start, end)
@@ -831,7 +914,15 @@ def _validate_points(policy_id: str, points: list[Any]) -> None:
                 nullable=True,
                 name="point.target_soc_percent",
             )
+        if "required_headroom_kwh" in point:
+            _bounded_number(
+                point["required_headroom_kwh"],
+                minimum=0.0,
+                nullable=True,
+                name="point.required_headroom_kwh",
+            )
         _validate_grid_signs(point)
+        _validate_power_balance(point)
         _validate_policy(policy_id, point["policy"])
 
 
@@ -852,13 +943,35 @@ def _validate_grid_signs(point: Mapping[str, Any]) -> None:
         raise TimelineValidationError("grid split is inconsistent with canonical sign")
 
 
+def _validate_power_balance(point: Mapping[str, Any]) -> None:
+    values = tuple(point[key] for key in ("pv_kw", "load_kw", "battery_kw", "grid_kw"))
+    if any(value is None for value in values):
+        return
+    pv, load, battery, grid = (float(value) for value in values)
+    if abs(grid - (load + battery - pv)) > 1e-8:
+        raise TimelineValidationError("power balance differs from canonical signs")
+
+
 def _validate_policy(policy_id: str, policy: Any) -> None:
     if not isinstance(policy, dict):
         raise TimelineValidationError("policy must be an object")
-    expected = RCE_POLICY_FIELDS if policy_id == "rce" else TARIFF_POLICY_FIELDS
+    expected = (
+        RCE_POLICY_FIELDS
+        if policy_id == "rce"
+        else TARIFF_POLICY_FIELDS
+        if policy_id == "tariff"
+        else RCM_POLICY_FIELDS
+    )
     if set(policy) != expected:
         raise TimelineValidationError("wrong policy object")
-    numeric_fields = expected - ({"tariff_zone"} if policy_id == "tariff" else set())
+    text_fields = (
+        {"tariff_zone"}
+        if policy_id == "tariff"
+        else {"voltage_risk_code", "control_mode"}
+        if policy_id == "rcm"
+        else set()
+    )
+    numeric_fields = expected - text_fields
     for key in numeric_fields:
         _number(policy[key], nullable=True, name=f"policy.{key}")
     if policy_id == "tariff" and (
@@ -866,6 +979,28 @@ def _validate_policy(policy_id: str, policy: Any) -> None:
         or BOUNDED_CODE_PATTERN.fullmatch(policy["tariff_zone"]) is None
     ):
         raise TimelineValidationError("tariff_zone must be a bounded code")
+    if policy_id == "rcm":
+        for key in text_fields:
+            value = policy[key]
+            if (
+                not isinstance(value, str)
+                or BOUNDED_CODE_PATTERN.fullmatch(value) is None
+            ):
+                raise TimelineValidationError(f"{key} must be a bounded code")
+        for key in (
+            "planned_export_limit_percent",
+            "planned_pre_discharge_kw",
+            "headroom_shortfall_kwh",
+        ):
+            if policy[key] is not None and policy[key] < 0:
+                raise TimelineValidationError(f"policy.{key} must be non-negative")
+        if (
+            policy["planned_export_limit_percent"] is not None
+            and policy["planned_export_limit_percent"] > 100
+        ):
+            raise TimelineValidationError(
+                "policy.planned_export_limit_percent is above its maximum"
+            )
     for key in (
         "planned_export_kwh",
         "target_discharge_kw",

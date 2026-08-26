@@ -1316,6 +1316,40 @@ def main() -> None:
     ):
         assert f'"{attribute}"' in sensor_source
 
+    # AP-2R1 observes the already committed result and cannot become another
+    # optimizer path or feed its output back into the optimizer/executor.
+    timeline_model_source = (
+        ROOT
+        / "custom_components"
+        / "hoymiles_hit_modbus"
+        / "rcm_timeline_model.py"
+    ).read_text(encoding="utf-8")
+    optimizer_source = (
+        ROOT
+        / "custom_components"
+        / "hoymiles_hit_modbus"
+        / "rcm_optimizer.py"
+    ).read_text(encoding="utf-8")
+    assert sum(
+        isinstance(node, ast.Name) and node.id == "optimize_rcm"
+        for node in ast.walk(ast.parse(sensor_source))
+    ) == 1
+    assert "optimize_rcm" not in timeline_model_source
+    assert "rcm_timeline_model" not in optimizer_source
+    assert "timeline_trace_as_optimizer_input" not in sensor_source
+    assert sensor_source.index(
+        "optimize_rcm,", sensor_source.index("async_add_executor_job(")
+    ) < sensor_source.index(
+        "build_rcm_timeline_trace("
+    )
+    timeline_block = sensor_source.split(
+        "try:\n                self._timeline_trace = build_rcm_timeline_trace(",
+        1,
+    )[1].split("            risk_window_details = [", 1)[0]
+    assert "except RCMTimelineModelError" in timeline_block
+    assert "except Exception" in timeline_block
+    assert "result =" not in timeline_block
+
     print("RCEm optimizer: safety, headroom and BMS-limit scenarios passed")
 
 

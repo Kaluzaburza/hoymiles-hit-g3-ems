@@ -65,10 +65,11 @@ def snapshot(**changes: Any) -> TL.CurrentActualSnapshot:
 def trace(policy_id: str, count: int = 2) -> TL.OptimizerTimelineTrace:
     points: list[TL.TimelineTracePoint] = []
     for index in range(count):
-        start = NOW + timedelta(minutes=30 * index)
+        slot_minutes = 15 if policy_id == "rcm" else 30
+        start = NOW + timedelta(minutes=slot_minutes * index)
         selected = index == 0
         if policy_id == "rce":
-            policy: TL.RCEPolicyPoint | TL.TariffPolicyPoint = TL.RCEPolicyPoint(
+            policy: TL.RCEPolicyPoint | TL.TariffPolicyPoint | TL.RCMPolicyPoint = TL.RCEPolicyPoint(
                 sell_price_pln_kwh=0.8,
                 planned_export_kwh=0.5 if selected else 0.0,
                 target_discharge_kw=1.0 if selected else 0.0,
@@ -77,10 +78,12 @@ def trace(policy_id: str, count: int = 2) -> TL.OptimizerTimelineTrace:
             )
             battery_delta = -0.5 if selected else 0.0
             grid_import = 0.0
-            grid_export = 0.5 if selected else 0.0
+            grid_export = 0.25 if selected else 0.0
+            grid_import = 0.0 if selected else 0.25
             action = "export" if selected else "idle"
             target = None
-        else:
+            required_headroom = None
+        elif policy_id == "tariff":
             policy = TL.TariffPolicyPoint(
                 buy_price_pln_kwh=0.6,
                 tariff_zone="low",
@@ -90,16 +93,33 @@ def trace(policy_id: str, count: int = 2) -> TL.OptimizerTimelineTrace:
                 expected_saving_pln=None,
             )
             battery_delta = 0.475 if selected else 0.0
-            grid_import = 0.5 if selected else 0.0
+            grid_import = 0.725 if selected else 0.25
             grid_export = 0.0
             action = "battery_charge" if selected else "idle"
             target = 62.0 if selected else None
+            required_headroom = None
+        else:
+            policy = TL.RCMPolicyPoint(
+                voltage_risk_code=(
+                    "historical_risk_window" if selected else "no_risk"
+                ),
+                planned_export_limit_percent=50.0,
+                planned_pre_discharge_kw=0.0,
+                headroom_shortfall_kwh=0.5,
+                control_mode="monitor",
+            )
+            battery_delta = 0.0
+            grid_import = 0.0
+            grid_export = 0.0
+            action = "monitor"
+            target = 60.0 if selected else None
+            required_headroom = 2.0
         points.append(
             TL.TimelineTracePoint(
                 start=start,
-                end=start + timedelta(minutes=30),
-                pv_kwh=0.25,
-                load_kwh=0.5,
+                end=start + timedelta(minutes=slot_minutes),
+                pv_kwh=(0.125 if policy_id == "rcm" else 0.25),
+                load_kwh=(0.125 if policy_id == "rcm" else 0.5),
                 battery_delta_kwh=battery_delta,
                 grid_import_kwh=grid_import,
                 grid_export_kwh=grid_export,
@@ -111,14 +131,20 @@ def trace(policy_id: str, count: int = 2) -> TL.OptimizerTimelineTrace:
                 quality="complete",
                 policy=policy,
                 target_soc_percent=target,
+                required_headroom_kwh=required_headroom,
             )
         )
     return TL.OptimizerTimelineTrace(policy_id=policy_id, points=tuple(points))
 
 
 def payload(policy_id: str = "rce", count: int = 2) -> dict[str, Any]:
+    return payload_from_trace(trace(policy_id, count))
+
+
+def payload_from_trace(candidate: TL.OptimizerTimelineTrace) -> dict[str, Any]:
+    policy_id = candidate.policy_id
     return TL.build_current_payload(
-        trace(policy_id, count),
+        candidate,
         config_entry_id="entry-a",
         generated_at=NOW + timedelta(minutes=5),
         input_revision=7,
@@ -127,6 +153,8 @@ def payload(policy_id: str = "rce", count: int = 2) -> dict[str, Any]:
             "sensor.hoymiles_hit_rce_optimized_plan"
             if policy_id == "rce"
             else "sensor.hoymiles_hit_tariff_charge_plan"
+            if policy_id == "tariff"
+            else "sensor.hoymiles_hit_rcm_voltage_plan"
         ),
         current_actual=snapshot(),
         sources=[{"role": "plan", "entity_id": "sensor.plan_a"}],
@@ -134,9 +162,91 @@ def payload(policy_id: str = "rce", count: int = 2) -> dict[str, Any]:
     )
 
 
+def trace_with_intervals(
+    policy_id: str,
+    intervals: tuple[tuple[datetime, datetime], ...],
+) -> TL.OptimizerTimelineTrace:
+    candidate = trace(policy_id, len(intervals))
+    return replace(
+        candidate,
+        points=tuple(
+            replace(point, start=start, end=end)
+            for point, (start, end) in zip(candidate.points, intervals, strict=True)
+        ),
+    )
+
+
+def test_rce_partial_first_slot_contract() -> None:
+    base = datetime(2026, 8, 8, 19, 0, tzinfo=UTC)
+    accepted = trace_with_intervals(
+        "rce",
+        (
+            (base + timedelta(minutes=10), base + timedelta(minutes=30)),
+            (base + timedelta(minutes=30), base + timedelta(minutes=60)),
+        ),
+    )
+    assert payload_from_trace(accepted)["point_count"] == 2
+
+    interior = trace_with_intervals(
+        "rce",
+        (
+            (base, base + timedelta(minutes=30)),
+            (base + timedelta(minutes=30), base + timedelta(minutes=50)),
+            (base + timedelta(minutes=50), base + timedelta(minutes=80)),
+        ),
+    )
+    expect_invalid(lambda: payload_from_trace(interior), "native policy slot")
+    too_long = trace_with_intervals(
+        "rce",
+        ((base - timedelta(minutes=10), base + timedelta(minutes=30)),),
+    )
+    expect_invalid(lambda: payload_from_trace(too_long), "native policy slot")
+
+
+def test_tariff_partial_first_slot_contract() -> None:
+    base = datetime(2026, 8, 8, 19, 0, tzinfo=UTC)
+    accepted = trace_with_intervals(
+        "tariff",
+        (
+            (base + timedelta(minutes=10), base + timedelta(minutes=30)),
+            (base + timedelta(minutes=30), base + timedelta(minutes=60)),
+        ),
+    )
+    assert payload_from_trace(accepted)["point_count"] == 2
+
+    interior = trace_with_intervals(
+        "tariff",
+        (
+            (base, base + timedelta(minutes=30)),
+            (base + timedelta(minutes=30), base + timedelta(minutes=50)),
+            (base + timedelta(minutes=50), base + timedelta(minutes=80)),
+        ),
+    )
+    expect_invalid(lambda: payload_from_trace(interior), "native policy slot")
+    too_long = trace_with_intervals(
+        "tariff",
+        ((base - timedelta(minutes=10), base + timedelta(minutes=30)),),
+    )
+    expect_invalid(lambda: payload_from_trace(too_long), "native policy slot")
+
+
+def test_rcm_partial_first_slot_remains_rejected() -> None:
+    base = datetime(2026, 8, 8, 19, 0, tzinfo=UTC)
+    partial = trace_with_intervals(
+        "rcm",
+        ((base + timedelta(minutes=5), base + timedelta(minutes=15)),),
+    )
+    expect_invalid(lambda: payload_from_trace(partial), "native policy slot")
+    assert payload_from_trace(trace_with_intervals(
+        "rcm",
+        ((base, base + timedelta(minutes=15)),),
+    ))["point_count"] == 1
+
+
 def test_schema_and_policy_contract() -> None:
     rce = payload("rce")
     tariff = payload("tariff")
+    rcm = payload("rcm")
     assert rce["schema_version"] == 1
     assert set(rce) == TL.TOP_LEVEL_FIELDS
     assert set(rce["points"][0]) == TL.COMMON_POINT_FIELDS
@@ -148,6 +258,13 @@ def test_schema_and_policy_contract() -> None:
     }
     assert set(tariff["points"][0]["policy"]) == TL.TARIFF_POLICY_FIELDS
     assert "required_headroom_kwh" not in tariff["points"][0]
+    assert rcm["slot_minutes"] == 15
+    assert set(rcm["points"][0]) == TL.COMMON_POINT_FIELDS | {
+        "target_soc_percent",
+        "required_headroom_kwh",
+    }
+    assert set(rcm["points"][0]["policy"]) == TL.RCM_POLICY_FIELDS
+    assert rcm["points"][0]["policy"]["voltage_risk_code"] == "historical_risk_window"
     malformed = deepcopy(rce)
     malformed["unexpected"] = True
     expect_invalid(lambda: TL.validate_payload(malformed, expected_state="current"))
@@ -192,11 +309,13 @@ def test_intervals_dst_and_native_resolution() -> None:
 def test_numbers_nulls_and_signs() -> None:
     current = payload()
     first = current["points"][0]
-    assert first["grid_kw"] == -1.0
+    assert first["grid_kw"] == -0.5
     assert first["grid_import_kw"] == 0.0
-    assert first["grid_export_kw"] == 1.0
+    assert first["grid_export_kw"] == 0.5
     assert first["battery_kw"] == -1.0
     assert payload("tariff")["points"][0]["battery_kw"] == 0.95
+    assert payload("tariff")["points"][0]["grid_kw"] == 1.45
+    assert payload("rcm")["points"][0]["grid_kw"] == 0.0
     zero = deepcopy(current)
     for key in ("pv_kw", "load_kw", "battery_kw", "grid_kw", "grid_import_kw", "grid_export_kw"):
         zero["points"][1][key] = 0.0
@@ -727,6 +846,7 @@ def _runtime_timeline_sensor(
     base: type,
     *,
     entry_id: str = "entry-a",
+    policy_id: str = "rce",
 ) -> tuple[Any, Any, Any]:
     entry = types.SimpleNamespace(entry_id=entry_id)
     source = base()
@@ -746,9 +866,9 @@ def _runtime_timeline_sensor(
     )
     runtime = types.SimpleNamespace(source_device=source_device)
     registry_entry = types.SimpleNamespace(
-        entity_id=f"sensor.{entry_id}_rce_plan",
+        entity_id=f"sensor.{entry_id}_{policy_id}_plan",
         platform="hoymiles_hit_modbus",
-        unique_id=f"{entry_id}_rce_optimized_plan",
+        unique_id=f"{entry_id}_{ {'rce': 'rce_optimized_plan', 'tariff': 'tariff_charge_plan', 'rcm': 'rcm_voltage_plan'}[policy_id] }",
         config_entry_id=entry_id,
     )
     registry = types.SimpleNamespace(entities={"plan": registry_entry})
@@ -768,11 +888,47 @@ def _runtime_timeline_sensor(
         hass,
         entry,
         runtime,
-        policy_id="rce",
+        policy_id=policy_id,
         source_sensor=source,
     )
     sensor._fixture_writes = 0
     return sensor, source, states
+
+
+def test_rcm_runtime_identity_states_and_multi_entry() -> None:
+    module, base = _load_timeline_runtime_module()
+    sensor, source, _states = _runtime_timeline_sensor(
+        module,
+        base,
+        policy_id="rcm",
+    )
+    assert sensor.entity_id == "sensor.hoymiles_hit_rcm_automation_plan_timeline"
+    assert sensor._attr_unique_id == "entry-a_rcm_automation_plan_timeline"
+    assert sensor._unrecorded_attributes == frozenset({"*"})
+    proxy = source._timeline_sensor
+    proxy.publish_current(trace("rcm"), input_revision=1)
+    assert sensor.native_value == "current"
+    assert sensor.extra_state_attributes["slot_minutes"] == 15
+    assert sensor.extra_state_attributes["schema_version"] == 1
+    assert sensor.extra_state_attributes["plan_revision"] == 1
+    assert sensor.extra_state_attributes["active_observed_at"] is None
+    proxy.publish_pending(2)
+    assert sensor.native_value == "pending"
+    proxy.publish_unavailable(input_revision=2, blocker_code="missing_data")
+    assert sensor.native_value == "unavailable"
+    assert sensor.extra_state_attributes["points"] == []
+    other, other_source, _ = _runtime_timeline_sensor(
+        module,
+        base,
+        entry_id="entry-b",
+        policy_id="rcm",
+    )
+    other_source._timeline_sensor.publish_current(trace("rcm"), input_revision=1)
+    assert other._attr_unique_id == "entry-b_rcm_automation_plan_timeline"
+    assert other.extra_state_attributes["plan_revision"] == 1
+    before = deepcopy(other.extra_state_attributes)
+    proxy.publish_unavailable(input_revision=99, blocker_code="foreign_entry")
+    assert other.extra_state_attributes == before
 
 
 def test_runtime_revision_and_stale_callback_contract() -> None:
@@ -949,6 +1105,9 @@ def test_pre_add_detach_reload_and_active_runtime_contract() -> None:
 
 
 TESTS = (
+    test_rce_partial_first_slot_contract,
+    test_tariff_partial_first_slot_contract,
+    test_rcm_partial_first_slot_remains_rejected,
     test_schema_and_policy_contract,
     test_intervals_dst_and_native_resolution,
     test_numbers_nulls_and_signs,
@@ -961,6 +1120,14 @@ TESTS = (
     test_entity_lifecycle_recorder_multi_entry_and_authority,
     test_runtime_revision_and_stale_callback_contract,
     test_pre_add_detach_reload_and_active_runtime_contract,
+    test_rcm_runtime_identity_states_and_multi_entry,
+)
+REQUIRED_AP2R1F_TESTS = frozenset(
+    {
+        "test_rce_partial_first_slot_contract",
+        "test_tariff_partial_first_slot_contract",
+        "test_rcm_partial_first_slot_remains_rejected",
+    }
 )
 
 
@@ -1143,6 +1310,7 @@ def main() -> None:
     if "--mutations" in sys.argv:
         run_mutation_campaign()
         return
+    assert REQUIRED_AP2R1F_TESTS <= {test.__name__ for test in TESTS}
     for test in TESTS:
         test()
     print(f"Automation plan timeline: {len(TESTS)} contract groups passed")

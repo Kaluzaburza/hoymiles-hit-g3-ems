@@ -34,6 +34,9 @@ from custom_components.hoymiles_hit_modbus.models import MatchedEntity, RuntimeD
 from custom_components.hoymiles_hit_modbus.rce_sensor import (
     HoymilesRCEOptimizerSensor,
 )
+from custom_components.hoymiles_hit_modbus.rcm_sensor import (
+    HoymilesRCMOptimizerSensor,
+)
 from custom_components.hoymiles_hit_modbus.tariff_sensor import (
     HoymilesTariffOptimizerSensor,
 )
@@ -53,6 +56,11 @@ TIMELINE_IDENTITIES = {
         "sensor.hoymiles_hit_tariff_automation_plan_timeline",
         f"{ENTRY_ID}_tariff_automation_plan_timeline",
         "tariff_automation_plan_timeline",
+    ),
+    "rcm": (
+        "sensor.hoymiles_hit_rcm_automation_plan_timeline",
+        f"{ENTRY_ID}_rcm_automation_plan_timeline",
+        "rcm_automation_plan_timeline",
     ),
 }
 LEGACY_ENTITY_IDS = {
@@ -347,6 +355,8 @@ def _source_entities(platform: EntityPlatform) -> dict[str, Any]:
             sources["rce"] = entity
         elif isinstance(entity, HoymilesTariffOptimizerSensor):
             sources["tariff"] = entity
+        elif isinstance(entity, HoymilesRCMOptimizerSensor):
+            sources["rcm"] = entity
     assert set(sources) == set(TIMELINE_IDENTITIES)
     return sources
 
@@ -394,7 +404,7 @@ def _assert_exact_timelines(
         )
 
     if not disabled:
-        assert timeline_rows[0].device_id == timeline_rows[1].device_id
+        assert len({row.device_id for row in timeline_rows}) == 1
         timelines = _timeline_entities(platform)
         assert all(timeline._platform_added for timeline in timelines.values())
         for entity_id in (*ACTIVE_NATIVE_IDS, ACTIVE_PROXY_ID):
@@ -611,33 +621,37 @@ async def _active_legacy_scenario(root: Path) -> None:
     await _shutdown(hass, platform)
 
 
-async def _collision_scenario(root: Path) -> None:
+async def _collision_scenario(root: Path, policy_id: str) -> None:
     hass, entry, entity_registry, _ = await _new_hass(
-        root / "scenario-collision",
+        root / f"scenario-collision-{policy_id}",
         disable_new_entities=False,
     )
-    rce_entity_id = TIMELINE_IDENTITIES["rce"][0]
+    legacy_rows = _create_legacy_rows(entity_registry, entry)
+    collided_entity_id = TIMELINE_IDENTITIES[policy_id][0]
     foreign = entity_registry.async_get_or_create(
         "sensor",
         "foreign_ap1e_platform",
-        "foreign_rce_identity",
-        suggested_object_id=rce_entity_id.split(".", 1)[1],
+        f"foreign_{policy_id}_identity",
+        suggested_object_id=collided_entity_id.split(".", 1)[1],
     )
-    assert foreign.entity_id == rce_entity_id
+    assert foreign.entity_id == collided_entity_id
     with pytest.raises(
         TimelineIdentityCollisionError,
-        match="rce timeline entity ID is already in use",
+        match=rf"{policy_id} timeline entity ID is already in use",
     ):
         await _setup_platform(hass, entry)
-    assert entity_registry.async_get(rce_entity_id) is foreign
-    assert foreign.unique_id == "foreign_rce_identity"
+    assert entity_registry.async_get(collided_entity_id) is foreign
+    assert foreign.unique_id == f"foreign_{policy_id}_identity"
     assert foreign.platform == "foreign_ap1e_platform"
     assert not any(
-        row.entity_id.startswith(f"{rce_entity_id}_")
+        row.entity_id.startswith(f"{collided_entity_id}_")
         for row in entity_registry.entities.values()
     )
-    for entity_id, unique_id, _ in TIMELINE_IDENTITIES.values():
-        assert not _rows_for_unique_id(entity_registry, unique_id)
+    for candidate_policy, (entity_id, unique_id, _) in TIMELINE_IDENTITIES.items():
+        rows = _rows_for_unique_id(entity_registry, unique_id)
+        assert len(rows) == 1
+        assert rows[0] is legacy_rows[candidate_policy]
+        assert rows[0].entity_id == LEGACY_ENTITY_IDS[candidate_policy]
         assert hass.states.get(entity_id) is None
     await hass.async_stop(force=True)
 
@@ -684,7 +698,7 @@ async def _reload_scenario(root: Path) -> None:
         )
         timelines = _timeline_entities(platform)
         sources = _source_entities(platform)
-        assert len(timelines) == 2
+        assert len(timelines) == 3
         for policy_id in TIMELINE_IDENTITIES:
             timeline = timelines[policy_id]
             source = sources[policy_id]
@@ -740,7 +754,7 @@ def test_timeline_platform_registration(
     """Exercise enabled, disabled, stale and two-reload real-HA lifecycles."""
 
     assert HA_VERSION == "2026.8.2"
-    optimizer_calls = {"rce": 0, "tariff": 0}
+    optimizer_calls = {"rce": 0, "tariff": 0, "rcm": 0}
     schedule_calls: list[er.EntityRegistry] = []
 
     def unexpected_rce_call(*_args: Any, **_kwargs: Any) -> None:
@@ -753,12 +767,17 @@ def test_timeline_platform_registration(
             "timeline registration called optimize_tariff_charging"
         )
 
+    def unexpected_rcm_call(*_args: Any, **_kwargs: Any) -> None:
+        optimizer_calls["rcm"] += 1
+        raise AssertionError("timeline registration called optimize_rcm")
+
     monkeypatch.setattr(rce_sensor, "optimize_rce", unexpected_rce_call)
     monkeypatch.setattr(
         tariff_sensor,
         "optimize_tariff_charging",
         unexpected_tariff_call,
     )
+    monkeypatch.setattr(rcm_sensor, "optimize_rcm", unexpected_rcm_call)
     monkeypatch.setattr(
         rce_sensor.HoymilesRCEOptimizerSensor,
         "_schedule_startup_warmup",
@@ -808,8 +827,9 @@ def test_timeline_platform_registration(
         await _disabled_scenario(tmp_path)
         await _stale_scenario(tmp_path)
         await _reload_scenario(tmp_path)
-        await _collision_scenario(tmp_path)
+        for policy_id in TIMELINE_IDENTITIES:
+            await _collision_scenario(tmp_path, policy_id)
 
     asyncio.run(run_scenarios())
     assert setup_calls == 8
-    assert optimizer_calls == {"rce": 0, "tariff": 0}
+    assert optimizer_calls == {"rce": 0, "tariff": 0, "rcm": 0}

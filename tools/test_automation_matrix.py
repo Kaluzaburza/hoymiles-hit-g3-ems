@@ -9,6 +9,7 @@ for HIT 10/15/20 kW and a two-inverter 40 kW system.
 from __future__ import annotations
 
 import argparse
+import ast
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -5079,6 +5080,41 @@ def assert_human_control_status_contracts() -> None:
     assert tariff_owner < tariff_policy < tariff_conflict < tariff_toggle
 
 
+def assert_rcm_timeline_observation_boundary() -> None:
+    """Keep AP-2R1 outside every scheduler, helper and inverter write path."""
+
+    component = ROOT / "custom_components" / "hoymiles_hit_modbus"
+    model = (component / "rcm_timeline_model.py").read_text(encoding="utf-8")
+    source = (component / "rcm_sensor.py").read_text(encoding="utf-8")
+    platform = (component / "sensor.py").read_text(encoding="utf-8")
+    timeline = (component / "timeline_sensor.py").read_text(encoding="utf-8")
+    forbidden = (
+        "services.async_call",
+        "write_register",
+        "modbus.write",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+        "scheduler_command",
+        "executor_command",
+    )
+    assert not any(token in model for token in forbidden)
+    assert "optimize_rcm" not in model
+    assert sum(
+        isinstance(node, ast.Name) and node.id == "optimize_rcm"
+        for node in ast.walk(ast.parse(source))
+    ) == 1
+    assert source.index(
+        "optimize_rcm,", source.index("async_add_executor_job(")
+    ) < source.index(
+        "build_rcm_timeline_trace("
+    )
+    assert platform.count("entities.append(rcm_plan)") == 1
+    assert platform.count('policy_id="rcm"') == 1
+    assert 'source_sensor=rcm_plan' in platform
+    assert "_unrecorded_attributes = frozenset({MATCH_ALL})" in timeline
+
+
 def main() -> None:
     """Run all matrices without external test dependencies."""
 
@@ -5107,6 +5143,7 @@ def main() -> None:
     assert_rcm_execution_contracts()
     assert_physical_hardware_readback_contracts()
     assert_human_control_status_contracts()
+    assert_rcm_timeline_observation_boundary()
     total = rce_count + tariff_count + rcm_count + random_count
     profile = "exhaustive" if exhaustive else "quick"
     print(f"Automation matrix ({profile}): {total} scenarios passed")

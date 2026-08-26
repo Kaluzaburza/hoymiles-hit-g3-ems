@@ -55,6 +55,13 @@ VALIDATOR_HISTORICAL_REF = "v1.5.7"
 REV28_HISTORICAL_COMMIT = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
 AP1_CUMULATIVE_TASK_BASE = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
 AP1E_CORRECTION_BASE = "f630529ed8ddce7ba5c45986d9484fc31b246070"
+AP2R1_CORRECTION_BASE = "4a49343a9bc6e8b669659ebb27ac7f8bbfd9f2c9"
+AP2R1F_REVIEWED_COMMIT = "5cad2934c900d25c020c86d1cf206731319d8ee5"
+AP2R1_COMMIT_SUBJECT = "feat: add RCEm automation plan timeline"
+AP2R1_VALIDATOR_PATH = "tools/validate_release.py"
+AP2R1F_OVERLAY_CANDIDATE = "AP2R1F_OVERLAY_CANDIDATE"
+AP2R1F_COMMITTED_CLEAN = "AP2R1F_COMMITTED_CLEAN"
+AP2R1G_VALIDATOR_FIX_OVERLAY = "AP2R1G_VALIDATOR_FIX_OVERLAY"
 AP1_PUBLIC_BRANCH_BASE = "6617bc4de6592439ea2c64889b0a25bbe5bfa45e"
 PHASE_2_TASK_PATHS = frozenset(
     {
@@ -180,6 +187,47 @@ AP1E_CORRECTION_PATHS = frozenset(
     }
 )
 AP1E_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1E_CUMULATIVE_TASK_PATHS
+AP2R1_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "tests/test_timeline_platform_registration.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_rcm_optimizer.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_automation_matrix.py",
+        "tools/validate_release.py",
+    }
+)
+AP2R1_CUMULATIVE_TASK_PATHS = AP1E_CUMULATIVE_TASK_PATHS | AP2R1_CORRECTION_PATHS
+AP2R1_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP2R1_CUMULATIVE_TASK_PATHS
+AP2R1_NEW_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "tools/test_rcm_timeline_model.py",
+    }
+)
+AP2R1F_PROTECTED_HASHES = {
+    "custom_components/hoymiles_hit_modbus/__init__.py": "d3e678de3593777fccca0b55135d5942c95644d12ad4761222802d897df57188",
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py": "52db2a5016d18af93c7b1b231bf94af9a5810b49ebae9f4872d997f04b2607d2",
+    "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py": "05193798f41264684afa9e1baf8e068549da63ec6fd24b9622a5a15149789549",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "db1a5d52d1a15083e4a50a7eedb36b7e4f35057220b4c919b880184b5476178c",
+    "custom_components/hoymiles_hit_modbus/sensor.py": "c9a172513f9ee70077aeaef6f5b3796b20bd80083ffc76220ab91feebcbcc371",
+    "custom_components/hoymiles_hit_modbus/timeline_sensor.py": "f02410df553cfdc97b3b0c953996357d9c431ac4e223f15a5808b5e1295f51cc",
+    "custom_components/hoymiles_hit_modbus/translations/en.json": "f7d342ef6ac29fd9ab8ef8666cba6248485ea97e2cf4cc50ce3ab56993f33c71",
+    "custom_components/hoymiles_hit_modbus/translations/pl.json": "1dfde0d47b8a3b0751c9f0466ece738a179978e9ad3fb1b281b52d3107cfe473",
+    "tests/test_timeline_platform_registration.py": "15c730c31947de09ae7322e84bcb06291fad2063818141a1471c7d706c81de5d",
+    "tools/test_rcm_timeline_model.py": "611dd36e7a20323d2558801650f8a32df78d80253a3f49faecb4f4d15a1bbb98",
+    "tools/test_rcm_optimizer.py": "0020993f4bc86810cf4368e2db56383f4dfccde420349b4109f252e2fdeb7e78",
+    "tools/test_automation_plan_timeline.py": "0d28e33ee33229fbe60bfbf1da4d4b5a26eca0a655486014efb17f6fc47cb186",
+    "tools/test_automation_matrix.py": "bdfe00b15de1aa0ddb31db96b90c9dc78e85711d16cc6d5416533d2d0089df8b",
+}
 VALIDATOR_STORE_CONTRACTS = {
     "input_select": (1, frozenset({1, 2})),
     "input_boolean": (1, frozenset({1})),
@@ -549,6 +597,232 @@ def _effective_git_manifest(base: str, overlay_paths: set[str]) -> set[str]:
     return _effective_path_set(committed_paths, overlay_paths)
 
 
+def _git_text(*args: str) -> str:
+    """Return stripped Git output for an exact scalar fact."""
+
+    return subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    ).strip()
+
+
+def _git_name_status(*args: str) -> set[tuple[str, ...]]:
+    """Return name-status records without hiding rename or delete records."""
+
+    output = subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    )
+    return {
+        tuple(part.replace("\\", "/") for part in line.split("\t"))
+        for line in output.splitlines()
+        if line
+    }
+
+
+def _git_commit_parents(reference: str) -> tuple[str, ...]:
+    """Return every parent of one commit."""
+
+    fields = _git_text("rev-list", "--parents", "-n", "1", reference).split()
+    return tuple(fields[1:])
+
+
+def _git_tree_modes(reference: str, relative_paths: frozenset[str]) -> dict[str, str]:
+    """Return final tree modes for the selected paths."""
+
+    output = subprocess.check_output(
+        ["git", "ls-tree", "-r", reference, "--", *sorted(relative_paths)],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    )
+    modes: dict[str, str] = {}
+    for line in output.splitlines():
+        metadata, relative_path = line.split("\t", 1)
+        modes[relative_path.replace("\\", "/")] = metadata.split()[0]
+    return modes
+
+
+def _working_blob_sha256(relative_path: str) -> str:
+    """Hash one regular working-tree file without Git index substitution."""
+
+    path = ROOT / relative_path
+    require(
+        path.is_file() and not path.is_symlink(),
+        f"AP-2R1 protected working file is missing or not regular: {relative_path}",
+    )
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _require_ap2r1_protected_hashes(reference: str | None) -> None:
+    """Require the thirteen reviewed AP-2R1F blobs in a tree or overlay."""
+
+    for relative_path, expected_hash in AP2R1F_PROTECTED_HASHES.items():
+        actual_hash = (
+            _git_blob_sha256(reference, relative_path)
+            if reference is not None
+            else _working_blob_sha256(relative_path)
+        )
+        require(
+            actual_hash == expected_hash,
+            f"AP-2R1F protected blob changed: {relative_path}",
+        )
+
+
+def _require_corrected_ap2r1_validator(reference: str | None = None) -> None:
+    """Require a working or committed validator to expose all bounded states."""
+
+    content = (
+        subprocess.check_output(
+            ["git", "show", f"{reference}:{AP2R1_VALIDATOR_PATH}"], cwd=ROOT
+        )
+        if reference is not None
+        else (ROOT / AP2R1_VALIDATOR_PATH).read_bytes()
+    )
+    source = content.decode("utf-8")
+    required_markers = (
+        'AP2R1F_OVERLAY_CANDIDATE = "AP2R1F_OVERLAY_CANDIDATE"',
+        'AP2R1F_COMMITTED_CLEAN = "AP2R1F_COMMITTED_CLEAN"',
+        'AP2R1G_VALIDATOR_FIX_OVERLAY = "AP2R1G_VALIDATOR_FIX_OVERLAY"',
+        "def _classify_ap2r1_git_state() -> str:",
+    )
+    require(
+        all(marker in source for marker in required_markers),
+        "AP-2R1 corrected dual-state validator markers are incomplete",
+    )
+
+
+def _require_ap2r1_manifests(reference: str, overlay_paths: set[str]) -> None:
+    """Require exact AP-2R1 correction, task and public-branch manifests."""
+
+    correction_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP2R1_CORRECTION_BASE}..{reference}"),
+        overlay_paths,
+    )
+    task_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{reference}"),
+        overlay_paths,
+    )
+    branch_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{reference}"),
+        overlay_paths,
+    )
+    require(
+        _ap2r1_manifests_match(correction_paths, task_paths, branch_paths),
+        "Current AP-2R1 manifests are not exactly 14/23/46 paths: "
+        f"correction_missing={sorted(AP2R1_CORRECTION_PATHS - correction_paths)}, "
+        f"correction_extra={sorted(correction_paths - AP2R1_CORRECTION_PATHS)}, "
+        f"task_missing={sorted(AP2R1_CUMULATIVE_TASK_PATHS - task_paths)}, "
+        f"task_extra={sorted(task_paths - AP2R1_CUMULATIVE_TASK_PATHS)}, "
+        f"branch_missing={sorted(AP2R1_BRANCH_PATHS - branch_paths)}, "
+        f"branch_extra={sorted(branch_paths - AP2R1_BRANCH_PATHS)}",
+    )
+
+
+def _require_ap2r1_commit_shape(reference: str) -> None:
+    """Require one exact atomic AP-2R1 commit on the frozen parent."""
+
+    require(
+        _git_commit_parents(reference) == (AP2R1_CORRECTION_BASE,),
+        "AP-2R1 committed candidate must have exactly one parent: 4a49343",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", reference) == AP2R1_COMMIT_SUBJECT,
+        "AP-2R1 committed candidate subject differs",
+    )
+    commit_paths = _git_path_set(
+        "diff-tree", "--no-commit-id", "--name-only", "-r", reference
+    )
+    require(
+        commit_paths == AP2R1_CORRECTION_PATHS,
+        "AP-2R1 committed candidate is not the exact fourteen-path commit",
+    )
+    name_status = _git_name_status(
+        "diff-tree", "--no-commit-id", "--name-status", "--find-renames", "-r", reference
+    )
+    expected_name_status = {
+        ("A" if path in AP2R1_NEW_PATHS else "M", path)
+        for path in AP2R1_CORRECTION_PATHS
+    }
+    require(
+        name_status == expected_name_status,
+        "AP-2R1 committed candidate contains a rename, delete or wrong path status",
+    )
+    require(
+        _git_tree_modes(reference, AP2R1_CORRECTION_PATHS)
+        == {path: "100644" for path in AP2R1_CORRECTION_PATHS},
+        "AP-2R1 committed candidate contains a missing or extra mode-only change",
+    )
+    _require_ap2r1_protected_hashes(reference)
+    _require_ap2r1_manifests(reference, set())
+
+
+def _classify_ap2r1_git_state() -> str:
+    """Classify only the three authorized AP-2R1F/AP-2R1G Git states."""
+
+    head = _git_text("rev-parse", "HEAD")
+    parents = _git_commit_parents(head)
+    staged_paths = _git_path_set("diff", "--cached", "--name-only")
+    unstaged_paths = _git_path_set("diff", "--name-only")
+    untracked_paths = _git_path_set("ls-files", "--others", "--exclude-standard")
+    overlay_paths = unstaged_paths | staged_paths | untracked_paths
+    require(
+        not staged_paths,
+        f"AP-2R1 recognized states require zero staged paths; found={len(staged_paths)}",
+    )
+    if head == AP2R1_CORRECTION_BASE:
+        _require_corrected_ap2r1_validator()
+        expected_tracked = AP2R1_CORRECTION_PATHS - AP2R1_NEW_PATHS
+        require(
+            unstaged_paths == expected_tracked
+            and untracked_paths == AP2R1_NEW_PATHS
+            and overlay_paths == AP2R1_CORRECTION_PATHS,
+            "AP2R1F_OVERLAY_CANDIDATE requires the exact fourteen-path overlay",
+        )
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == {("M", path) for path in expected_tracked},
+            "AP2R1F_OVERLAY_CANDIDATE contains a rename, delete or wrong status",
+        )
+        _require_ap2r1_protected_hashes(None)
+        _require_ap2r1_manifests(head, overlay_paths)
+        return AP2R1F_OVERLAY_CANDIDATE
+
+    if head == AP2R1F_REVIEWED_COMMIT:
+        _require_corrected_ap2r1_validator()
+        require(
+            unstaged_paths == {AP2R1_VALIDATOR_PATH}
+            and not untracked_paths
+            and overlay_paths == {AP2R1_VALIDATOR_PATH},
+            "AP2R1G_VALIDATOR_FIX_OVERLAY requires only the unstaged validator",
+        )
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == {("M", AP2R1_VALIDATOR_PATH)},
+            "AP2R1G_VALIDATOR_FIX_OVERLAY validator status is not one modification",
+        )
+        _require_ap2r1_commit_shape(head)
+        require(
+            _git_text("rev-parse", "@{upstream}") == AP2R1_CORRECTION_BASE
+            and _git_text(
+                "rev-list", "--left-right", "--count", "@{upstream}...HEAD"
+            ).split()
+            == ["0", "1"],
+            "AP2R1G_VALIDATOR_FIX_OVERLAY requires local ahead=1 on 4a49343",
+        )
+        _require_ap2r1_manifests(head, overlay_paths)
+        return AP2R1G_VALIDATOR_FIX_OVERLAY
+
+    if not overlay_paths and parents == (AP2R1_CORRECTION_BASE,):
+        _require_corrected_ap2r1_validator(head)
+        _require_ap2r1_commit_shape(head)
+        return AP2R1F_COMMITTED_CLEAN
+
+    raise RuntimeError(
+        "Unsupported AP-2R1 Git state: "
+        f"head={head[:12]}, parents={len(parents)}, staged={len(staged_paths)}, "
+        f"unstaged={len(unstaged_paths)}, untracked={len(untracked_paths)}"
+    )
+
+
 def _ap1_committed_manifests_match(
     task_paths: set[str] | frozenset[str],
     branch_paths: set[str] | frozenset[str],
@@ -764,6 +1038,112 @@ def validate_current_ap1_manifests() -> str:
     return gate_state
 
 
+def _ap2r1_manifests_match(
+    correction_paths: set[str] | frozenset[str],
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact current AP-2R1 14/23/46 verdict."""
+
+    return (
+        correction_paths == AP2R1_CORRECTION_PATHS
+        and task_paths == AP2R1_CUMULATIVE_TASK_PATHS
+        and branch_paths == AP2R1_BRANCH_PATHS
+    )
+
+
+def validate_current_ap2r1_manifests() -> str:
+    """Freeze committed AP-1/AP-1E and the current AP-2R1 overlay separately."""
+
+    committed_ap1_task = _git_path_set(
+        "diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{AP1E_CORRECTION_BASE}"
+    )
+    committed_ap1_branch = _git_path_set(
+        "diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{AP1E_CORRECTION_BASE}"
+    )
+    require(
+        _ap1_committed_manifests_match(committed_ap1_task, committed_ap1_branch),
+        "Committed AP-1 baseline is not exactly 16/40 paths",
+    )
+
+    committed_ap1e_correction = _git_path_set(
+        "diff", "--name-only", f"{AP1E_CORRECTION_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    committed_ap1e_task = _git_path_set(
+        "diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    committed_ap1e_branch = _git_path_set(
+        "diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    require(
+        _ap1e_manifests_match(
+            committed_ap1e_correction,
+            committed_ap1e_task,
+            committed_ap1e_branch,
+        ),
+        "Committed AP-1E-R2 baseline is not exactly 4/18/41 paths",
+    )
+
+    gate_state = _classify_ap2r1_git_state()
+    require(
+        len(AP2R1_CORRECTION_PATHS) == 14
+        and len(AP2R1_CUMULATIVE_TASK_PATHS) == 23
+        and len(AP2R1_BRANCH_PATHS) == 46,
+        "Frozen AP-2R1 manifest constants are not 14/23/46",
+    )
+    require(
+        _ap2r1_manifests_match(
+            _effective_path_set(AP2R1_CORRECTION_PATHS, set()),
+            _effective_path_set(AP2R1_CUMULATIVE_TASK_PATHS, set()),
+            _effective_path_set(AP2R1_BRANCH_PATHS, set()),
+        ),
+        "Simulated committed-clean AP-2R1 14/23/46 state failed",
+    )
+
+    correction_anchor = sorted(AP2R1_CORRECTION_PATHS)[0]
+    task_anchor = sorted(AP2R1_CUMULATIVE_TASK_PATHS)[0]
+    branch_anchor = sorted(AP2R1_BRANCH_PATHS)[0]
+    negative_manifests = (
+        (AP2R1_CORRECTION_PATHS - {correction_anchor}, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS, "correction 13"),
+        (AP2R1_CORRECTION_PATHS | {"__extra_correction__"}, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS, "correction 15"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS - {task_anchor}, AP2R1_BRANCH_PATHS, "task 22"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS | {"__extra_task__"}, AP2R1_BRANCH_PATHS, "task 24"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS - {branch_anchor}, "branch 45"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS | {"__extra_branch__"}, "branch 47"),
+    )
+    for correction, task, branch, label in negative_manifests:
+        require(
+            not _ap2r1_manifests_match(correction, task, branch),
+            f"AP-2R1 negative self-test survived: {label}",
+        )
+    for required_path in (
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "tests/test_timeline_platform_registration.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_rcm_optimizer.py",
+    ):
+        require(
+            not _ap2r1_manifests_match(
+                AP2R1_CORRECTION_PATHS - {required_path},
+                AP2R1_CUMULATIVE_TASK_PATHS - {required_path},
+                AP2R1_BRANCH_PATHS - {required_path},
+            ),
+            f"Missing AP-2R1 product/test path survived: {required_path}",
+        )
+    require(
+        not _ap2r1_manifests_match(
+            PHASE_2_TASK_PATHS,
+            PHASE_2_TASK_PATHS,
+            SUPERVISOR_BRANCH_PATHS,
+        ),
+        "Historical REV28 PASS was accepted as current AP-2R1",
+    )
+    return gate_state
+
+
 def _ap1e_r2_identity_contracts(
     timeline_source: str,
     init_source: str,
@@ -796,7 +1176,7 @@ def _ap1e_r2_identity_contracts(
         "sleep(",
     )
     return (
-        'TIMELINE_POLICY_IDS = ("rce", "tariff")' in timeline_source
+        'TIMELINE_POLICY_IDS = ("rce", "tariff", "rcm")' in timeline_source
         and "from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN"
         in timeline_source
         and 'return f"{SENSOR_DOMAIN}.hoymiles_hit_{policy_id}_automation_plan_timeline"'
@@ -827,6 +1207,10 @@ def _ap1e_r2_identity_contracts(
             'active_translation_keys.add("tariff_automation_plan_timeline")'
         )
         == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("rcm_automation_plan_timeline")'
+        )
+        == 1
     )
 
 
@@ -837,6 +1221,8 @@ def validate_current_ap1_contract() -> None:
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     for test_name in (
         "test_automation_plan_timeline.py",
+        "test_rcm_timeline_model.py",
+        "test_rcm_optimizer.py",
         "test_optimizer_startup_contract.py",
         "test_optimizer_executor_contract.py",
     ):
@@ -862,6 +1248,10 @@ def validate_current_ap1_contract() -> None:
     )
     sensor_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
     init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
+    rcm_source = (COMPONENT / "rcm_sensor.py").read_text(encoding="utf-8")
+    rcm_model_source = (COMPONENT / "rcm_timeline_model.py").read_text(
+        encoding="utf-8"
+    )
     registration_test_path = ROOT / "tests" / "test_timeline_platform_registration.py"
     require(
         registration_test_path.is_file(),
@@ -885,9 +1275,57 @@ def validate_current_ap1_contract() -> None:
     require(
         'policy_id="rce"' in sensor_source
         and 'policy_id="tariff"' in sensor_source
+        and 'policy_id="rcm"' in sensor_source
         and _ap1e_r2_identity_contracts(timeline_source, init_source),
         "Current AP-1 timeline IDs or unique-ID construction differs",
     )
+    require(
+        sensor_source.count("entities.append(rcm_plan)") == 1
+        and sensor_source.count('policy_id="rcm"') == 1
+        and "source_sensor=rcm_plan" in sensor_source
+        and sum(
+            isinstance(node, ast.Name) and node.id == "optimize_rcm"
+            for node in ast.walk(ast.parse(rcm_source))
+        )
+        == 1
+        and "build_rcm_timeline_trace(" in rcm_source
+        and rcm_source.index(
+            "optimize_rcm,", rcm_source.index("async_add_executor_job(")
+        )
+        < rcm_source.index("build_rcm_timeline_trace(")
+        and "optimize_rcm" not in rcm_model_source
+        and "MAX_HORIZON_SECONDS = 48 * 60 * 60" in rcm_model_source
+        and "SLOT_MINUTES = 15" in rcm_model_source,
+        "Current AP-2R1 RCEm registration/model boundary differs",
+    )
+    future_voltage_tokens = (
+        "future_voltage_l1",
+        "future_voltage_l2",
+        "future_voltage_l3",
+        "predicted_voltage_l1",
+        "predicted_voltage_l2",
+        "predicted_voltage_l3",
+    )
+    authority_tokens = (
+        "services.async_call",
+        "write_register",
+        "modbus.write",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+    )
+    require(
+        not any(token in rcm_model_source for token in future_voltage_tokens)
+        and not any(token in rcm_model_source for token in authority_tokens),
+        "Current AP-2R1 model fabricates voltage or adds authority",
+    )
+    for language in ("en", "pl"):
+        translations = load_json(COMPONENT / "translations" / f"{language}.json")
+        sensor_translations = translations.get("entity", {}).get("sensor", {})
+        require(
+            "rcm_automation_plan_timeline" in sensor_translations,
+            f"Missing RCEm timeline translation key: {language}",
+        )
     require(
         not _ap1e_r2_identity_contracts(
             timeline_source.replace(
@@ -942,6 +1380,10 @@ def validate_current_ap1_contract() -> None:
             'active_translation_keys.add("tariff_automation_plan_timeline")'
         )
         == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("rcm_automation_plan_timeline")'
+        )
+        == 1
         and reconcile_source.index(
             'active_translation_keys.add("rce_automation_plan_timeline")'
         )
@@ -959,6 +1401,7 @@ def validate_current_ap1_contract() -> None:
     for key in (
         "rce_automation_plan_timeline",
         "tariff_automation_plan_timeline",
+        "rcm_automation_plan_timeline",
     ):
         require(
             not _ap1e_r2_identity_contracts(
@@ -988,6 +1431,8 @@ def validate_current_ap1_contract() -> None:
         "TimelineIdentityCollisionError",
         "EVENT_ENTITY_REGISTRY_UPDATED",
         "reconciliation_changed_active_timeline",
+        '"rcm": (',
+        "unexpected_rcm_call",
     )
     require(
         all(token in registration_test_source for token in real_test_tokens)
@@ -2550,7 +2995,7 @@ def entity_translation_keys(translations: dict) -> dict[str, set[str]]:
 def main() -> int:
     """Validate HACS layout, translations, Python and bundled assets."""
     validate_historical_rev28_gate()
-    current_ap1e_gate = validate_current_ap1_manifests()
+    current_ap2r1_gate = validate_current_ap2r1_manifests()
     validate_current_ap1_contract()
     integration_dirs = [
         path for path in COMPONENT_ROOT.iterdir() if path.is_dir()
@@ -4533,8 +4978,12 @@ def main() -> int:
     print("Historical REV28 fixture gate: OK (32-path frozen branch)")
     print("Committed AP-1 baseline gate: OK (16-path task, 40-path branch)")
     print(
-        "Current AP-1E gate: OK "
-        f"({current_ap1e_gate}; 4-path correction, 18-path task, 41-path branch)"
+        "Committed AP-1E-R2 gate: OK "
+        "(4-path correction, 18-path task, 41-path branch)"
+    )
+    print(
+        "Current AP-2R1 gate: OK "
+        f"({current_ap2r1_gate}; 14-path correction, 23-path task, 46-path branch)"
     )
     print(f"Manifest: OK (version {manifest['version']})")
     print(f"Localized entities: {len(catalog)} (English and Polish)")

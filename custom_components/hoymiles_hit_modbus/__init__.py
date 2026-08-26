@@ -183,6 +183,7 @@ def _async_reconcile_entity_registry(
     active_translation_keys.add("ems_supervisor")
     active_translation_keys.add("rce_automation_plan_timeline")
     active_translation_keys.add("tariff_automation_plan_timeline")
+    active_translation_keys.add("rcm_automation_plan_timeline")
 
     for registry_entry in er.async_entries_for_config_entry(
         entity_registry,
@@ -253,7 +254,7 @@ def _async_prepare_timeline_entity_registry(
     hass: HomeAssistant,
     entry: ConfigEntry,
 ) -> None:
-    """Normalize only the two timeline identities before platform setup."""
+    """Normalize all three timeline identities before platform setup."""
 
     entity_registry = er.async_get(hass)
     contracts = []

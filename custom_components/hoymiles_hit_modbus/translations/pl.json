@@ -1707,6 +1707,14 @@
           "unavailable": "Niedostępna"
         }
       },
+      "rcm_automation_plan_timeline": {
+        "name": "Oś czasu planu automatyki RCEm",
+        "state": {
+          "current": "Aktualna",
+          "pending": "Oczekiwanie na przeliczenie",
+          "unavailable": "Niedostępna"
+        }
+      },
       "rcm_voltage_plan": {
         "name": "Plan RCEm 253 V+"
       },
