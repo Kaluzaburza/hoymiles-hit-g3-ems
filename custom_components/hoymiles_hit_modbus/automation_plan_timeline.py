@@ -28,6 +28,7 @@ MAX_SERIALIZED_BYTES = 262_144
 MAX_SOURCES = 16
 PLAN_REVISION_SCOPE = "runtime"
 ACTIVE_SCOPE = "publication_snapshot"
+_POLICY_BATTERY_DIRECTION_TOLERANCE_KW = 1e-9
 
 KINDS = frozenset({"actual", "forecast_plan"})
 QUALITIES = frozenset(
@@ -709,7 +710,8 @@ def validate_payload(payload: Mapping[str, Any], *, expected_state: str) -> None
         raise TimelineValidationError("top-level schema fields differ")
     if payload["schema_version"] != SCHEMA_VERSION:
         raise TimelineValidationError("schema_version differs")
-    if payload["policy_id"] not in POLICY_IDS:
+    policy_id = payload["policy_id"]
+    if not isinstance(policy_id, str) or policy_id not in POLICY_IDS:
         raise TimelineValidationError("unknown policy_id")
     if not isinstance(payload["config_entry_id"], str) or not payload["config_entry_id"]:
         raise TimelineValidationError("config_entry_id is required")
@@ -717,7 +719,7 @@ def validate_payload(payload: Mapping[str, Any], *, expected_state: str) -> None
     if (
         payload["timezone"] != DISPLAY_TIMEZONE
         or payload["slot_minutes"]
-        != slot_minutes_for_policy(payload["policy_id"])
+        != slot_minutes_for_policy(policy_id)
     ):
         raise TimelineValidationError("timezone or slot resolution differs")
     if payload["plan_revision_scope"] != PLAN_REVISION_SCOPE:
@@ -793,7 +795,7 @@ def validate_payload(payload: Mapping[str, Any], *, expected_state: str) -> None
             raise TimelineValidationError("source record values must be strings")
 
     _validate_current_actual(payload["current_actual"])
-    _validate_points(payload["policy_id"], points)
+    _validate_points(policy_id, points)
 
     horizon_start = parse_utc_iso(
         payload["horizon_start"], nullable=True, name="horizon_start"
@@ -922,8 +924,37 @@ def _validate_points(policy_id: str, points: list[Any]) -> None:
                 name="point.required_headroom_kwh",
             )
         _validate_grid_signs(point)
-        _validate_power_balance(point)
+        if policy_id == "rcm":
+            _validate_power_balance(point)
         _validate_policy(policy_id, point["policy"])
+        _validate_policy_battery_direction(policy_id, point)
+
+
+def _validate_policy_battery_direction(
+    policy_id: str, point: Mapping[str, Any]
+) -> None:
+    """Reject only a known battery direction opposing a validated plan."""
+
+    if policy_id == "rcm":
+        return
+    if policy_id not in ("rce", "tariff"):
+        raise TimelineValidationError("unknown policy_id")
+    battery_kw = point["battery_kw"]
+    if battery_kw is None:
+        return
+    tolerance = _POLICY_BATTERY_DIRECTION_TOLERANCE_KW
+    if policy_id == "rce":
+        planned_kw = point["policy"]["target_discharge_kw"]
+        if planned_kw is not None and planned_kw > tolerance and battery_kw > tolerance:
+            raise TimelineValidationError(
+                "battery_kw direction conflicts with planned discharge"
+            )
+    else:
+        planned_kw = point["policy"]["planned_charge_kw"]
+        if planned_kw is not None and planned_kw > tolerance and battery_kw < -tolerance:
+            raise TimelineValidationError(
+                "battery_kw direction conflicts with planned charge"
+            )
 
 
 def _validate_grid_signs(point: Mapping[str, Any]) -> None:

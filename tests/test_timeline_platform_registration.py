@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from datetime import timedelta
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
+import traceback
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
 from homeassistant.config_entries import ConfigEntries, ConfigEntry, ConfigEntryState
-from homeassistant.const import __version__ as HA_VERSION
+from homeassistant.const import EVENT_STATE_CHANGED, __version__ as HA_VERSION
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -25,12 +29,22 @@ from custom_components.hoymiles_hit_modbus import (
     _async_prepare_timeline_entity_registry,
     _async_reconcile_entity_registry,
 )
+from custom_components.hoymiles_hit_modbus import automation_plan_timeline as timeline_contract
 from custom_components.hoymiles_hit_modbus import rce_sensor
 from custom_components.hoymiles_hit_modbus import rcm_sensor
 from custom_components.hoymiles_hit_modbus import sensor as sensor_platform
 from custom_components.hoymiles_hit_modbus import tariff_sensor
 from custom_components.hoymiles_hit_modbus.const import DOMAIN
 from custom_components.hoymiles_hit_modbus.models import MatchedEntity, RuntimeData
+from custom_components.hoymiles_hit_modbus.automation_plan_timeline import (
+    OptimizerTimelineTrace,
+    RCEPolicyPoint,
+    RCMPolicyPoint,
+    TariffPolicyPoint,
+    TimelineTracePoint,
+    TimelineValidationError,
+    validate_payload,
+)
 from custom_components.hoymiles_hit_modbus.rce_sensor import (
     HoymilesRCEOptimizerSensor,
 )
@@ -78,6 +92,96 @@ ACTIVE_NATIVE_IDS = (
     "sensor.hoymiles_hit_setup_status",
 )
 ACTIVE_PROXY_ID = "sensor.hoymiles_hit_backup_voltage_l1"
+AP2R1J_RCE_PENDING_REVISION = 21
+AP2R1J_TARIFF_PENDING_REVISION = 11
+AP2R1J_RCM_PENDING_REVISION = 24
+AP2R1J_TRACE_START = datetime(2026, 8, 26, 20, 0, tzinfo=timezone.utc)
+
+
+def _ap2r1j_trace(policy_id: str) -> OptimizerTimelineTrace:
+    """Return one deterministic production-shaped optimizer trace."""
+
+    if policy_id == "rce":
+        minutes = 30
+        point = TimelineTracePoint(
+            start=AP2R1J_TRACE_START,
+            end=AP2R1J_TRACE_START + timedelta(minutes=minutes),
+            pv_kwh=0.0,
+            load_kwh=0.0,
+            battery_delta_kwh=-1.6129032258064515,
+            grid_import_kwh=0.0,
+            grid_export_kwh=1.5,
+            soc_percent=53.0,
+            baseline_soc_percent=53.0,
+            protected_soc_floor_percent=20.0,
+            action_code="export",
+            selected=True,
+            quality="complete",
+            policy=RCEPolicyPoint(
+                sell_price_pln_kwh=0.8,
+                planned_export_kwh=1.5,
+                target_discharge_kw=3.0,
+                target_tolerance_kw=0.05,
+                expected_revenue_pln=1.2,
+            ),
+        )
+    elif policy_id == "tariff":
+        minutes = 30
+        point = TimelineTracePoint(
+            start=AP2R1J_TRACE_START,
+            end=AP2R1J_TRACE_START + timedelta(minutes=minutes),
+            pv_kwh=0.0,
+            load_kwh=0.38461538461538464,
+            battery_delta_kwh=-0.4048582995951415,
+            grid_import_kwh=0.0,
+            grid_export_kwh=0.0,
+            soc_percent=61.0,
+            baseline_soc_percent=61.0,
+            protected_soc_floor_percent=20.0,
+            action_code="idle",
+            selected=False,
+            quality="complete",
+            policy=TariffPolicyPoint(
+                buy_price_pln_kwh=0.6,
+                tariff_zone="low",
+                planned_import_kwh=0.0,
+                planned_charge_kw=0.0,
+                expected_cost_pln=0.0,
+                expected_saving_pln=None,
+            ),
+        )
+    else:
+        assert policy_id == "rcm"
+        minutes = 15
+        point = TimelineTracePoint(
+            start=AP2R1J_TRACE_START,
+            end=AP2R1J_TRACE_START + timedelta(minutes=minutes),
+            pv_kwh=0.25,
+            load_kwh=0.375,
+            battery_delta_kwh=-0.125,
+            grid_import_kwh=0.0,
+            grid_export_kwh=0.0,
+            soc_percent=60.0,
+            baseline_soc_percent=60.0,
+            protected_soc_floor_percent=20.0,
+            action_code="monitor",
+            selected=False,
+            quality="complete",
+            policy=RCMPolicyPoint(
+                voltage_risk_code="no_risk",
+                planned_export_limit_percent=None,
+                planned_pre_discharge_kw=None,
+                headroom_shortfall_kwh=None,
+                control_mode="monitor",
+            ),
+        )
+    return OptimizerTimelineTrace(policy_id=policy_id, points=(point,))
+
+
+AP2R1J_TRACES = {
+    policy_id: _ap2r1j_trace(policy_id)
+    for policy_id in TIMELINE_IDENTITIES
+}
 
 
 def _event_value(data: Any, name: str) -> Any:
@@ -747,6 +851,382 @@ async def _reload_scenario(root: Path) -> None:
     await _shutdown(hass, platform)
 
 
+def _assert_malformed_policy_ids_rejected(payload: dict[str, Any]) -> None:
+    """Reject copied policy IDs before downstream validation, without coercion."""
+
+    original = deepcopy(payload)
+    validate_payload(payload, expected_state="current")
+    malformed_policy_ids = (
+        [],
+        {},
+        None,
+        0,
+        1,
+        1.5,
+        True,
+        False,
+        "",
+        "unknown",
+        "RCE",
+        ["rce"],
+        {"value": "rce"},
+    )
+    with (
+        patch.object(timeline_contract, "slot_minutes_for_policy") as slot_resolver,
+        patch.object(timeline_contract, "_validate_points") as points_validator,
+    ):
+        for malformed in malformed_policy_ids:
+            probe = deepcopy(payload)
+            probe["policy_id"] = deepcopy(malformed)
+            with pytest.raises(TimelineValidationError) as error:
+                validate_payload(probe, expected_state="current")
+            assert type(error.value) is TimelineValidationError
+            assert str(error.value) == "unknown policy_id"
+        assert len(malformed_policy_ids) == 13
+        slot_resolver.assert_not_called()
+        points_validator.assert_not_called()
+    assert payload == original
+
+
+def _assert_policy_battery_direction(
+    payload: dict[str, Any],
+) -> list[tuple[dict[str, Any], str]]:
+    """Literal direction-only oracles, independent of the production helper."""
+
+    original = deepcopy(payload)
+    validate_payload(payload, expected_state="current")
+    if payload["policy_id"] == "rcm":
+        probe = deepcopy(payload)
+        probe["points"][0]["load_kw"] += 1.0
+        message = "power balance differs from canonical signs"
+        with pytest.raises(TimelineValidationError) as error:
+            validate_payload(probe, expected_state="current")
+        assert type(error.value) is TimelineValidationError
+        assert str(error.value) == message
+        assert payload == original
+        return [(probe, message)]
+
+    discharge = "battery_kw direction conflicts with planned discharge"
+    charge = "battery_kw direction conflicts with planned charge"
+    # Each row is (group, planned kW, signed battery kW, exact error or None).
+    cases = {
+        "rce": (
+            ("valid", 1.0, -1.0, None),
+            ("contradictory", 1.0, 1.0, discharge),
+            ("positive_zero", 1.0, 0.0, None),
+            ("negative_zero", 1.0, -0.0, None),
+            ("positive_boundary", 1.0, 1e-9, None),
+            ("negative_boundary", 1.0, -1e-9, None),
+            ("beyond_boundary", 1.0, 1e-9 + 1e-12, discharge),
+            ("zero_plan_positive", 0.0, 1.0, None),
+            ("zero_plan_negative", 0.0, -1.0, None),
+            ("plan_boundary_positive", 1e-9, 1.0, None),
+            ("plan_boundary_negative", 1e-9, -1.0, None),
+            ("plan_beyond_boundary", 1e-9 + 1e-12, 1.0, discharge),
+            ("null_battery", 1.0, None, None),
+            ("null_plan_positive", None, 1.0, None),
+            ("null_plan_negative", None, -1.0, None),
+            ("small_magnitude", 10.0, -0.1, None),
+            ("large_magnitude", 0.1, -10.0, None),
+            ("non_first_point", 1.0, 1.0, discharge),
+        ),
+        "tariff": (
+            ("valid", 0.95, 0.95, None),
+            ("contradictory", 0.95, -0.95, charge),
+            ("positive_zero", 0.95, 0.0, None),
+            ("negative_zero", 0.95, -0.0, None),
+            ("positive_boundary", 0.95, 1e-9, None),
+            ("negative_boundary", 0.95, -1e-9, None),
+            ("beyond_boundary", 0.95, -(1e-9 + 1e-12), charge),
+            ("zero_plan_positive", 0.0, 1.0, None),
+            ("zero_plan_negative", 0.0, -1.0, None),
+            ("plan_boundary_positive", 1e-9, 1.0, None),
+            ("plan_boundary_negative", 1e-9, -1.0, None),
+            ("plan_beyond_boundary", 1e-9 + 1e-12, -0.95, charge),
+            ("null_battery", 0.95, None, None),
+            ("null_plan_positive", None, 1.0, None),
+            ("null_plan_negative", None, -1.0, None),
+            ("small_magnitude", 10.0, 0.1, None),
+            ("large_magnitude", 0.1, 10.0, None),
+            ("non_first_point", 0.95, -0.95, charge),
+        ),
+    }
+    policy_id = payload["policy_id"]
+    field = "target_discharge_kw" if policy_id == "rce" else "planned_charge_kw"
+    rejected: list[tuple[dict[str, Any], str]] = []
+    assert len(cases[policy_id]) == 18
+    for group, planned_kw, battery_kw, message in cases[policy_id]:
+        probe = deepcopy(payload)
+        point = probe["points"][0]
+        # No selected/action/active/grid precondition may hide a contradiction.
+        point.update(selected=False, active=False, action_code="hold",
+                     grid_kw=0.0, grid_import_kw=0.0, grid_export_kw=0.0)
+        point["policy"][field] = planned_kw
+        point["battery_kw"] = battery_kw
+        if group == "non_first_point":
+            second = deepcopy(point)
+            point["battery_kw"] = -1.0 if policy_id == "rce" else 0.95
+            second["start"] = point["end"]
+            end = datetime.fromisoformat(second["start"].replace("Z", "+00:00"))
+            second["end"] = timeline_contract.utc_iso(end + timedelta(minutes=30))
+            probe["points"].append(second)
+            probe["point_count"] = 2
+            probe["horizon_end"] = second["end"]
+        before = deepcopy(probe)
+        if message is None:
+            validate_payload(probe, expected_state="current")
+        else:
+            with pytest.raises(TimelineValidationError) as error:
+                validate_payload(probe, expected_state="current")
+            assert type(error.value) is TimelineValidationError, group
+            assert str(error.value) == message, group
+            rejected.append((probe, message))
+        assert probe == before, group
+    assert len(rejected) == 4
+    assert payload == original
+    return rejected
+
+
+async def _convergence_scenario(
+    root: Path,
+    *,
+    source_callback_counts: dict[str, int],
+    proxy_current_counts: dict[str, int],
+    current_publication_counts: dict[str, int],
+    optimizer_calls: dict[str, int],
+    fixture_results: dict[str, Any],
+) -> dict[str, Any]:
+    """Exercise the exact source-current-to-timeline publication order."""
+
+    hass, entry, entity_registry, device_registry = await _new_hass(
+        root / "scenario-ap2r1j-convergence",
+        disable_new_entities=False,
+    )
+    platform = await _setup_platform(hass, entry)
+    _assert_exact_timelines(
+        hass,
+        entry,
+        entity_registry,
+        device_registry,
+        platform,
+        disabled=False,
+    )
+    sources = _source_entities(platform)
+    timelines = _timeline_entities(platform)
+    state_machine_current_counts = {policy_id: 0 for policy_id in TIMELINE_IDENTITIES}
+
+    for policy_id, source in sources.items():
+        async def deterministic_result(
+            *,
+            fixture_policy_id: str = policy_id,
+            fixture_source: Any = source,
+        ) -> bool:
+            optimizer_calls[fixture_policy_id] += 1
+            trace = AP2R1J_TRACES[fixture_policy_id]
+            if fixture_policy_id == "rcm":
+                fixture_results[fixture_policy_id] = trace
+                fixture_source._timeline_trace = trace
+            else:
+                result = SimpleNamespace(timeline_trace=trace)
+                fixture_results[fixture_policy_id] = result
+                fixture_source._result = result
+            fixture_source._timeline_metadata = {}
+            fixture_source._attributes = {
+                **fixture_source._attributes,
+                "status_code": "ready",
+                "planned_slots": [],
+            }
+            return True
+
+        source._recalculate_locked = deterministic_result
+
+    def observe_state_changed(event: Any) -> None:
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state != "current":
+            return
+        for policy_id, (entity_id, _, _) in TIMELINE_IDENTITIES.items():
+            if new_state.entity_id == entity_id:
+                state_machine_current_counts[policy_id] += 1
+
+    hass.bus.async_listen(EVENT_STATE_CHANGED, observe_state_changed)
+    expected_revisions = {
+        "rce": AP2R1J_RCE_PENDING_REVISION,
+        "tariff": AP2R1J_TARIFF_PENDING_REVISION,
+        "rcm": AP2R1J_RCM_PENDING_REVISION,
+    }
+    results: dict[str, Any] = {}
+    for policy_id in ("rce", "tariff", "rcm"):
+        source = sources[policy_id]
+        timeline = timelines[policy_id]
+        expected_revision = expected_revisions[policy_id]
+        assert source._input_revision.value <= expected_revision
+        for _ in range(expected_revision - source._input_revision.value):
+            source._input_revision.invalidate()
+        source._mark_recalculation_pending()
+        await hass.async_block_till_done()
+        pending_state = hass.states.get(TIMELINE_IDENTITIES[policy_id][0])
+        assert pending_state is not None
+        pending_snapshot = {
+            "state": pending_state.state,
+            "pending_input_revision": pending_state.attributes.get(
+                "pending_input_revision"
+            ),
+            "input_revision": pending_state.attributes.get("input_revision"),
+            "blocker_code": pending_state.attributes.get("blocker_code"),
+        }
+        exception: str | None = None
+        exception_traceback: str | None = None
+        try:
+            await source._recalculate_and_write()
+        except TimelineValidationError as err:
+            exception = f"{type(err).__name__}: {err}"
+            exception_traceback = traceback.format_exc()
+        await hass.async_block_till_done()
+        source_state = hass.states.get(source.entity_id)
+        timeline_state = hass.states.get(TIMELINE_IDENTITIES[policy_id][0])
+        assert source_state is not None
+        assert timeline_state is not None
+        result_object = (
+            source._timeline_trace
+            if policy_id == "rcm"
+            else source._result
+        )
+        results[policy_id] = {
+            "exception": exception,
+            "exception_traceback": exception_traceback,
+            "pending": pending_snapshot,
+            "source_internal_revision": source._input_revision.value,
+            "source_public_state": source_state.state,
+            "source_public_attributes": dict(source_state.attributes),
+            "timeline_internal_state": timeline.native_value,
+            "timeline_internal_attributes": deepcopy(
+                timeline.extra_state_attributes
+            ),
+            "timeline_ha_state": timeline_state.state,
+            "timeline_ha_attributes": dict(timeline_state.attributes),
+            "source_callback_count": source_callback_counts[policy_id],
+            "proxy_current_count": proxy_current_counts[policy_id],
+            "current_publication_count": current_publication_counts[policy_id],
+            "state_machine_current_count": state_machine_current_counts[policy_id],
+            "optimizer_call_count": optimizer_calls[policy_id],
+            "result_object_unchanged": result_object is fixture_results[policy_id],
+            "trace_unchanged": (
+                source._timeline_trace == AP2R1J_TRACES[policy_id]
+                if policy_id == "rcm"
+                else source._result.timeline_trace == AP2R1J_TRACES[policy_id]
+            ),
+        }
+
+    for policy_id in ("rce", "tariff", "rcm"):
+        timeline = timelines[policy_id]
+        entity_id = TIMELINE_IDENTITIES[policy_id][0]
+        state_before = hass.states.get(entity_id)
+        attributes_before = deepcopy(timeline.extra_state_attributes)
+        _assert_malformed_policy_ids_rejected(
+            deepcopy(results[policy_id]["timeline_internal_attributes"])
+        )
+        revision_before = timeline._plan_revision
+        result_before = fixture_results[policy_id]
+        result_value_before = deepcopy(result_before)
+        registry_row_before = entity_registry.async_get(entity_id)
+        for rejected, message in _assert_policy_battery_direction(attributes_before):
+            with pytest.raises(TimelineValidationError) as error:
+                timeline._publish_candidate("current", deepcopy(rejected))
+            assert type(error.value) is TimelineValidationError
+            assert str(error.value) == message
+            assert timeline._plan_revision == revision_before
+            assert timeline.extra_state_attributes == attributes_before
+            assert hass.states.get(entity_id) is state_before
+        for refresh in ("timestamp", "age"):
+            candidate = deepcopy(attributes_before)
+            if refresh == "timestamp":
+                generated = datetime.fromisoformat(candidate["generated_at"].replace("Z", "+00:00"))
+                candidate["generated_at"] = timeline_contract.utc_iso(generated + timedelta(seconds=1))
+            else:
+                candidate["current_actual"]["source_ages_seconds"]["battery"] = 1.0
+            assert candidate != attributes_before
+            assert timeline_contract.semantic_fingerprint(candidate) == timeline_contract.semantic_fingerprint(attributes_before)
+            assert timeline._publish_candidate("current", candidate) is False
+        await hass.async_block_till_done()
+        assert timeline._plan_revision == revision_before
+        assert _timeline_entities(platform)[policy_id] is timeline
+        assert _source_entities(platform)[policy_id] is sources[policy_id]
+        assert entity_registry.async_get(entity_id) is registry_row_before
+        result_after = sources[policy_id]._timeline_trace if policy_id == "rcm" else sources[policy_id]._result
+        assert result_after is result_before
+        assert result_after == result_value_before
+        assert optimizer_calls[policy_id] == 1
+        assert source_callback_counts[policy_id] == 1
+        assert proxy_current_counts[policy_id] == 1
+        assert timeline.native_value == "current"
+        assert timeline.extra_state_attributes == attributes_before
+        assert hass.states.get(entity_id) is state_before
+        assert current_publication_counts[policy_id] == 1
+        assert state_machine_current_counts[policy_id] == 1
+
+    _assert_exact_timelines(
+        hass, entry, entity_registry, device_registry, platform, disabled=False
+    )
+    rcm_payload = deepcopy(results["rcm"]["timeline_internal_attributes"])
+    rcm_payload["points"][0]["load_kw"] += 1.0
+    invalid_rcm_balance_rejected = False
+    invalid_rcm_exception = None
+    try:
+        validate_payload(rcm_payload, expected_state="current")
+    except TimelineValidationError as err:
+        invalid_rcm_balance_rejected = True
+        invalid_rcm_exception = f"{type(err).__name__}: {err}"
+    results["rcm_invalid_balance"] = {
+        "rejected": invalid_rcm_balance_rejected,
+        "exception": invalid_rcm_exception,
+    }
+    await _shutdown(hass, platform)
+    return results
+
+
+def _assert_policy_convergence(
+    result: dict[str, Any],
+    *,
+    expected_revision: int,
+) -> None:
+    """Require one exact source/proxy/timeline/State-Machine convergence."""
+
+    assert result["pending"] == {
+        "state": "pending",
+        "pending_input_revision": expected_revision,
+        "input_revision": 0,
+        "blocker_code": "recalculation_pending",
+    }
+    assert result["source_internal_revision"] == expected_revision
+    assert result["source_public_attributes"]["result_current"] is True
+    assert result["source_public_attributes"]["recalculation_pending"] is False
+    assert result["source_public_attributes"]["input_revision"] == expected_revision
+    assert result["source_callback_count"] == 1
+    assert result["proxy_current_count"] == 1
+    assert result["exception"] is None
+    assert result["timeline_internal_state"] == "current"
+    assert result["timeline_internal_attributes"]["input_revision"] == expected_revision
+    assert "pending_input_revision" not in result["timeline_internal_attributes"]
+    assert result["timeline_ha_state"] == "current"
+    assert result["timeline_ha_attributes"]["input_revision"] == expected_revision
+    assert all(
+        result["timeline_ha_attributes"].get(key) == value
+        for key, value in result["timeline_internal_attributes"].items()
+    )
+    assert set(result["timeline_ha_attributes"]) - set(
+        result["timeline_internal_attributes"]
+    ) == {"friendly_name", "icon"}
+    assert result["timeline_internal_attributes"]["point_count"] > 0
+    assert result["timeline_internal_attributes"]["points"]
+    assert result["timeline_internal_attributes"]["blocker_code"] != "recalculation_pending"
+    assert result["timeline_internal_attributes"]["quality"] == "complete"
+    assert result["current_publication_count"] == 1
+    assert result["state_machine_current_count"] == 1
+    assert result["optimizer_call_count"] == 1
+    assert result["result_object_unchanged"]
+    assert result["trace_unchanged"]
+
+
 def test_timeline_platform_registration(
     tmp_path: Path,
     monkeypatch: Any,
@@ -754,22 +1234,65 @@ def test_timeline_platform_registration(
     """Exercise enabled, disabled, stale and two-reload real-HA lifecycles."""
 
     assert HA_VERSION == "2026.8.2"
+    unexpected_optimizer_calls = {"rce": 0, "tariff": 0, "rcm": 0}
     optimizer_calls = {"rce": 0, "tariff": 0, "rcm": 0}
+    source_callback_counts = {"rce": 0, "tariff": 0, "rcm": 0}
+    proxy_current_counts = {"rce": 0, "tariff": 0, "rcm": 0}
+    current_publication_counts = {"rce": 0, "tariff": 0, "rcm": 0}
+    fixture_results: dict[str, Any] = {}
     schedule_calls: list[er.EntityRegistry] = []
 
     def unexpected_rce_call(*_args: Any, **_kwargs: Any) -> None:
-        optimizer_calls["rce"] += 1
+        unexpected_optimizer_calls["rce"] += 1
         raise AssertionError("timeline registration called optimize_rce")
 
     def unexpected_tariff_call(*_args: Any, **_kwargs: Any) -> None:
-        optimizer_calls["tariff"] += 1
+        unexpected_optimizer_calls["tariff"] += 1
         raise AssertionError(
             "timeline registration called optimize_tariff_charging"
         )
 
     def unexpected_rcm_call(*_args: Any, **_kwargs: Any) -> None:
-        optimizer_calls["rcm"] += 1
+        unexpected_optimizer_calls["rcm"] += 1
         raise AssertionError("timeline registration called optimize_rcm")
+
+    real_rce_publish = HoymilesRCEOptimizerSensor._publish_timeline_result
+    real_tariff_publish = HoymilesTariffOptimizerSensor._publish_timeline_result
+    real_rcm_publish = HoymilesRCMOptimizerSensor._publish_timeline_result
+
+    def observed_rce_publish(source: HoymilesRCEOptimizerSensor) -> None:
+        source_callback_counts["rce"] += 1
+        real_rce_publish(source)
+
+    def observed_tariff_publish(source: HoymilesTariffOptimizerSensor) -> None:
+        source_callback_counts["tariff"] += 1
+        real_tariff_publish(source)
+
+    def observed_rcm_publish(source: HoymilesRCMOptimizerSensor) -> None:
+        source_callback_counts["rcm"] += 1
+        real_rcm_publish(source)
+
+    real_timeline_publish_current = (
+        HoymilesAutomationPlanTimelineSensor.publish_current
+    )
+    real_timeline_publish = HoymilesAutomationPlanTimelineSensor._publish
+
+    def observed_timeline_publish_current(
+        timeline: HoymilesAutomationPlanTimelineSensor,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        proxy_current_counts[timeline._policy_id] += 1
+        real_timeline_publish_current(timeline, *args, **kwargs)
+
+    def observed_timeline_publish(
+        timeline: HoymilesAutomationPlanTimelineSensor,
+        state: str,
+        attributes: dict[str, Any],
+    ) -> None:
+        if state == "current":
+            current_publication_counts[timeline._policy_id] += 1
+        real_timeline_publish(timeline, state, attributes)
 
     monkeypatch.setattr(rce_sensor, "optimize_rce", unexpected_rce_call)
     monkeypatch.setattr(
@@ -778,6 +1301,31 @@ def test_timeline_platform_registration(
         unexpected_tariff_call,
     )
     monkeypatch.setattr(rcm_sensor, "optimize_rcm", unexpected_rcm_call)
+    monkeypatch.setattr(
+        HoymilesRCEOptimizerSensor,
+        "_publish_timeline_result",
+        observed_rce_publish,
+    )
+    monkeypatch.setattr(
+        HoymilesTariffOptimizerSensor,
+        "_publish_timeline_result",
+        observed_tariff_publish,
+    )
+    monkeypatch.setattr(
+        HoymilesRCMOptimizerSensor,
+        "_publish_timeline_result",
+        observed_rcm_publish,
+    )
+    monkeypatch.setattr(
+        HoymilesAutomationPlanTimelineSensor,
+        "publish_current",
+        observed_timeline_publish_current,
+    )
+    monkeypatch.setattr(
+        HoymilesAutomationPlanTimelineSensor,
+        "_publish",
+        observed_timeline_publish,
+    )
     monkeypatch.setattr(
         rce_sensor.HoymilesRCEOptimizerSensor,
         "_schedule_startup_warmup",
@@ -820,8 +1368,19 @@ def test_timeline_platform_registration(
         observed_setup_entry,
     )
 
+    convergence: dict[str, Any] = {}
+
     async def run_scenarios() -> None:
+        nonlocal convergence
         await _fresh_enabled_scenario(tmp_path)
+        convergence = await _convergence_scenario(
+            tmp_path,
+            source_callback_counts=source_callback_counts,
+            proxy_current_counts=proxy_current_counts,
+            current_publication_counts=current_publication_counts,
+            optimizer_calls=optimizer_calls,
+            fixture_results=fixture_results,
+        )
         await _prior_deleted_scenario(tmp_path, schedule_calls)
         await _active_legacy_scenario(tmp_path)
         await _disabled_scenario(tmp_path)
@@ -831,5 +1390,37 @@ def test_timeline_platform_registration(
             await _collision_scenario(tmp_path, policy_id)
 
     asyncio.run(run_scenarios())
-    assert setup_calls == 8
-    assert optimizer_calls == {"rce": 0, "tariff": 0, "rcm": 0}
+    callback_exceptions = {
+        policy_id: result["exception_traceback"]
+        for policy_id, result in convergence.items()
+        if policy_id in {"rce", "tariff"} and result["exception"] is not None
+    }
+    assert callback_exceptions == {}, (
+        "source_current_callback_exception_after_source_commit\n"
+        + "\n".join(
+            f"{policy_id}:\n{failure}"
+            for policy_id, failure in callback_exceptions.items()
+        )
+    )
+    _assert_policy_convergence(
+        convergence["rce"],
+        expected_revision=AP2R1J_RCE_PENDING_REVISION,
+    )
+    _assert_policy_convergence(
+        convergence["tariff"],
+        expected_revision=AP2R1J_TARIFF_PENDING_REVISION,
+    )
+    _assert_policy_convergence(
+        convergence["rcm"],
+        expected_revision=AP2R1J_RCM_PENDING_REVISION,
+    )
+    assert convergence["rcm_invalid_balance"] == {
+        "rejected": True,
+        "exception": (
+            "TimelineValidationError: "
+            "power balance differs from canonical signs"
+        ),
+    }
+    assert setup_calls == 9
+    assert unexpected_optimizer_calls == {"rce": 0, "tariff": 0, "rcm": 0}
+    assert optimizer_calls == {"rce": 1, "tariff": 1, "rcm": 1}
