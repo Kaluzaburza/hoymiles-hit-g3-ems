@@ -795,6 +795,45 @@ async def _assert_bounded_recorder_runtime() -> None:
         raise AssertionError("Recorder query timeout did not fail closed")
 
 
+def _assert_timeline_entity_lifecycle_contract() -> None:
+    """AP-1 timeline entities add no startup work or removable listeners."""
+
+    timeline_path = COMPONENT / "timeline_sensor.py"
+    timeline_source = timeline_path.read_text(encoding="utf-8")
+    timeline_tree = ast.parse(timeline_source)
+    timeline_class = next(
+        node
+        for node in timeline_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "HoymilesAutomationPlanTimelineSensor"
+    )
+    method_names = {
+        node.name
+        for node in timeline_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "async_added_to_hass" not in method_names
+    assert "async_will_remove_from_hass" not in method_names
+    assert not any(
+        token in timeline_source
+        for token in (
+            "async_track_state_change_event",
+            "async_track_time_interval",
+            "async_call_later",
+            "async_create_background_task",
+        )
+    )
+
+    platform_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
+    assert platform_source.index("entities.append(rce_plan)") < platform_source.index(
+        'policy_id="rce"'
+    )
+    assert platform_source.index("entities.append(tariff_plan)") < platform_source.index(
+        'policy_id="tariff"'
+    )
+    assert platform_source.count("HoymilesAutomationPlanTimelineSensor(") == 2
+
+
 async def _async_main() -> None:
     contracts = []
     for filename, class_name in SENSORS.items():
@@ -805,6 +844,7 @@ async def _async_main() -> None:
         contracts.append((filename, added, scheduler))
     _assert_bounded_recorder_contract()
     _assert_tariff_recorder_attribute_contract()
+    _assert_timeline_entity_lifecycle_contract()
     for filename, (class_name, watched_name) in DYNAMIC_FORECAST_SENSORS.items():
         _assert_dynamic_forecast_listener_runtime(
             COMPONENT / filename,

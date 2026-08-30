@@ -228,6 +228,8 @@ technical identities listed above as part of a later branding change.
    python tools/test_tariff_optimizer.py
    python tools/test_rcm_history.py
    python tools/test_rcm_optimizer.py
+   python tools/test_automation_plan_timeline.py
+   python tools/test_rcm_timeline_model.py
    python tools/test_energy_data.py
    python tools/test_load_model.py
    python tools/test_power_balance.py
@@ -240,6 +242,7 @@ technical identities listed above as part of a later branding change.
    python tools/test_diagnostics.py
    python tools/test_diagnostic_analyzer.py
    python tools/test_automation_matrix.py --exhaustive
+   node tools/test_supervisor_aurora_ui_contract.js
    node tools/validate_rce_card.js
    ```
 
@@ -250,6 +253,7 @@ technical identities listed above as part of a later branding change.
 
    ```text
    python tools/test_battery_balancing_ha_runtime.py
+   python -m pytest -q tests/test_timeline_platform_registration.py
    ```
 
    Do not merge this command into the Python 3.12 path and do not accept a

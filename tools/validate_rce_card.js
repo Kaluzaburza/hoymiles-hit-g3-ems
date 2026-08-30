@@ -1,4 +1,6 @@
 const fs = require("node:fs");
+const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(
@@ -9,8 +11,230 @@ const bootstrapSource = fs.readFileSync(
   "home_assistant/www/hoymiles-dashboard-strategy.js",
   "utf8",
 );
+const assetsSource = fs.readFileSync(
+  "custom_components/hoymiles_hit_modbus/assets.py",
+  "utf8",
+);
+if (
+  !assetsSource.includes("FRONTEND_ASSET_REVISION = 28") ||
+  !bootstrapSource.includes("1.5.7.28") ||
+  bootstrapSource.includes("1.5.7.25")
+) {
+  throw new Error("Frontend revision/cache contract is not exactly 1.5.7.28");
+}
 if (!source.includes("import.meta.url")) {
   throw new Error("Dashboard strategy no longer resolves assets from its module URL");
+}
+const expectedPhase2Paths = [
+  "custom_components/hoymiles_hit_modbus/assets.py",
+  "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+  "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+  "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+  "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+  "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+  "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+  "dashboard_hoymiles.yaml",
+  "home_assistant/www/hoymiles-dashboard-strategy.js",
+  "home_assistant/www/hoymiles-rce-chart-card.js",
+  "tools/build_hacs_assets.py",
+  "tools/test_supervisor_aurora_ui_contract.js",
+  "tools/validate_rce_card.js",
+  "tools/validate_release.py",
+].sort();
+const expectedCorrectionPaths = [
+  "custom_components/hoymiles_hit_modbus/assets.py",
+  "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+  "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+  "home_assistant/www/hoymiles-dashboard-strategy.js",
+  "home_assistant/www/hoymiles-rce-chart-card.js",
+  "tools/test_supervisor_aurora_ui_contract.js",
+  "tools/validate_rce_card.js",
+  "tools/validate_release.py",
+].sort();
+const expectedIntegrationPaths = [
+  ".github/workflows/validate.yml",
+  "CHANGELOG.md",
+  "RELEASING.md",
+  "custom_components/hoymiles_hit_modbus/__init__.py",
+  "custom_components/hoymiles_hit_modbus/assets.py",
+  "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+  "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+  "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+  "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+  "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+  "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+  "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+  "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+  "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+  "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+  "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+  "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+  "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+  "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+  "custom_components/hoymiles_hit_modbus/sensor.py",
+  "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+  "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+  "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+  "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+  "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+  "custom_components/hoymiles_hit_modbus/translations/en.json",
+  "custom_components/hoymiles_hit_modbus/translations/pl.json",
+  "dashboard_hoymiles.yaml",
+  "docs/releases/v1.5.8.md",
+  "home_assistant/hoymiles_ems_scheduler.yaml",
+  "home_assistant/www/hoymiles-dashboard-strategy.js",
+  "home_assistant/www/hoymiles-rce-chart-card.js",
+  "tests/test_timeline_platform_registration.py",
+  "tools/build_hacs_assets.py",
+  "tools/test_automation_matrix.py",
+  "tools/test_automation_plan_timeline.py",
+  "tools/test_ems_supervisor.py",
+  "tools/test_optimizer_executor_contract.py",
+  "tools/test_optimizer_startup_contract.py",
+  "tools/test_rce_optimizer.py",
+  "tools/test_rcm_optimizer.py",
+  "tools/test_rcm_timeline_model.py",
+  "tools/test_supervisor_aurora_ui_contract.js",
+  "tools/test_supervisor_helpers_contract.py",
+  "tools/test_supervisor_runtime_contract.py",
+  "tools/test_supervisor_sensor_contract.py",
+  "tools/test_tariff_optimizer.py",
+  "tools/validate_rce_card.js",
+  "tools/validate_release.py",
+].sort();
+const expectedIntegrationAddedPaths = [
+  "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+  "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+  "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+  "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+  "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+  "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+  "tests/test_timeline_platform_registration.py",
+  "tools/test_automation_plan_timeline.py",
+  "tools/test_ems_supervisor.py",
+  "tools/test_rcm_timeline_model.py",
+  "tools/test_supervisor_aurora_ui_contract.js",
+  "tools/test_supervisor_helpers_contract.py",
+  "tools/test_supervisor_runtime_contract.py",
+  "tools/test_supervisor_sensor_contract.py",
+].sort();
+const integrationBranch = "integration/v1.5.8-bal-r2-aurora-ap2";
+const integrationParent = "fa6c32dc1f0178f6ad8cdf5a0e5d1a00e3598ede";
+const integrationCommitSubject =
+  "feat: integrate Aurora planner with v1.5.8 balancing";
+const integrationCommitMessage = [
+  integrationCommitSubject,
+  "",
+  `BAL-R2-F1-Source: ${integrationParent}`,
+  "Aurora-AP-2-Source: 42c59f358f46e2c4dd83328aca5e62ac41c749e3",
+  "Supervisor-Source: 5fafc961e70b18b8677e58c8bfcc25613d1fd5c5",
+  "Integration-Review-SHA256: 08609cd4cfad9bc5aa96964f42d5cfbd35a1b655b51b6eab59a9532751009c0c",
+].join("\n");
+const gitPaths = (...args) =>
+  childProcess.execFileSync("git", args, { encoding: "utf8" })
+    .split(/\r?\n/)
+    .map((value) => value.trim().replaceAll("\\", "/"))
+    .filter(Boolean);
+const gitText = (...args) =>
+  childProcess.execFileSync("git", args, { encoding: "utf8" }).trim();
+const unstagedPaths = gitPaths("diff", "--name-only", "HEAD");
+const stagedPaths = gitPaths("diff", "--cached", "--name-only");
+const untrackedPaths = gitPaths("ls-files", "--others", "--exclude-standard");
+const actualPhase2Paths = [...new Set([...unstagedPaths, ...stagedPaths, ...untrackedPaths])].sort();
+const exactPathSet = (actual, expected) =>
+  JSON.stringify([...actual].sort()) === JSON.stringify([...expected].sort());
+const currentBranch = gitPaths("branch", "--show-current")[0] || "";
+const integrationState = currentBranch === integrationBranch;
+const currentHead = gitText("rev-parse", "HEAD");
+const expectedIntegrationTrackedPaths = expectedIntegrationPaths.filter(
+  (path) => !expectedIntegrationAddedPaths.includes(path),
+);
+const expectedIntegrationCommitStatus = expectedIntegrationPaths.map(
+  (path) => `${expectedIntegrationAddedPaths.includes(path) ? "A" : "M"}\t${path}`,
+);
+const expectedIntegrationModes = expectedIntegrationPaths.map(
+  (path) => `100644\t${path}`,
+);
+if (stagedPaths.length !== 0) {
+  throw new Error("Phase 2 validator requires zero staged paths");
+}
+if (integrationState) {
+  const overlayState =
+    currentHead === integrationParent
+    && exactPathSet(actualPhase2Paths, expectedIntegrationPaths)
+    && exactPathSet(unstagedPaths, expectedIntegrationTrackedPaths)
+    && exactPathSet(untrackedPaths, expectedIntegrationAddedPaths)
+    && gitPaths("diff", "--name-only", "--diff-filter=U").length === 0;
+  const parents = gitText("show", "-s", "--format=%P", "HEAD")
+    .split(/\s+/)
+    .filter(Boolean);
+  const committedStatus = gitPaths(
+    "diff",
+    "--name-status",
+    "--find-renames",
+    integrationParent,
+    "HEAD",
+  );
+  const committedModes = gitPaths(
+    "ls-tree",
+    "-r",
+    "HEAD",
+    "--",
+    ...expectedIntegrationPaths,
+  ).map((line) => {
+    const [metadata, path] = line.split("\t", 2);
+    return `${metadata.split(/\s+/, 1)[0]}\t${path}`;
+  });
+  const committedCleanState =
+    currentHead !== integrationParent
+    && parents.length === 1
+    && parents[0] === integrationParent
+    && actualPhase2Paths.length === 0
+    && gitText("status", "--porcelain=v1", "--untracked-files=all") === ""
+    && exactPathSet(committedStatus, expectedIntegrationCommitStatus)
+    && exactPathSet(committedModes, expectedIntegrationModes)
+    && gitText("show", "-s", "--format=%s", "HEAD") === integrationCommitSubject
+    && gitText("show", "-s", "--format=%B", "HEAD") === integrationCommitMessage;
+  if (!overlayState && !committedCleanState) {
+    throw new Error(
+      "Integrated frontend validation requires the exact reviewed overlay "
+      + "or its exact clean single-parent commit",
+    );
+  }
+} else if (!exactPathSet(actualPhase2Paths, expectedPhase2Paths)) {
+  throw new Error(`Current frontend manifest differs: ${JSON.stringify(actualPhase2Paths)}`);
+}
+if (
+  expectedCorrectionPaths.length !== 8
+  || !expectedCorrectionPaths.every((item) => expectedPhase2Paths.includes(item))
+  || exactPathSet(expectedCorrectionPaths.slice(1), expectedCorrectionPaths)
+  || exactPathSet(
+    [...expectedCorrectionPaths, "__unexpected_correction_path__"],
+    expectedCorrectionPaths,
+  )
+) {
+  throw new Error("Revision 28 correction manifest is not exactly 8 paths");
+}
+const branchPaths = integrationState
+  ? gitPaths(
+      "diff",
+      "--name-only",
+      "v1.5.7...5fafc961e70b18b8677e58c8bfcc25613d1fd5c5",
+    ).sort()
+  : [...new Set([
+      ...gitPaths("diff", "--name-only", "v1.5.7...HEAD"),
+      ...actualPhase2Paths,
+    ])].sort();
+if (branchPaths.length !== 32) {
+  throw new Error(`Supervisor branch manifest count is ${branchPaths.length}, expected 32`);
+}
+if (
+  exactPathSet(expectedPhase2Paths.slice(1), expectedPhase2Paths)
+  || exactPathSet([...expectedPhase2Paths, "__unexpected_phase2_path__"], expectedPhase2Paths)
+  || exactPathSet(branchPaths.slice(1), branchPaths)
+  || exactPathSet([...branchPaths, "__unexpected_branch_path__"], branchPaths)
+) {
+  throw new Error("Manifest count self-tests did not reject 13/15 or 31/33 paths");
 }
 if (
   !bootstrapSource.includes("document.currentScript") ||
@@ -23,11 +247,27 @@ if (
 // executes classic scripts, so inject the same deterministic module URL while
 // retaining an explicit assertion above that production code uses import.meta.
 const canonicalModuleUrl =
-  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.6.24";
+  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.7.28";
 const executableSource = source.replaceAll(
   "import.meta.url",
   JSON.stringify(canonicalModuleUrl),
-);
+) + `
+globalThis.__supervisorValidatorExports = {
+  HoymilesEmsSupervisorPanel,
+  HoymilesEmsSupervisorCard,
+  HoymilesAuroraEnergyCard,
+  hoymilesNormalizeSupervisor,
+  hoymilesNormalizeLanguage,
+  hoymilesSupervisorReason,
+  HOYMILES_SUPERVISOR_BINDINGS,
+  HOYMILES_SUPERVISOR_MODE_OPTIONS,
+  HOYMILES_SUPERVISOR_PROFILE_OPTIONS,
+  HOYMILES_SUPERVISOR_POLICY_IDS,
+  HOYMILES_SUPERVISOR_POLICY_ICONS,
+  HOYMILES_SUPERVISOR_REASON_COPY,
+  HOYMILES_SUPERVISOR_COPY,
+  HOYMILES_EMS_SUPERVISOR_CSS,
+};`;
 const registry = new Map();
 
 class FakeNode {
@@ -36,17 +276,45 @@ class FakeNode {
     this.children = [];
     this.innerHTML = "";
     this.dataset = {};
+    this.attributes = new Map();
+    this.listeners = new Map();
+    this.textContent = "";
+    this.className = "";
+    this.disabled = false;
+    this.selected = false;
+    this.value = "";
   }
 
   append(...children) {
     this.children.push(...children);
   }
 
+  prepend(...children) {
+    this.children.unshift(...children);
+  }
+
   replaceChildren(...children) {
     this.children = children;
   }
 
-  addEventListener() {}
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  addEventListener(type, listener) {
+    const listeners = this.listeners.get(type) || [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type, listener) {
+    const listeners = this.listeners.get(type) || [];
+    this.listeners.set(type, listeners.filter((item) => item !== listener));
+  }
 
   querySelector() {
     return null;
@@ -82,6 +350,9 @@ const context = {
     documentElement: { lang: "pl" },
     createElement(tagName) {
       return new FakeNode(tagName);
+    },
+    createTextNode(value) {
+      return { nodeType: 3, textContent: String(value) };
     },
   },
   HTMLElement: TestElement,
@@ -179,7 +450,7 @@ const bootstrapFirstContext = {
     currentScript: {
       src: (
         "https://homeassistant.example/local/"
-        + "hoymiles-dashboard-strategy.js?v=1.5.6.24"
+        + "hoymiles-dashboard-strategy.js?v=1.5.7.28"
       ),
     },
   },
@@ -226,7 +497,7 @@ const scriptFallbackContext = {
       {
         src: (
           "https://homeassistant.example/local/"
-          + "hoymiles-dashboard-strategy.js?v=1.5.6.24"
+          + "hoymiles-dashboard-strategy.js?v=1.5.7.28"
         ),
       },
     ],
@@ -246,7 +517,7 @@ vm.runInNewContext(inspectableBootstrapSource, scriptFallbackContext, {
 });
 if (
   scriptFallbackWindow.__canonicalModuleUrl !==
-  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.6.24"
+  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.7.28"
 ) {
   throw new Error("Bootstrap lost its cache-busting query when currentScript was absent");
 }
@@ -266,7 +537,7 @@ vm.runInNewContext(inspectableBootstrapSource, {
 });
 if (
   noScriptWindow.__canonicalModuleUrl !==
-  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.6.24"
+  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.7.28"
 ) {
   throw new Error("Bootstrap fallback imported an unversioned canonical module");
 }
@@ -619,6 +890,607 @@ if (
 ) {
   throw new Error("The Aurora card is absent from custom-card metadata");
 }
+const supervisorValidator = context.__supervisorValidatorExports;
+if (!source.includes("class HoymilesEmsSupervisorPanel")) {
+  throw new Error("Aurora module is missing the bounded Supervisor controller");
+}
+if (source.includes('customElements.define("hoymiles-ems-supervisor-panel"')) {
+  throw new Error("Supervisor panel was incorrectly registered as a standalone card");
+}
+const supervisorStart = source.indexOf("const HOYMILES_SUPERVISOR_BINDINGS");
+const supervisorEnd = source.indexOf("class HoymilesAuroraEnergyCard");
+const supervisorSource = source.slice(supervisorStart, supervisorEnd);
+const energyEnd = source.indexOf("class HoymilesPowerFlowCard", supervisorEnd);
+const energySource = source.slice(supervisorEnd, energyEnd);
+const auroraMarkup = energySource.indexOf('<div class="aurora">');
+const dailyMarkup = energySource.indexOf('<div class="daily">', auroraMarkup);
+if (
+  !(auroraMarkup >= 0 && dailyMarkup > auroraMarkup)
+  || energySource.includes("data-supervisor")
+  || energySource.includes("_supervisorPanel")
+  || energySource.includes("HOYMILES_SUPERVISOR_BINDINGS")
+) {
+  throw new Error("Start is not restored to Aurora followed by daily energy");
+}
+const SupervisorCard = registry.get("hoymiles-ems-supervisor-card");
+if (
+  SupervisorCard !== supervisorValidator.HoymilesEmsSupervisorCard
+  || (supervisorSource.match(/customElements\.define\(\s*"hoymiles-ems-supervisor-card"/g) || []).length !== 1
+  || context.window.customCards.filter((item) => item.type === "hoymiles-ems-supervisor-card").length !== 1
+) {
+  throw new Error("Standalone Supervisor card is not registered exactly once");
+}
+const canonicalDashboard = fs.readFileSync("dashboard_hoymiles.yaml", "utf8");
+const dashboardViews = [...canonicalDashboard.matchAll(/^  - title: (.+)$/gm)];
+const startViewSource = canonicalDashboard.slice(dashboardViews[0].index, dashboardViews[1].index);
+const supervisorViewSource = canonicalDashboard.slice(dashboardViews[1].index, dashboardViews[2].index);
+if (
+  dashboardViews[0]?.[1] !== "Start"
+  || dashboardViews[1]?.[1] !== "Nadzorca EMS"
+  || dashboardViews[2]?.[1] !== "RCE i Wyniki"
+  || !supervisorViewSource.includes("path: ems-supervisor")
+  || !supervisorViewSource.includes("icon: mdi:eye-circle-outline")
+  || !supervisorViewSource.includes("type: panel")
+  || (supervisorViewSource.match(/custom:hoymiles-ems-supervisor-card/g) || []).length !== 1
+  || /supervisor_(entity|mode_entity|profile_entity|allow_)/.test(startViewSource)
+) {
+  throw new Error("Canonical dedicated Supervisor view identity/order is invalid");
+}
+for (const [language, expectedTitle] of [["pl", "Nadzorca EMS"], ["en", "EMS Supervisor"]]) {
+  const generated = JSON.parse(fs.readFileSync(
+    `custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_${language}.json`,
+    "utf8",
+  ));
+  const view = generated.views?.[1];
+  if (
+    view?.title !== expectedTitle
+    || view?.path !== "ems-supervisor"
+    || view?.icon !== "mdi:eye-circle-outline"
+    || view?.type !== "panel"
+    || view?.cards?.length !== 1
+    || view.cards[0]?.type !== "custom:hoymiles-ems-supervisor-card"
+  ) {
+    throw new Error(`Generated ${language} Supervisor view identity is invalid`);
+  }
+}
+for (const [key, entityId] of Object.entries({
+  supervisor_entity: "sensor.hoymiles_hit_ems_supervisor",
+  supervisor_mode_entity: "input_select.hoymiles_ems_supervisor_mode",
+  supervisor_profile_entity: "input_select.hoymiles_ems_supervisor_profile",
+  supervisor_allow_rce_entity: "input_boolean.hoymiles_ems_supervisor_allow_rce",
+  supervisor_allow_tariff_entity:
+    "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+  supervisor_allow_rcm_entity: "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+})) {
+  if (supervisorValidator.HOYMILES_SUPERVISOR_BINDINGS[key] !== entityId) {
+    throw new Error(`Supervisor binding ${key} is not canonical`);
+  }
+  if (!supervisorViewSource.includes(`${key}: ${entityId}`)) {
+    throw new Error(`Dedicated Supervisor view is missing binding ${key}`);
+  }
+}
+if (
+  JSON.stringify(Array.from(supervisorValidator.HOYMILES_SUPERVISOR_MODE_OPTIONS))
+    !== JSON.stringify(["Off", "Shadow"])
+  || JSON.stringify(Array.from(supervisorValidator.HOYMILES_SUPERVISOR_PROFILE_OPTIONS))
+    !== JSON.stringify(["Balanced", "Maximum Profit", "High Reserve — Winter"])
+) {
+  throw new Error("Supervisor helper option whitelist changed");
+}
+const literalSupervisorTargets = {
+  mode: "input_select.hoymiles_ems_supervisor_mode",
+  profile: "input_select.hoymiles_ems_supervisor_profile",
+  allowRce: "input_boolean.hoymiles_ems_supervisor_allow_rce",
+  allowTariff: "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+  allowRcm: "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+};
+for (const target of Object.values(literalSupervisorTargets)) {
+  if (!supervisorSource.includes(JSON.stringify(target))) {
+    throw new Error(`Supervisor closed target map is missing: ${target}`);
+  }
+}
+for (const allowed of [
+  "const HOYMILES_SUPERVISOR_CONTROL_KINDS",
+  "_attestHelperCommand(request, intendedState)",
+  'domain: "input_select"',
+  'service: "select_option"',
+  'domain: "input_boolean"',
+  'service: intendedState === "on" ? "turn_on" : "turn_off"',
+  'liveOptions.every((value) => typeof value === "string")',
+  "kind.options.includes(currentState)",
+  "kind.options.includes(intendedState)",
+  "_requestOwnsCurrentPanel(request)",
+  "this._lifecycleGeneration += 1",
+]) {
+  if (!supervisorSource.includes(allowed)) {
+    throw new Error(`Supervisor final attestation is missing: ${allowed}`);
+  }
+}
+for (const forbidden of [
+  "number.set_value",
+  "select.select_option",
+  "button.press",
+  "input_boolean.toggle",
+  "modbus.write",
+  "setInterval",
+  "requestAnimationFrame",
+  "setTimeout",
+]) {
+  if (supervisorSource.includes(forbidden)) {
+    throw new Error(`Supervisor scope contains forbidden authority or polling: ${forbidden}`);
+  }
+}
+if (Object.keys(supervisorValidator.HOYMILES_SUPERVISOR_REASON_COPY).length !== 45) {
+  throw new Error("Supervisor reason map is not 45/45");
+}
+for (const required of [
+  "Observation only",
+  "Tylko obserwacja",
+  "@container (max-width: 620px)",
+  "@container (max-width: 390px)",
+  "@media (prefers-reduced-motion: reduce)",
+  "max-width: 1440px",
+  "supervisor-blob-three",
+  "modeActiveDescription",
+  "technicalTitle",
+  "overflow-wrap: anywhere",
+  "min-width: 0",
+]) {
+  if (!supervisorSource.includes(required)) {
+    throw new Error(`Supervisor standalone card is missing responsive/status contract: ${required}`);
+  }
+}
+const supervisorCss = supervisorValidator.HOYMILES_EMS_SUPERVISOR_CSS;
+const paletteMarker = "SUPERVISOR_SEMANTIC_PALETTE_REV28";
+const paletteStart = supervisorCss.indexOf(paletteMarker);
+const paletteEnd = supervisorCss.indexOf("  }", paletteStart);
+if (
+  (supervisorCss.match(/SUPERVISOR_SEMANTIC_PALETTE_REV28/g) || []).length !== 1
+  || paletteStart < 0
+  || paletteEnd <= paletteStart
+) {
+  throw new Error("Revision 28 must contain one centralized Supervisor palette");
+}
+const paletteBlock = supervisorCss.slice(paletteStart, paletteEnd);
+const cssOutsidePalette =
+  supervisorCss.slice(0, paletteStart) + supervisorCss.slice(paletteEnd);
+const lightThemeStart = supervisorCss.indexOf("@media (prefers-color-scheme: light)");
+const lightThemeEnd = supervisorCss.indexOf(
+  "@media (prefers-reduced-motion: reduce)",
+  lightThemeStart,
+);
+const lightThemeCss = supervisorCss.slice(lightThemeStart, lightThemeEnd);
+for (const token of [
+  "--supervisor-page-base: color-mix(in srgb, var(--primary-background-color, var(--supervisor-on-deep)) 94%, var(--supervisor-blue) 6%)",
+  "--supervisor-page-cyan-glow: color-mix(in srgb, var(--supervisor-cyan) 5%, transparent)",
+  "--supervisor-page-violet-glow: color-mix(in srgb, var(--supervisor-violet) 4%, transparent)",
+  ".supervisor-blob { opacity: .08; }",
+  ".supervisor-points { opacity: .1; }",
+]) {
+  if (lightThemeStart < 0 || lightThemeEnd <= lightThemeStart || !lightThemeCss.includes(token)) {
+    throw new Error("Revision 28 light theme is not independently pale/restrained: " + token);
+  }
+}
+if (
+  /opacity:\s*\.(?:64|72)\b/.test(supervisorCss)
+  || !supervisorCss.includes(".supervisor-info-disabled { border-style: dashed; opacity: 1; }")
+  || !supervisorCss.includes('.supervisor-policy[data-permitted="false"] { filter: saturate(.68); opacity: 1; }')
+) {
+  throw new Error("Revision 28 disabled content loses light-theme contrast");
+}
+const undersizedSupervisorText = [...supervisorCss.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)]
+  .filter((match) => Number(match[1]) < 11);
+if (undersizedSupervisorText.length !== 0) {
+  throw new Error("Revision 28 contains Supervisor text below the accepted 11px minimum");
+}
+for (const [name, value] of [
+  ["cyan", "#43d5ff"],
+  ["blue", "#4c91ff"],
+  ["violet", "#9b7cff"],
+  ["rce", "#f2b84b"],
+  ["tariff", "#49a5ff"],
+  ["rcm", "#b07cff"],
+  ["ready", "#47df91"],
+  ["warning", "#f1b84b"],
+  ["error", "#ff647c"],
+]) {
+  if (!paletteBlock.includes("--supervisor-" + name + ": " + value)) {
+    throw new Error("Revision 28 palette lost " + name);
+  }
+}
+if (
+  /#[0-9a-fA-F]{3,8}/.test(cssOutsidePalette)
+  || !supervisorCss.includes("--supervisor-surface: color-mix")
+) {
+  throw new Error("Revision 28 contains an ad-hoc color or non-derived surface");
+}
+if (
+  JSON.stringify(supervisorValidator.HOYMILES_SUPERVISOR_POLICY_ICONS)
+    !== JSON.stringify({
+      rce: "mdi:chart-line",
+      tariff: "mdi:battery-clock-outline",
+      rcm: "mdi:transmission-tower",
+    })
+) {
+  throw new Error("Revision 28 policy icon map is not exact");
+}
+for (const required of [
+  "supervisor-authority",
+  "supervisor-core-inputs",
+  "supervisor-core-orb",
+  "supervisor-hero-result",
+  "supervisor-no-control",
+  "supervisor-quick-facts",
+  "supervisor-policy-identity",
+  "supervisor-policy-permission",
+  "supervisor-permission-context",
+  "supervisor-safety-strip",
+  "supervisor-knowledge",
+  "supervisor-knowledge-detail",
+  "supervisor-core-ring { animation: none",
+  'content: "↓"',
+]) {
+  if (!supervisorSource.includes(required)) {
+    throw new Error("Revision 28 visual hierarchy is missing: " + required);
+  }
+}
+for (const [language, legacyHash] of Object.entries({
+  pl: "5b039fe8eed77bb7ffcb116ebac4fb5362047c45356f6abe8eb5e04ef57e9f66",
+  en: "d40dceefa5352b5d9cce2a74cf8da287ee73966ce54bb549617da8ecd45f0e79",
+})) {
+  const entries = Object.entries(
+    supervisorValidator.HOYMILES_SUPERVISOR_COPY[language],
+  );
+  const legacy = entries
+    .slice(0, 146)
+    .sort(([left], [right]) => left.localeCompare(right));
+  const actualHash = crypto
+    .createHash("sha256")
+    .update(JSON.stringify(legacy))
+    .digest("hex");
+  if (entries.length !== 166 || actualHash !== legacyHash) {
+    throw new Error("Revision 28 did not preserve legacy " + language + " copy");
+  }
+}
+for (const exactCopy of [
+  "Nie — tylko obserwacja",
+  "No — observation only",
+  "Nadzorca jest wyłączony. Istniejące automatyki działają bez zmian.",
+  "The Supervisor is off. Existing automations continue to work unchanged.",
+  "Zgoda pozwala tylko uwzględnić wynik w analizie Shadow.",
+  "Permission only allows the result to be considered in Shadow analysis.",
+  "Nadzorca nie steruje falownikiem. Pokazuje wyłącznie wynik analizy i może zmieniać tylko pięć ustawień własnego interfejsu.",
+  "The Supervisor does not control the inverter. It only shows the analysis result and can change only its five UI settings.",
+]) {
+  if (!supervisorSource.includes(exactCopy)) {
+    throw new Error("Revision 28 exact copy missing: " + exactCopy);
+  }
+}
+if (
+  (supervisorSource.match(/this\._knowledgeDetail\(/g) || []).length !== 5
+  || supervisorSource.includes('details.setAttribute("open"')
+  || supervisorSource.includes("accordionState")
+  || supervisorSource.includes("toggleDetails")
+) {
+  throw new Error("Revision 28 knowledge area is not exactly five closed native details");
+}
+const contentAppendStart = supervisorSource.indexOf("    content.append(");
+const contentAppendEnd = supervisorSource.indexOf("    panel.append(", contentAppendStart);
+const contentAppend = supervisorSource.slice(contentAppendStart, contentAppendEnd);
+if (
+  !/hero,[\s\S]*liveGrid,[\s\S]*policySection,[\s\S]*howSection,[\s\S]*safetyStrip,[\s\S]*knowledgeSection/.test(contentAppend)
+  || /modesSection|profilesSection|permissionsSection|readSection|safetySection|technical\b/.test(contentAppend)
+) {
+  throw new Error("Revision 28 did not move the documentation wall below live status");
+}
+const selectedToneStart = supervisorCss.indexOf(
+  '.supervisor-panel[data-tone="shadow-selected"]',
+);
+const selectedToneEnd = supervisorCss.indexOf(
+  '.supervisor-panel[data-tone="blocked"]',
+  selectedToneStart,
+);
+if (
+  selectedToneStart < 0
+  || selectedToneEnd <= selectedToneStart
+  || supervisorCss.slice(selectedToneStart, selectedToneEnd).includes("supervisor-ready")
+  || !supervisorCss.includes('.supervisor-policy-badge[data-tone="ready"]')
+) {
+  throw new Error("Revision 28 selected Shadow uses green or readiness lost its bound");
+}
+for (const token of [
+  "--supervisor-deep",
+  "supervisor-blob-three",
+  "supervisor-points",
+  "supervisor-vignette",
+  "pointer-events: none",
+  "overflow: clip",
+  "@container (max-width: 1024px)",
+  "@container (max-width: 768px)",
+  "@container (max-width: 390px)",
+  "@media (prefers-reduced-motion: reduce)",
+  ".supervisor-knowledge-detail { width: 100%; }",
+]) {
+  if (!supervisorCss.includes(token)) {
+    throw new Error("Revision 28 responsive/background contract missing: " + token);
+  }
+}
+if (
+  supervisorCss.includes("filter: blur")
+  || /supervisor-scope[^}]*display:\s*none/s.test(supervisorCss)
+  || supervisorSource.includes("setInterval")
+  || supervisorSource.includes("setTimeout")
+) {
+  throw new Error("Revision 28 introduced blur, hidden authority, polling, or timers");
+}
+for (const sensor of [
+  undefined,
+  { state: "unavailable", attributes: {} },
+  { state: "shadow_idle", attributes: null },
+  { state: "shadow_idle", attributes: { candidate_summaries: {} } },
+  {
+    state: "shadow_idle",
+    attributes: { candidate_summaries: [null, 4, "bad"] },
+  },
+]) {
+  let normalized;
+  try {
+    normalized = supervisorValidator.hoymilesNormalizeSupervisor(sensor);
+  } catch (error) {
+    throw new Error(`Supervisor normalization threw: ${error.message}`);
+  }
+  if (!normalized || !Array.isArray(normalized.candidates) || normalized.candidates.length !== 3) {
+    throw new Error("Supervisor malformed-state fallback lost its three bounded rows");
+  }
+}
+
+function supervisorRuntimeHass(helperOverrides = {}) {
+  const states = {
+    "sensor.hoymiles_hit_ems_supervisor": {
+      state: "shadow_idle",
+      attributes: {},
+    },
+    "input_select.hoymiles_ems_supervisor_mode": {
+      state: "Shadow",
+      attributes: { options: ["Off", "Shadow"] },
+    },
+    "input_select.hoymiles_ems_supervisor_profile": {
+      state: "Balanced",
+      attributes: {
+        options: ["Balanced", "Maximum Profit", "High Reserve — Winter"],
+      },
+    },
+    "input_boolean.hoymiles_ems_supervisor_allow_rce": {
+      state: "on",
+      attributes: {},
+    },
+    "input_boolean.hoymiles_ems_supervisor_allow_tariff": {
+      state: "off",
+      attributes: {},
+    },
+    "input_boolean.hoymiles_ems_supervisor_allow_rcm": {
+      state: "on",
+      attributes: {},
+    },
+    ...helperOverrides,
+  };
+  return {
+    language: "en",
+    states,
+    calls: [],
+    callService(domain, service, data) {
+      this.calls.push({ domain, service, data });
+      return Promise.resolve();
+    },
+  };
+}
+
+function supervisorRuntimePanel(hass, configOverrides = {}) {
+  const container = new FakeNode("section");
+  const panel = new supervisorValidator.HoymilesEmsSupervisorPanel(container);
+  const config = {
+    supervisor_entity: "sensor.hoymiles_hit_ems_supervisor",
+    supervisor_mode_entity: "input_select.hoymiles_ems_supervisor_mode",
+    supervisor_profile_entity: "input_select.hoymiles_ems_supervisor_profile",
+    supervisor_allow_rce_entity:
+      "input_boolean.hoymiles_ems_supervisor_allow_rce",
+    supervisor_allow_tariff_entity:
+      "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+    supervisor_allow_rcm_entity:
+      "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+    ...configOverrides,
+  };
+  panel.connect();
+  panel.update(hass, config, "en");
+  return { container, panel, config };
+}
+
+const exactTargetHass = supervisorRuntimeHass();
+const exactTargetPanel = supervisorRuntimePanel(exactTargetHass).panel;
+const walkSupervisorDom = (rootNode) => {
+  const nodes = [];
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return;
+    nodes.push(node);
+    for (const child of node.children || []) visit(child);
+  };
+  visit(rootNode);
+  return nodes;
+};
+const supervisorDom = walkSupervisorDom(exactTargetPanel._container);
+const supervisorDetails = supervisorDom.filter(
+  (node) => node.tagName === "details",
+);
+if (
+  Object.keys(exactTargetPanel._controls).length !== 5
+  || Object.keys(exactTargetPanel._policyRows).length !== 3
+  || supervisorDetails.length !== 5
+  || !supervisorDetails.every(
+    (detail) =>
+      detail.getAttribute("open") === null
+      && detail.children[0]?.tagName === "summary",
+  )
+  || supervisorDom.filter(
+    (node) => String(node.className).includes("supervisor-safety-strip"),
+  ).length !== 1
+  || exactTargetPanel._hero.physical.textContent !== "No — observation only"
+  || exactTargetPanel._heroResultText.textContent
+    !== "Data required for evaluation is unavailable."
+) {
+  throw new Error("Revision 28 live DOM hierarchy/count contract failed");
+}
+void exactTargetPanel._selectOption("mode", "Off");
+if (
+  exactTargetHass.calls.length !== 1 ||
+  exactTargetHass.calls[0].data.entity_id !==
+    "input_select.hoymiles_ems_supervisor_mode"
+) {
+  throw new Error("Supervisor final target was not derived from the literal closed mapping");
+}
+
+const redirectedHass = supervisorRuntimeHass({
+  "input_boolean.hoymiles_rce_discharge_enabled": {
+    state: "off",
+    attributes: {},
+  },
+});
+const redirectedPanel = supervisorRuntimePanel(redirectedHass, {
+  supervisor_allow_rce_entity:
+    "input_boolean.hoymiles_rce_discharge_enabled",
+}).panel;
+void redirectedPanel._toggleBoolean("allowRce");
+if (redirectedHass.calls.length !== 0) {
+  throw new Error("Supervisor accepted a legacy helper target from dashboard config");
+}
+
+const unsafeCurrentHass = supervisorRuntimeHass({
+  "input_select.hoymiles_ems_supervisor_mode": {
+    state: "Active",
+    attributes: { options: ["Off", "Shadow", "Active"] },
+  },
+});
+const unsafeCurrentPanel = supervisorRuntimePanel(unsafeCurrentHass).panel;
+void unsafeCurrentPanel._selectOption("mode", "Off");
+if (
+  unsafeCurrentHass.calls.length !== 0 ||
+  !unsafeCurrentPanel._controls.mode.element.disabled
+) {
+  throw new Error("Supervisor final boundary accepted unsafe current mode Active");
+}
+
+const syntheticHass = supervisorRuntimeHass({
+  "input_select.hoymiles_ems_supervisor_mode": {
+    state: "Shadow",
+    attributes: { options: ["Shadow"] },
+  },
+});
+void supervisorRuntimePanel(syntheticHass).panel._selectOption("mode", "Off");
+if (syntheticHass.calls.length !== 0) {
+  throw new Error("Supervisor submitted a synthetic option absent from the live helper");
+}
+
+for (const [value, expected] of [
+  ["pl", "pl"],
+  ["pl-PL", "pl"],
+  ["en-US", "en"],
+  ["unsupported", "en"],
+  ["", "en"],
+  [null, "en"],
+  [undefined, "en"],
+  [7, "en"],
+  [true, "en"],
+  [{}, "en"],
+  [[], "en"],
+  [Symbol("pl"), "en"],
+]) {
+  let language;
+  try {
+    language = supervisorValidator.hoymilesNormalizeLanguage(value);
+  } catch (error) {
+    throw new Error(`Supervisor language normalization threw: ${error.message}`);
+  }
+  if (language !== expected) {
+    throw new Error(`Supervisor language fallback returned ${language}, expected ${expected}`);
+  }
+}
+
+const supervisorLifecycleValidationPromise = (async () => {
+  const oldHass = supervisorRuntimeHass();
+  let rejectOld;
+  oldHass.callService = (domain, service, data) => {
+    oldHass.calls.push({ domain, service, data });
+    return new Promise((_resolve, reject) => {
+      rejectOld = reject;
+    });
+  };
+  const fixture = supervisorRuntimePanel(oldHass);
+  const panelInstance = fixture.panel;
+  const oldRequest = panelInstance._toggleBoolean("allowRce");
+  const generation = panelInstance._lifecycleGeneration;
+  panelInstance.disconnect();
+  if (
+    panelInstance._lifecycleGeneration !== generation + 1 ||
+    panelInstance._hass !== null ||
+    panelInstance._pending.size !== 0
+  ) {
+    throw new Error("Supervisor disconnect did not invalidate its lifecycle");
+  }
+  panelInstance.connect();
+  const newHass = supervisorRuntimeHass();
+  let resolveNew;
+  newHass.callService = (domain, service, data) => {
+    newHass.calls.push({ domain, service, data });
+    return new Promise((resolve) => {
+      resolveNew = resolve;
+    });
+  };
+  panelInstance.update(newHass, fixture.config, "en");
+  const newRequest = panelInstance._toggleBoolean("allowRce");
+  const newToken = panelInstance._requestTokens.get("allowRce");
+  rejectOld(new Error("stale rejection"));
+  await oldRequest;
+  if (
+    !panelInstance._pending.has("allowRce") ||
+    panelInstance._requestTokens.get("allowRce") !== newToken ||
+    panelInstance._errors.has("allowRce")
+  ) {
+    throw new Error("Stale Promise settlement mutated the reconnected panel");
+  }
+  resolveNew();
+  await newRequest;
+
+  const parent = new supervisorValidator.HoymilesEmsSupervisorCard();
+  parent.isConnected = true;
+  parent.setConfig(fixture.config);
+  parent.hass = newHass;
+  const ownedPanel = parent._panelController;
+  const ownedRoot = ownedPanel._container.children[0];
+  parent.disconnectedCallback();
+  if (parent._hass !== null || ownedPanel._hass !== null) {
+    throw new Error("Standalone card or Supervisor controller retained hass after disconnect");
+  }
+  parent.connectedCallback();
+  if (
+    parent._panelController !== ownedPanel ||
+    ownedPanel._container.children.length !== 1 ||
+    ownedPanel._container.children[0] !== ownedRoot ||
+    !Object.values(ownedPanel._controls).every(
+      (control) => control.element.disabled,
+    )
+  ) {
+    throw new Error("Standalone reconnect duplicated or prematurely enabled the panel");
+  }
+})();
+
+if (
+  fs.readFileSync(
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+    "utf8",
+  ) !== source
+) {
+  throw new Error("Packaged Aurora module differs from the canonical source");
+}
+console.log("EMS Supervisor card: standalone, bounded and observation-only contract OK");
 for (const expected of [
   "container-type: inline-size",
   "prefers-reduced-motion: reduce",
@@ -931,6 +1803,9 @@ for (const language of ["pl", "en"]) {
   if (!energyCard) {
     throw new Error(`The ${language} Start view does not contain Aurora`);
   }
+  const supervisorCard = dashboard.views?.find(
+    (view) => view.path === "ems-supervisor",
+  )?.cards?.[0];
   for (const [key, entityId] of Object.entries({
     battery_current_entity: "sensor.hoymiles_hit_battery_current_bms",
     battery_capacity_entity: "sensor.hoymiles_hit_battery_capacity",
@@ -950,6 +1825,15 @@ for (const language of ["pl", "en"]) {
     if (energyCard[key] !== entityId) {
       throw new Error(
         `The ${language} Aurora battery ${key} mapping is ${energyCard[key]}, expected ${entityId}`,
+      );
+    }
+  }
+  for (const [key, entityId] of Object.entries(
+    supervisorValidator.HOYMILES_SUPERVISOR_BINDINGS,
+  )) {
+    if (supervisorCard?.[key] !== entityId || key in energyCard) {
+      throw new Error(
+        `The ${language} Supervisor binding ${key} is not isolated to the dedicated card`,
       );
     }
   }
@@ -1192,6 +2076,7 @@ Promise.all([
   Strategy.generate({}, { locale: { language: "en-GB" } }),
   bootstrapFirstStrategy.generate({}, { locale: { language: "pl-PL" } }),
   auroraFrameMountPromise,
+  supervisorLifecycleValidationPromise,
 ])
   .then(([polishDashboard, englishDashboard, bootstrapFirstDashboard]) => {
     if (

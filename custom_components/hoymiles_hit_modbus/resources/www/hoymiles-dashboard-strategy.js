@@ -17,7 +17,7 @@
   const canonicalModuleUrl = scriptUrl
     ? new URL("hoymiles-rce-chart-card.js", new URL(".", scriptUrl))
     : new URL(
-        "/local/hoymiles-rce-chart-card.js?v=1.5.6.24",
+        "/local/hoymiles-rce-chart-card.js?v=1.5.7.28",
         window.location.origin
       );
   if (scriptUrl) {

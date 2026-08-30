@@ -6,6 +6,27 @@ input_boolean:
     name: "EMS — powiadomienia push o zmianach statusu"
     icon: mdi:cellphone-message
 
+  # Pozwala Nadzorcy EMS uwzględniać RCE wyłącznie w arbitrażu Shadow.
+  # Nie włącza automatyki RCE, nie zmienia jej przełącznika i nie udziela
+  # prawa do fizycznego zapisu.
+  hoymiles_ems_supervisor_allow_rce:
+    name: "Nadzorca EMS — uwzględniaj RCE"
+    icon: mdi:chart-line
+
+  # Pozwala Nadzorcy EMS uwzględniać tanie ładowanie wyłącznie w arbitrażu
+  # Shadow. Nie włącza ładowania taryfowego, nie zmienia jego przełącznika
+  # i nie udziela prawa do fizycznego zapisu.
+  hoymiles_ems_supervisor_allow_tariff:
+    name: "Nadzorca EMS — uwzględniaj tanie ładowanie"
+    icon: mdi:battery-clock-outline
+
+  # Pozwala Nadzorcy EMS uwzględniać RCEm wyłącznie w arbitrażu Shadow.
+  # Nie włącza RCEm, nie zmienia jego przełączników i nie udziela prawa do
+  # fizycznego zapisu.
+  hoymiles_ems_supervisor_allow_rcm:
+    name: "Nadzorca EMS — uwzględniaj RCEm"
+    icon: mdi:transmission-tower
+
   hoymiles_discharge_schedule_enabled:
     name: "EMS — codzienne rozładowanie włączone"
     icon: mdi:transmission-tower-export
@@ -317,6 +338,26 @@ input_text:
     icon: mdi:bell-badge-outline
 
 input_select:
+  # Tryb obserwacyjny Nadzorcy EMS. Off wyłącza arbitraż, a Shadow publikuje
+  # wyłącznie decyzję obserwacyjną. Żaden wybór nie uruchamia fizycznego
+  # wykonania ani nie zmienia automatyki legacy.
+  hoymiles_ems_supervisor_mode:
+    name: "Nadzorca EMS — tryb"
+    options:
+      - "Off"
+      - "Shadow"
+    icon: mdi:eye-outline
+
+  # Profil jest tylko publikowany w arbitrażu Shadow. Efekty profilu pozostają
+  # niezaaplikowane i nie zmieniają fizycznego wykonania ani automatyki legacy.
+  hoymiles_ems_supervisor_profile:
+    name: "Nadzorca EMS — profil"
+    options:
+      - "Balanced"
+      - "Maximum Profit"
+      - "High Reserve — Winter"
+    icon: mdi:tune-variant
+
   hoymiles_tariff_operator:
     name: "EMS taryfowy — operator / profil cenowy"
     options:

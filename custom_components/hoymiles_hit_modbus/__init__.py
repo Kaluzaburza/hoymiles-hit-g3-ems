@@ -42,7 +42,13 @@ from .source_device import (
     async_resolve_source_device,
     persist_resolved_source_entry,
 )
+from .supervisor_sensor import notify_supervisor_guard
 from .support_http import HoymilesSupportBundleView
+from .timeline_sensor import (
+    TIMELINE_POLICY_IDS,
+    timeline_entity_id,
+    timeline_unique_id,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -61,6 +67,10 @@ EMS_PACKAGE_DOCS_URL = (
 )
 FRONTEND_ASSETS_RESTART_ISSUE_ID = "frontend_assets_restart_required"
 FRONTEND_ASSETS_INSTALL_FAILED_ISSUE_ID = "frontend_assets_install_failed"
+
+
+class TimelineIdentityCollisionError(RuntimeError):
+    """Block setup when an exact timeline identity is already foreign-owned."""
 
 
 def _ems_package_issue_id(entry: ConfigEntry) -> str:
@@ -170,6 +180,10 @@ def _async_reconcile_entity_registry(
     active_translation_keys.add("tariff_charge_plan")
     active_translation_keys.add("rcm_voltage_plan")
     active_translation_keys.add("setup_status")
+    active_translation_keys.add("ems_supervisor")
+    active_translation_keys.add("rce_automation_plan_timeline")
+    active_translation_keys.add("tariff_automation_plan_timeline")
+    active_translation_keys.add("rcm_automation_plan_timeline")
 
     for registry_entry in er.async_entries_for_config_entry(
         entity_registry,
@@ -234,6 +248,77 @@ def _async_reconcile_entity_registry(
             old_entity_id,
             desired_entity_id,
         )
+
+
+def _async_prepare_timeline_entity_registry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    """Normalize all three timeline identities before platform setup."""
+
+    entity_registry = er.async_get(hass)
+    contracts = []
+    for policy_id in TIMELINE_POLICY_IDS:
+        unique_id = timeline_unique_id(entry.entry_id, policy_id)
+        desired_entity_id = timeline_entity_id(policy_id)
+        deleted_key = ("sensor", DOMAIN, unique_id)
+        active_entity_id = entity_registry.async_get_entity_id(
+            "sensor",
+            DOMAIN,
+            unique_id,
+        )
+        active_entry = (
+            entity_registry.async_get(active_entity_id)
+            if active_entity_id is not None
+            else None
+        )
+        desired_entry = entity_registry.async_get(desired_entity_id)
+        deleted_entry = entity_registry.deleted_entities.get(deleted_key)
+
+        if (
+            active_entry is not None
+            and active_entry.config_entry_id != entry.entry_id
+        ):
+            raise TimelineIdentityCollisionError(
+                f"{policy_id} timeline unique ID belongs to another config entry"
+            )
+        if desired_entry is not None and (
+            active_entry is None or desired_entry.id != active_entry.id
+        ):
+            raise TimelineIdentityCollisionError(
+                f"{policy_id} timeline entity ID is already in use"
+            )
+        if (
+            deleted_entry is not None
+            and deleted_entry.config_entry_id != entry.entry_id
+        ):
+            raise TimelineIdentityCollisionError(
+                f"{policy_id} deleted timeline identity belongs to another config entry"
+            )
+        contracts.append(
+            (
+                desired_entity_id,
+                active_entry,
+                deleted_key,
+                deleted_entry,
+            )
+        )
+
+    deleted_changed = False
+    for desired_entity_id, active_entry, deleted_key, deleted_entry in contracts:
+        if active_entry is not None and active_entry.entity_id != desired_entity_id:
+            entity_registry.async_update_entity(
+                active_entry.entity_id,
+                new_entity_id=desired_entity_id,
+            )
+        if deleted_entry is not None and deleted_entry.entity_id != desired_entity_id:
+            entity_registry.deleted_entities[deleted_key] = (
+                deleted_entry.__replace__(entity_id=desired_entity_id)
+            )
+            deleted_changed = True
+
+    if deleted_changed:
+        entity_registry.async_schedule_save()
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -360,6 +445,7 @@ async def async_setup_entry(
         source_device=source_device,
         entities=matched,
     )
+    notify_supervisor_guard(hass)
     source_count = matched_source_count(matched)
     catalog_count = sum(len(entities) for entities in matched.values())
     if source_count < catalog_count:
@@ -370,6 +456,7 @@ async def async_setup_entry(
             source_count,
             catalog_count,
         )
+    _async_prepare_timeline_entity_registry(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # Entity-registry entries for newly added catalog records do not exist
     # until their platforms finish setup. Reconcile after forwarding so fresh
@@ -398,6 +485,7 @@ async def async_unload_entry(
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
+        notify_supervisor_guard(hass)
         ir.async_delete_issue(hass, DOMAIN, _ems_package_issue_id(entry))
         ir.async_delete_issue(
             hass,

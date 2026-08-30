@@ -5,14 +5,19 @@ from __future__ import annotations
 import ast
 import asyncio
 import hashlib
+import io
 import importlib.util
 import json
-import py_compile
+import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tarfile
 import tempfile
 import types
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
@@ -29,6 +34,709 @@ EXPECTED_DESCRIPTION = (
     "Home Assistant, ESPHome, Modbus, RCE, tariff optimization and RCEm."
 )
 LEGACY_REPOSITORY_SLUG = "Hoymiles_HIT_xxL_G3_ModBus"
+VALIDATOR_PACKAGE_MARKER = "1.5.8"
+VALIDATOR_MARKER_ENTITY = "sensor.hoymiles_ems_package_version"
+VALIDATOR_SCHEDULER_RELATIVE = "packages/hoymiles_ems_scheduler.yaml"
+VALIDATOR_BACKUP_SUFFIX = ".pre-ems-supervisor-1b3.bak"
+VALIDATOR_OLD_TEMP = ".hoymiles_ems_scheduler.yaml.hoymiles_hit_modbus.tmp"
+VALIDATOR_HELPER_IDS = (
+    "input_select.hoymiles_ems_supervisor_mode",
+    "input_select.hoymiles_ems_supervisor_profile",
+    "input_boolean.hoymiles_ems_supervisor_allow_rce",
+    "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+    "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+)
+VALIDATOR_NEW_HASHES = {
+    "pl": "821294e2c7f7ba3e9896d15333315f35a1acb09d54fabfcb3a6856dd49ef472f",
+    "en": "b4ef8a0e2f2167f8752a9b1da32c29a0f19f95a85a75a79789de1b5cde9f80f1",
+}
+VALIDATOR_HISTORICAL_HASHES = {
+    "pl": "9846bfe0d0e9f8f707db7b3eb5b30fd349b663f8fb1c3777b460ef62696026a2",
+    "en": "b76ba6a2a9f94d307d1582822101b2fc0951868ba7319394ce0886ee9fe9e07d",
+}
+VALIDATOR_HISTORICAL_REF = "v1.5.7"
+REV28_HISTORICAL_COMMIT = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
+AP1_CUMULATIVE_TASK_BASE = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
+AP1E_CORRECTION_BASE = "f630529ed8ddce7ba5c45986d9484fc31b246070"
+AP2R1_CORRECTION_BASE = "4a49343a9bc6e8b669659ebb27ac7f8bbfd9f2c9"
+AP2R1F_REVIEWED_COMMIT = "5cad2934c900d25c020c86d1cf206731319d8ee5"
+AP2R1_COMMIT_SUBJECT = "feat: add RCEm automation plan timeline"
+AP2R1_VALIDATOR_PATH = "tools/validate_release.py"
+AP2R1F_OVERLAY_CANDIDATE = "AP2R1F_OVERLAY_CANDIDATE"
+AP2R1F_COMMITTED_CLEAN = "AP2R1F_COMMITTED_CLEAN"
+AP2R1G_VALIDATOR_FIX_OVERLAY = "AP2R1G_VALIDATOR_FIX_OVERLAY"
+AP2R1J_CORRECTION_BASE = "d7d0c2463c66dda076de2fb826c4474439c9ed3b"
+AP2R1J_COMMIT_SUBJECT = "fix: scope timeline power balance validation to RCEm"
+AP2R1J_CONVERGENCE_FIX_OVERLAY = "AP2R1J_CONVERGENCE_FIX_OVERLAY"
+AP2R1J_COMMITTED_CLEAN = "AP2R1J_COMMITTED_CLEAN"
+AP2R1J_VALIDATOR_SHA256 = "9f0c51f80c7bbf0dbdb26c96557e3d6990347a33b0858afa93165afb437c2b70"
+AP2R1KR1_COMMIT_SUBJECT = "fix: normalize timeline policy identifiers"
+AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY = "AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY"
+AP2R1KR1_COMMITTED_CLEAN = "AP2R1KR1_COMMITTED_CLEAN"
+AP2R1KR1_PRODUCT_SHA256 = "43670ac8b5e80b377b92f65577c3c049435a40ebbc181d910bf9520412486270"
+AP2R1KR1_TEST_SHA256 = "1f17f1ce7483b5e76eeb7a15b14430c8951de3c58f73c2d64984a0215d36e80e"
+AP2R1KR1_GIT_AST_SHA256 = {
+    "_require_ap2r1kr1_commit_shape": "384bba5db535d7b076ea9247fa1dc35458bb5e9731cc2f57f9a590d24d8fc2b6",
+    "_classify_ap2r1_git_state": "5eac54226624c1f133aff6247cd42581c2943c75978f24d09f6ca433c9634b99",
+    "_ap2r1j_manifests_match": "38669be8e64dd9d48eed2780abd7d270bf793fab975b2436929cd7c95eab09bd",
+}
+AP2R1KR1_REGRESSION_AST_SHA256 = {
+    "_ap2r1j_trace": "43628da1d83f9cfa565c47ebfd6d6561923406d124724b43a579aff7e52e02a1",
+    "_assert_malformed_policy_ids_rejected": "3740cd14098d8b123cbc4d1180f7006ca0f89edc925c4ae71a194d27767e4923",
+    "_convergence_scenario": "c57f1af2a3dc944cba62d9107a4d4383cb7c0ae21c70a49f6806ca6127fc3625",
+    "_assert_policy_convergence": "86dcd8a8a2eda3673c6eb39802dc20f4fbbc69dcfe68ce5d6ea412d05d59c1ee",
+    "test_timeline_platform_registration": "6d12f24093da49fce6e75579791e8ad8d5ccc92ecadcc68d485a20b9bfa09fd7",
+}
+AP2_CANONICAL_GATE_AST_SHA256 = {
+    "_canonical_ap2_ast_dump": "e72bc72904ebe0120064ed66ceea778a717e2c7b1d7aca9efeb1b73d130e6c77",
+    "_canonical_ap2_ast_sha256": "4a6651c53f867aeec9e00559db6784172e06d448d66a400f9b04fa9649403e28",
+    "_require_current_ap2_ast_gates": "05487851b0cd00820182656d231e1f5f48bd56b03c0ec78114ab1297f13b0a23",
+    "_require_ap2r1j_regression_contract": "0bfcf4ca02678b67e69834183c82cc9c7a2892eda98162b7b0f4efd114a4f9f1",
+    "_require_ap2r1kr1_regression_contract": "f80adb5f840707b5fd95801369743d1e6c61b963e7980c2986d54096207e1027",
+    "_require_ap2r1kr1_contract": "3198bab402d3e1e857b7fc96bba0785470f81f777cf3854b739c14ed47cf9913",
+    "validate_current_ap2r1_manifests": "d5f0f7983979ba9c7192f31a9c2a53ec1c609b50887e01ad93433511dac8cceb",
+}
+AP1_PUBLIC_BRANCH_BASE = "6617bc4de6592439ea2c64889b0a25bbe5bfa45e"
+AP2R1L_BATTERY_DIRECTION_FIX_OVERLAY = "AP2R1L_BATTERY_DIRECTION_FIX_OVERLAY"
+AP2R1L_COMMITTED_CLEAN = "AP2R1L_COMMITTED_CLEAN"
+AP2R1L_COMMIT_SUBJECT = "fix: validate automation timeline battery direction"
+AP2R1L_PRODUCT_SHA256 = "8141843fc036313c80b3ae06f1fc2fcb7a05a75d743adf4670311e9d3c94a6bb"
+AP2R1L_TEST_SHA256 = "e1cff2cf541ecf74addf17c88a24cb097e2dba36c0f0956d14c71f25854dfadb"
+AP2R1L_PRODUCT_AST_SHA256 = {
+    "validate_payload": "fe83657b74f361fba10b27eb75d566be53e027c879dc89efcbb804f00e2c20cb",
+    "_validate_points": "583c87b349ba119d1b7d3657b2ce7ffcbe7014ec7f226dc095ca9db37ab11701",
+    "_validate_policy_battery_direction": "5a49fb442220415af96c979e705fdc5a4bd2a4d48fa8b01d36665067c1f96e33",
+    "_validate_power_balance": "c465226dc16d332b6049293eb20b3c3f5357fd0c23f9fc6e961584184ca7b96f",
+    "_validate_policy": "3cd045856fc24001a80bb5938d0c1686412cfe18c9bffa07525354f8b1d30b8a",
+}
+AP2R1L_TEST_AST_SHA256 = {
+    "_ap2r1j_trace": "43628da1d83f9cfa565c47ebfd6d6561923406d124724b43a579aff7e52e02a1",
+    "_assert_malformed_policy_ids_rejected": "3740cd14098d8b123cbc4d1180f7006ca0f89edc925c4ae71a194d27767e4923",
+    "_assert_policy_battery_direction": "333b94191fb0d0a5676233ba788fe98b4a935ba9534fb2df3f185f3ce80459aa",
+    "_convergence_scenario": "1b0f6e29b87c680c603f78402d053a97cb59d96fffe592be84761da0b6542af4",
+    "_assert_policy_convergence": "86dcd8a8a2eda3673c6eb39802dc20f4fbbc69dcfe68ce5d6ea412d05d59c1ee",
+    "test_timeline_platform_registration": "6d12f24093da49fce6e75579791e8ad8d5ccc92ecadcc68d485a20b9bfa09fd7",
+}
+AP2R1L_GATE_AST_SHA256 = {
+    "_require_ap2r1l_ast_contract": "4e76b9ebb2f1195ee68a26e6c38d822bb877b19ba5cc64fddb55107eab8e4fa5",
+    "_require_ap2r1l_contract": "a0669199f9cfb2cd5a9b260204507e1867e05505b17c65ae7efb9b26ba8a670d",
+    "_classify_ap2r1l_git_state": "a36da7b3159f1095f707342b69774dc27fedf4fd16f08f4e4a6d7bc28797fb65",
+    "validate_current_ap2r1l_manifests": "4b0d0d734d44e8ebb7546e12c188d2192cacd9b4d5735c0dc31b8552951b7c1a",
+    "main": "94ef32aa5e0faec134e71899b5dbaac4d5ed5c96c8044c805f3cc45713c9d321",
+}
+V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY = (
+    "V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY"
+)
+V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN = (
+    "V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN"
+)
+V1_5_8_BAL_AURORA_INTEGRATION_INVALID = (
+    "V1_5_8_BAL_AURORA_INTEGRATION_INVALID"
+)
+INTEGRATION_BRANCH = "integration/v1.5.8-bal-r2-aurora-ap2"
+INTEGRATION_BAL_INPUT_SHA = "fa6c32dc1f0178f6ad8cdf5a0e5d1a00e3598ede"
+INTEGRATION_BAL_INPUT_TREE = "a8426f01c9a23ad9c9aa4ef321d3c7d4b47ec0b5"
+INTEGRATION_BAL_INPUT_PARENT = "a478091da3f2377ee71f449770a8b0de40e83f16"
+INTEGRATION_BAL_INPUT_SUBJECT = "fix: harden battery balancing lifecycle"
+INTEGRATION_AURORA_INPUT_SHA = "42c59f358f46e2c4dd83328aca5e62ac41c749e3"
+INTEGRATION_AURORA_INPUT_TREE = "220451a9a5812c2a2ceb10ac0b64e484e5bc0f9f"
+INTEGRATION_AURORA_INPUT_PARENT = "d7d0c2463c66dda076de2fb826c4474439c9ed3b"
+INTEGRATION_AURORA_INPUT_SUBJECT = (
+    "fix: validate automation timeline battery direction"
+)
+INTEGRATION_AURORA_VALIDATOR_SHA256 = (
+    "d690b2d3b09f78efdf64564f859f6f4daac07b8141c5f9e31e9c325346e3725c"
+)
+INTEGRATION_SUPERVISOR_SHA = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
+INTEGRATION_SUPERVISOR_TREE = "f86412322468d0c99ef9a1f16a9d6bc36f1d975c"
+INTEGRATION_PUBLIC_BASE_SHA = "6617bc4de6592439ea2c64889b0a25bbe5bfa45e"
+INTEGRATION_BAL_REMOTE_REF = (
+    "refs/remotes/origin/fix/v1.5.8-battery-balancing-95soc-400w-antispam"
+)
+INTEGRATION_AURORA_REMOTE_REF = (
+    "refs/remotes/origin/feature/aurora-automation-planner-timeline-v1.5.7"
+)
+INTEGRATION_REMOTE_REF = (
+    "refs/remotes/origin/integration/v1.5.8-bal-r2-aurora-ap2"
+)
+INTEGRATION_COMMIT_SUBJECT = (
+    "feat: integrate Aurora planner with v1.5.8 balancing"
+)
+INTEGRATION_COMMIT_MESSAGE = (
+    "feat: integrate Aurora planner with v1.5.8 balancing\n\n"
+    "BAL-R2-F1-Source: fa6c32dc1f0178f6ad8cdf5a0e5d1a00e3598ede\n"
+    "Aurora-AP-2-Source: 42c59f358f46e2c4dd83328aca5e62ac41c749e3\n"
+    "Supervisor-Source: 5fafc961e70b18b8677e58c8bfcc25613d1fd5c5\n"
+    "Integration-Review-SHA256: "
+    "08609cd4cfad9bc5aa96964f42d5cfbd35a1b655b51b6eab59a9532751009c0c"
+)
+INTEGRATION_VALIDATOR_CANONICAL_SHA256 = (
+    "d596a0e87f66cfe9d8e07c4a44b30cdc99078f6bfee77560eb97c4ed2e26c7bb"
+)
+INTEGRATION_BAL_COMMIT_STATUS = frozenset(
+    {
+        ("M", ".github/workflows/validate.yml"),
+        ("M", "CHANGELOG.md"),
+        ("M", "README.md"),
+        ("M", "README.pl.md"),
+        ("M", "RELEASING.md"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json"),
+        ("M", "dashboard_hoymiles.yaml"),
+        ("M", "docs/releases/v1.5.8.md"),
+        ("M", "home_assistant/hoymiles_ems_scheduler.yaml"),
+        ("M", "tools/build_hacs_assets.py"),
+        ("M", "tools/test_automation_matrix.py"),
+        ("A", "tools/test_battery_balancing_contract.py"),
+        ("A", "tools/test_battery_balancing_ha_runtime.py"),
+        ("M", "tools/validate_release.py"),
+    }
+)
+INTEGRATION_BAL_DELTA_PATHS = frozenset(
+    {
+        ".github/workflows/validate.yml",
+        "CHANGELOG.md",
+        "README.md",
+        "README.pl.md",
+        "RELEASING.md",
+        "custom_components/hoymiles_hit_modbus/const.py",
+        "custom_components/hoymiles_hit_modbus/manifest.json",
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "dashboard_hoymiles.yaml",
+        "docs/AUTOMATION_TEST_REPORT.md",
+        "docs/releases/v1.5.8.md",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "tools/build_hacs_assets.py",
+        "tools/test_automation_matrix.py",
+        "tools/test_battery_balancing_contract.py",
+        "tools/test_battery_balancing_ha_runtime.py",
+        "tools/test_rce_20l_discharge_calibration.py",
+        "tools/test_rce_optimizer.py",
+        "tools/validate_release.py",
+    }
+)
+INTEGRATION_UNTRACKED_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "tests/test_timeline_platform_registration.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_ems_supervisor.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_supervisor_helpers_contract.py",
+        "tools/test_supervisor_runtime_contract.py",
+        "tools/test_supervisor_sensor_contract.py",
+    }
+)
+INTEGRATION_CANONICAL_SHA256 = {
+    ".github/workflows/validate.yml": "f3d62f275c3c7cdb78eb3e387e9d841c210a9bff0d10b01333d1600b83898426",
+    "CHANGELOG.md": "f80b7a8d7c523646ce671c3ac46bc0bbf86c0c7b21be9c6bc8c92c12e5f4f81f",
+    "RELEASING.md": "c7916f3fd53f4f973ccb476fef963355c59d8b0ebf06042dd71ab3bbdb2aa9a5",
+    "custom_components/hoymiles_hit_modbus/__init__.py": "d3e678de3593777fccca0b55135d5942c95644d12ad4761222802d897df57188",
+    "custom_components/hoymiles_hit_modbus/assets.py": "82571e5bdf44c089c8e78c59609a3c15a42f8f3aa3332f1147e4a9107b28099a",
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py": "8141843fc036313c80b3ae06f1fc2fcb7a05a75d743adf4670311e9d3c94a6bb",
+    "custom_components/hoymiles_hit_modbus/ems_supervisor.py": "031d0abf8948d24708b960deb6ee71c7fe952fdebecd915ac6fc766596429ca7",
+    "custom_components/hoymiles_hit_modbus/rce_optimizer.py": "86787c3fbf6de62206e0efd8d1822ad3fc0d59bbb22f06e049b53a2a1fd19484",
+    "custom_components/hoymiles_hit_modbus/rce_sensor.py": "15d7f3336d32d1bff9c09258974b139d48a0604b9aa23eb533368f5329bf01a1",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "db1a5d52d1a15083e4a50a7eedb36b7e4f35057220b4c919b880184b5476178c",
+    "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py": "05193798f41264684afa9e1baf8e068549da63ec6fd24b9622a5a15149789549",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml": "e4819cd91acd69f153cc1bcaeb4f4816eb41fd6c3006b8c08040642a0cf62e62",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml": "b90600c27e1bfc7d121ab522ec52ebe2f1d7d566a6d32b46c88fff054e2558b9",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml": "b4ef8a0e2f2167f8752a9b1da32c29a0f19f95a85a75a79789de1b5cde9f80f1",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml": "821294e2c7f7ba3e9896d15333315f35a1acb09d54fabfcb3a6856dd49ef472f",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json": "e0f16d8bded72101228607b1b444f577f3909d22ccd8c38eb2d89876e715368a",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json": "e4edbc09712fd44a4960f3dd55d7333d3002ed6d1f289cc7577bd135a607a045",
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js": "4270e108516612eb398f5f27ef19c9aed2adaea6d6ed4aac2d66ffde733541d6",
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js": "5b118dfc1cf01bc8d75e70dcce41f15566248fae27fd2f550b27dac7a138c465",
+    "custom_components/hoymiles_hit_modbus/sensor.py": "c9a172513f9ee70077aeaef6f5b3796b20bd80083ffc76220ab91feebcbcc371",
+    "custom_components/hoymiles_hit_modbus/supervisor_runtime.py": "12cf54cb8baeb8a161b4a6b49ac19f91daeb46beef3f949d9782f689f3889d7d",
+    "custom_components/hoymiles_hit_modbus/supervisor_sensor.py": "1c18ac1eef5d46e2512574ea3dfc7f0c4bd62c58aae6296b2e7b4c479ba743f8",
+    "custom_components/hoymiles_hit_modbus/tariff_optimizer.py": "bfbe124ee0f91eefaff0b16747b2cea135843d6a9d0924f650c3c425b4a37b43",
+    "custom_components/hoymiles_hit_modbus/tariff_sensor.py": "5a9ecd554357dc77a02c329534b40a588ff0b41dbcbf7d00383e1ec38eb80b0c",
+    "custom_components/hoymiles_hit_modbus/timeline_sensor.py": "f02410df553cfdc97b3b0c953996357d9c431ac4e223f15a5808b5e1295f51cc",
+    "custom_components/hoymiles_hit_modbus/translations/en.json": "f7d342ef6ac29fd9ab8ef8666cba6248485ea97e2cf4cc50ce3ab56993f33c71",
+    "custom_components/hoymiles_hit_modbus/translations/pl.json": "1dfde0d47b8a3b0751c9f0466ece738a179978e9ad3fb1b281b52d3107cfe473",
+    "dashboard_hoymiles.yaml": "741e489845fb5f8dc3fd53214f99e6b6879dc32c7df9730f3419ad38251eed79",
+    "docs/releases/v1.5.8.md": "e17af79407f3ef004150b1499446b2b31561bf2bd9d2eff913f87113e0ddf677",
+    "home_assistant/hoymiles_ems_scheduler.yaml": "821294e2c7f7ba3e9896d15333315f35a1acb09d54fabfcb3a6856dd49ef472f",
+    "home_assistant/www/hoymiles-dashboard-strategy.js": "4270e108516612eb398f5f27ef19c9aed2adaea6d6ed4aac2d66ffde733541d6",
+    "home_assistant/www/hoymiles-rce-chart-card.js": "5b118dfc1cf01bc8d75e70dcce41f15566248fae27fd2f550b27dac7a138c465",
+    "tests/test_timeline_platform_registration.py": "e1cff2cf541ecf74addf17c88a24cb097e2dba36c0f0956d14c71f25854dfadb",
+    "tools/build_hacs_assets.py": "a8c45fe2c542bfdc53f22f063410180f1dec6894df08a4d9a832856883e077e9",
+    "tools/test_automation_matrix.py": "fbeea3c6dc712e7e51a6499d0a5f6baff0d05d63918267fb454a8ba4e97f3c7c",
+    "tools/test_automation_plan_timeline.py": "0d28e33ee33229fbe60bfbf1da4d4b5a26eca0a655486014efb17f6fc47cb186",
+    "tools/test_ems_supervisor.py": "381dd972c4e06050bc59f0bc297ddac80cb04f1a13f46058b5e5e60eabfe21c9",
+    "tools/test_optimizer_executor_contract.py": "bd8c69419bc8f80f06dee9bdf664dd265e70b06db58d02c48266722a22a6c225",
+    "tools/test_optimizer_startup_contract.py": "a49f48bdf7a8c350631e166185c7c2b7e8a93b67d7779113310285a7059da677",
+    "tools/test_rce_optimizer.py": "95c3f28f23298601d6edaf3bbebe6a6ac1731aacc19922dfdf75c86977beae09",
+    "tools/test_rcm_optimizer.py": "0020993f4bc86810cf4368e2db56383f4dfccde420349b4109f252e2fdeb7e78",
+    "tools/test_rcm_timeline_model.py": "611dd36e7a20323d2558801650f8a32df78d80253a3f49faecb4f4d15a1bbb98",
+    "tools/test_supervisor_aurora_ui_contract.js": "6e467ac373689dc8ea97593c9b64387eae6720780240d8f4555922c9e7dcdfc6",
+    "tools/test_supervisor_helpers_contract.py": "e62544b243ea25ea836ee554ee75c48375678826dbf7e7fdb310d68104567df9",
+    "tools/test_supervisor_runtime_contract.py": "1eb3a3f0ae71255dc61ee8d423443df01fdd353af4b289a6f7fc4bf02250dfbc",
+    "tools/test_supervisor_sensor_contract.py": "75730448947634ed5e5ccb3112265df5707e72452d255969708b887c3ca22bf2",
+    "tools/test_tariff_optimizer.py": "d4c0ef89aa625944890250686c2f7fb40b2266a7b3d92073ebccf909a0190ca4",
+    "tools/validate_rce_card.js": "18c173777216c8af30979d362c214e8ee117c8af0404d4b781a5a109f5b5a82d",
+}
+INTEGRATION_EXPECTED_PATHS = frozenset(INTEGRATION_CANONICAL_SHA256) | {
+    AP2R1_VALIDATOR_PATH
+}
+PHASE_2_TASK_PATHS = frozenset(
+    {
+        "dashboard_hoymiles.yaml",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "tools/build_hacs_assets.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+    }
+)
+REV28_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+REV28_PROTECTED_TASK_HASHES = {
+    "dashboard_hoymiles.yaml": "69efcb7b93d1463e29f8f273b45d4c96bca80f7a56dd65d5599164ab5857ee4d",
+    "tools/build_hacs_assets.py": "07b7890d8999d5d115984d4ab0dc1cb9935fcf9e28423fbcebb5f4c10b81060b",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml": "e8113f54a671591fddb2fce9abb3ee7394fd997cfb87f3a5724c2a3ee875347b",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml": "e56a60f49b407775228d41500fd14cd2bd67a5aba69c53efa513f358ca8bd9c6",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json": "dca8d5ceb63c979b9adfc9b2e9c6d0153593509bfa13227de7bb28e45a41f628",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json": "4868d931824557e5e68dca4c9c0f33f2a20bd8636a55b5a98caf8af5f1e72b1c",
+}
+REV28_PROTECTED_BACKEND_HASHES = {
+    "custom_components/hoymiles_hit_modbus/ems_supervisor.py": "031d0abf8948d24708b960deb6ee71c7fe952fdebecd915ac6fc766596429ca7",
+    "custom_components/hoymiles_hit_modbus/supervisor_runtime.py": "12cf54cb8baeb8a161b4a6b49ac19f91daeb46beef3f949d9782f689f3889d7d",
+    "custom_components/hoymiles_hit_modbus/supervisor_sensor.py": "1c18ac1eef5d46e2512574ea3dfc7f0c4bd62c58aae6296b2e7b4c479ba743f8",
+    "custom_components/hoymiles_hit_modbus/sensor.py": "fe83d62990150145c3db595e4983f598752751d2488375dd938db961908311bf",
+    "custom_components/hoymiles_hit_modbus/const.py": "eee0ffebe1197f0f74b488bce4c7e51066a33b96255944672f3fee288fc1d956",
+    "home_assistant/hoymiles_ems_scheduler.yaml": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml": "3df7345f0ee9649a35160b4817d6d3dd9d0c95ecf93eed2bf07ec1fe2633886a",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+    "custom_components/hoymiles_hit_modbus/tariff_optimizer.py": "7a77f3885a9f393179d40777770de5eee4ac1918b84a0dba5433531ccc344459",
+    "custom_components/hoymiles_hit_modbus/tariff_sensor.py": "f90a54afd2e9f001ad466bb55941e480bbb6dc25f0b2b2c37d7c30fbcfe39ff5",
+    "custom_components/hoymiles_hit_modbus/rce_optimizer.py": "f95ca95d8290995016ced33f12a9feec8306ca7e6bf224da385c956774866870",
+    "custom_components/hoymiles_hit_modbus/rce_sensor.py": "d2401157dc90ba76069d24cd7d4bdc7ee15947c5173efe209cf986d8e88fef98",
+    "custom_components/hoymiles_hit_modbus/rcm_optimizer.py": "ca533110396a2d24c9bf99cc73bb2e8843f782e53b914044dea83c60715b410b",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "5a66f6cdf6eae5a07b877db49c72e498ac65427dace0f3e774b3339363a3a087",
+}
+SUPERVISOR_BRANCH_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/const.py",
+        "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "dashboard_hoymiles.yaml",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tools/build_hacs_assets.py",
+        "tools/test_ems_supervisor.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_supervisor_helpers_contract.py",
+        "tools/test_supervisor_runtime_contract.py",
+        "tools/test_supervisor_sensor_contract.py",
+        "tools/test_tariff_optimizer.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+AP1_COMMITTED_TASK_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "tools/build_hacs_assets.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_optimizer_executor_contract.py",
+        "tools/test_optimizer_startup_contract.py",
+        "tools/test_rce_optimizer.py",
+        "tools/test_tariff_optimizer.py",
+        "tools/validate_release.py",
+    }
+)
+AP1_COMMITTED_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1_COMMITTED_TASK_PATHS
+AP1E_CUMULATIVE_TASK_PATHS = AP1_COMMITTED_TASK_PATHS | {
+    "custom_components/hoymiles_hit_modbus/__init__.py",
+    "tests/test_timeline_platform_registration.py",
+}
+AP1E_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "tests/test_timeline_platform_registration.py",
+        "tools/validate_release.py",
+    }
+)
+AP1E_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1E_CUMULATIVE_TASK_PATHS
+AP2R1_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "tests/test_timeline_platform_registration.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_rcm_optimizer.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_automation_matrix.py",
+        "tools/validate_release.py",
+    }
+)
+AP2R1_CUMULATIVE_TASK_PATHS = AP1E_CUMULATIVE_TASK_PATHS | AP2R1_CORRECTION_PATHS
+AP2R1_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP2R1_CUMULATIVE_TASK_PATHS
+AP2R1_NEW_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "tools/test_rcm_timeline_model.py",
+    }
+)
+AP2R1J_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "tests/test_timeline_platform_registration.py",
+        "tools/validate_release.py",
+    }
+)
+AP2R1J_PRODUCT_PATH = (
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py"
+)
+AP2R1J_TEST_PATH = "tests/test_timeline_platform_registration.py"
+AP2R1J_TEST_SHA256 = (
+    "194df48f550994dc8a11779cfb88bf61ca7b5d46caa9344cf4540a694e2690cc"
+)
+AP2R1J_REGRESSION_AST_SHA256 = {
+    "_ap2r1j_trace": "43628da1d83f9cfa565c47ebfd6d6561923406d124724b43a579aff7e52e02a1",
+    "_convergence_scenario": "ac9b0e73c2e4388e6d0ae824a0cd86115a7a27f5ecfeefed2d53e572684bad32",
+    "_assert_policy_convergence": "86dcd8a8a2eda3673c6eb39802dc20f4fbbc69dcfe68ce5d6ea412d05d59c1ee",
+    "test_timeline_platform_registration": "6d12f24093da49fce6e75579791e8ad8d5ccc92ecadcc68d485a20b9bfa09fd7",
+}
+AP2R1F_PROTECTED_HASHES = {
+    "custom_components/hoymiles_hit_modbus/__init__.py": "d3e678de3593777fccca0b55135d5942c95644d12ad4761222802d897df57188",
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py": "52db2a5016d18af93c7b1b231bf94af9a5810b49ebae9f4872d997f04b2607d2",
+    "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py": "05193798f41264684afa9e1baf8e068549da63ec6fd24b9622a5a15149789549",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "db1a5d52d1a15083e4a50a7eedb36b7e4f35057220b4c919b880184b5476178c",
+    "custom_components/hoymiles_hit_modbus/sensor.py": "c9a172513f9ee70077aeaef6f5b3796b20bd80083ffc76220ab91feebcbcc371",
+    "custom_components/hoymiles_hit_modbus/timeline_sensor.py": "f02410df553cfdc97b3b0c953996357d9c431ac4e223f15a5808b5e1295f51cc",
+    "custom_components/hoymiles_hit_modbus/translations/en.json": "f7d342ef6ac29fd9ab8ef8666cba6248485ea97e2cf4cc50ce3ab56993f33c71",
+    "custom_components/hoymiles_hit_modbus/translations/pl.json": "1dfde0d47b8a3b0751c9f0466ece738a179978e9ad3fb1b281b52d3107cfe473",
+    "tests/test_timeline_platform_registration.py": "15c730c31947de09ae7322e84bcb06291fad2063818141a1471c7d706c81de5d",
+    "tools/test_rcm_timeline_model.py": "611dd36e7a20323d2558801650f8a32df78d80253a3f49faecb4f4d15a1bbb98",
+    "tools/test_rcm_optimizer.py": "0020993f4bc86810cf4368e2db56383f4dfccde420349b4109f252e2fdeb7e78",
+    "tools/test_automation_plan_timeline.py": "0d28e33ee33229fbe60bfbf1da4d4b5a26eca0a655486014efb17f6fc47cb186",
+    "tools/test_automation_matrix.py": "bdfe00b15de1aa0ddb31db96b90c9dc78e85711d16cc6d5416533d2d0089df8b",
+}
+AP2R1J_PROTECTED_HASHES = {
+    path: digest
+    for path, digest in AP2R1F_PROTECTED_HASHES.items()
+    if path not in {AP2R1J_PRODUCT_PATH, AP2R1J_TEST_PATH}
+}
+VALIDATOR_STORE_CONTRACTS = {
+    "input_select": (1, frozenset({1, 2})),
+    "input_boolean": (1, frozenset({1})),
+}
+VALIDATOR_TRANSITIONS = {
+    "fresh": "INSTALLED_FRESH",
+    "current": "CURRENT",
+    "modified": "PRESERVED_MODIFIED",
+    "collision": "BLOCKED_COLLISION",
+    "destination_changed": "ABORTED_DESTINATION_CHANGED",
+}
+VALIDATOR_BACKUP_FIXTURE = b"# validator exact pre-update bytes\nstate: custom\n"
+PROTECTED_ASSETS_AST_BASE = "c65e8b73096cb64ff2d21b6e2b05602f71a4a2af"
+PROTECTED_ASSETS_AST_SHA256 = {
+    "assets.HelperClassification": "1c2d5cb92be71c0e34a14e1d9b721b62bb99d697411e3cd14d3a4a67d3b66d51",
+    "assets.SchedulerFilesystemAction": "d9ff8d458dfb10b355afc52858bbc65d37ab78d847a90df8ef0737d6f9d8edbc",
+    "assets.RollbackAction": "131b9a72f67c4613fc5c2acb1032b1efeaa81d8143ba2049fce1992be97390c4",
+    "assets.DestinationAttestationAction": "ccc3668decc2da3cff2c5510cffb4c9dd6bd42db5b4ffb2deeec14d4c7dc5d70",
+    "assets.FileIdentity": "325d334a0caf93a1bb9e7fe534222f2e6747cdc57ac8da83b417678bbda4284f",
+    "assets.LiveHelperFact": "36c0602273ce64058dff08f915018f38efea256fbb678a5478441d79a305fdb7",
+    "assets.SchedulerInstallAuthorization": "247724e5dc9fcb87fd12887fa6f9e7fe00d65c4e34155f1c00c2ea938e814680",
+    "assets.FileSnapshot": "1e751060e17a5fb0f4bc16d3774ede9581bc8f812e61b0b878bd1001d28140f8",
+    "assets.SchedulerFilesystemResult": "4c7b6d4b49e3efc41107cf9c341d0cc7bb8bda6080b363f0259ae8acc6a2a46c",
+    "assets.AssetFilesystemResult": "d3b0a551e40fef56cf67791c0f0b90b9195023e0dc2510b4478564dbc866eeb7",
+    "assets.RollbackResult": "c672715d9c70813c179a74055d6378b7ae539ab8d3bc3d7f453702f6b148c052",
+    "assets.DestinationAttestationResult": "4259e3ad8887ff227d14aca9843a800017b639c894604c2c74d08da66cb74517",
+    "assets._LiveHelperSnapshot": "2c460298847ce006bbfd503ed0462358948291e6b49b6796d4c951fa063d8196",
+    "assets._DiskHelperEvidence": "1dd0679aa050af27c34fee17c2d66f1deffb75652fb32ce301754bb8c16ebede",
+    "assets._FilesystemContractError": "bbd39f13fea484f089702c226875898a6700498ad73acbeb9d9d7f3bd9a057fb",
+    "assets._stable_entity_id_map": "31b648814c1cc8858d151e5f6870196374cbff7fb15867aa7319887ee5bf0231",
+    "assets._migrate_legacy_entity_ids": "de0b5d49f25ed253091179bf2f50cf11479667f1b376b44e8960c598ca857140",
+    "assets._sha256": "1bac43b621d5b16f48868469dd62fcc1c2050bd1419fc513aa306c1aeac3374a",
+    "assets._identity_from_stat": "380304c31497af1b285a505568dcddd9508037fdc08628f3dbdd0a64b7494c42",
+    "assets._same_inode": "535b0b8eeaf492509af52db965feddc8ec5a86742cb12222649e5eef2544960d",
+    "assets._read_fd_bytes": "d0efddadb19dc375a05d903db4ec3dcd4e5799bfc429e2d1ba1101baf7768202",
+    "assets._open_read_flags": "d54eef5e1031651eb4f97f8ed43f3aaafe5e5d70b9cebe450473bd410408113a",
+    "assets._capture_regular_file": "1061037ba7c57f09bee5b538fcd03cefb98efd1c3dc0ffe76c4adaa3f8aa43bb",
+    "assets._bounded_path_snapshot": "cdcc9e070b7309d3de604ba1c698586c79b1654b9bbdcd21a23cb28776bd445f",
+    "assets._unlink_owned_path": "fe3029303bdc9ae9eefdfe7006c5ccd8bb3c832d8ce9e76f8fe6d707e820e7ba",
+    "assets._write_all_fd": "44890b6479641c1e8588cca5cf810d42807b98a0cc85aaf5b1899a7a72f71c59",
+    "assets._create_verified_temp": "a9ea003c421aca92fdb84eb381c3181c2ab5fc2b3d1b0a62d1b508c43267deff",
+    "assets._verify_temp_for_publish": "7b89399b099245fdbb1a49426bae370345359986751408774f43d85fae1c51ba",
+    "assets._fsync_directory": "b46f9299b2b748229853a031e95bbb55cee662d243354eeae38494aead6fd828",
+    "assets._atomic_copy": "69e7b07f7179cb10e58b751e5c9716c81f0b8345bdaa712dab5624069e4e1558",
+    "assets._verify_fixed_backup": "95f1c792cfe905748bdd5abd65107c0a81c6f829693f766b18faacc248564690",
+    "assets._ensure_fixed_backup": "dd2c5c558fa8dfdb577362ed29cf1a9a994756e6ecb1baff67b6d40b1a55772c",
+    "assets._storage_helper_ids": "036a0e36b7f8a85c9d0552da74d130e6dc49738f7889b18e6015e72e4bf7fefb",
+    "assets._read_disk_helper_evidence": "ef6cc382822e358ce91c6d88c039a271ab9786031db4a4edf9f3f1bf85ba1d4b",
+    "assets._unverifiable_live_snapshot": "da3321ab2c0c5b2e38d2b4c0e2ac5255c44b1ac061fbdd8984a81df1b68aa1fb",
+    "assets._capture_live_helper_snapshot": "fbe6dafca2cdc9f166b26ab4f8ccf54f03361380ad785fadd541caf2bd433965",
+    "assets._build_scheduler_authorization": "4ec2b8a6db84a26febd1194c8ceba2fa39e88d18c0f172619a753be957bcfab3",
+    "assets._async_scheduler_authorization": "d69a982c3277717c905b6cde7d3144b79a68691548a9a96e63953c743ab8ccbb",
+    "assets._atomic_write_json": "e2d9b889b54440b334b7cf49c6b45608c11906f9e1864ce434490fd48c8abd53",
+    "assets._backup_storage_once": "ee86c9c948350c0beb7472e47740970b173884d0a23cbe72b02978b3b4a7c692",
+    "assets._replace_entities_cards": "1269b45ed3f33ad4c05c613b5d783f84ed9072bee3f5e829466538b6b8e42642",
+    "assets._migrate_rce_load_rows": "3dcffaff1f6def40074b77820b6a8dfb2d61e3b26fc26b7c758ccd37a464aa48",
+    "assets._is_hoymiles_dashboard": "1faf3f3e16e48dfa964b2ff810ae51dc082940acfa5da6a9167b1c39bca50fb0",
+    "assets._async_sync_lovelace_resource": "73a6abbd8c8ca5308efe4156f07a95061a68739f6ee4205a7dab14803f4b518a",
+    "assets._sync_lovelace_storage": "48aa5daf5234b57994533d5ff0836e9ff0ff38619dce2e4b43048139d51dec5c",
+    "assets._migrate_inverter_image_paths": "7c0c04160889d7285c31989b6f15fcfa615375b104a150ffb8525b566e5c16b2",
+    "assets._revalidate_destination": "50c0fc105c3c46074a8f398a16d45f460d34c5505971c860e479ec9ae14bd65c",
+    "assets._remove_transaction_artifact": "ff70b40e1790b42f18a40dacfe1096bc1de374236bcb8512d8537c921bd5067f",
+    "assets._aborted_scheduler_result": "bb27ecd462798ceb113c0439d080e993c9640d654b017de68d33b1bc24952efa",
+    "assets._sync_ems_scheduler": "587396d7fb5ac88d5906a96d334264ed621293d01e87b9881466ea2b9cbfd7e3",
+    "assets._rollback_scheduler": "6e1943ea85dd8e1a57cf2cdeb2c9c3f4cc463a682bc4955005d240c1eb0dbc44",
+    "assets._sync_regular_asset": "0666273e715759fe5e88aee17493d238f30c8a1be42405b3bbb909a5964e74a0",
+    "assets._sync_assets": "c234e26bdac983a15cf0b48e933ad0dcf70cb7d7eeb47c3c28e2e4acc3868301",
+    "assets._get_install_lock": "d1625e977c0d72e69e6841eefc5a9d0146c073e5ccda30e6d9b11661b9e8027d",
+    "assets._attest_scheduler_destination": "ac1c7c0478ff74b2e3ecdcfa6adf3fcd36684ce3047e43a1d3e1248f1f78c089",
+    "assets._scheduler_metadata_after_transaction": "e5392d3a1de39219b9cc8b84503409c7bdf83f23b45c56f67533e5dbacde3daa",
+    "assets._log_scheduler_outcome": "45e70bc47fc7ba9c48108115017a1116d64f22c27b02aa7002ee9d4af5697823",
+    "assets.async_install_assets": "dce56901ecfb45304b8f418fdf23d2a419d058d59a59650fbe91c87d31377c02",
+}
+
+
+class ValidatorState:
+    """Minimal public-compatible State fixture."""
+
+    def __init__(self, entity_id: str, state: str, attributes: dict) -> None:
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = attributes
+
+
+class ValidatorStateMachine:
+    """Minimal exact StateMachine.get surface."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, object] = {}
+
+    def get(self, entity_id: str):
+        return self.values.get(entity_id)
+
+    def put(self, state: ValidatorState) -> None:
+        self.values[state.entity_id] = state
+
+
+class ValidatorRegistryEntry:
+    """Minimal public RegistryEntry identity."""
+
+    def __init__(self, entity_id: str, platform: str, unique_id: str) -> None:
+        self.entity_id = entity_id
+        self.platform = platform
+        self.unique_id = unique_id
+
+
+class ValidatorEntityRegistry:
+    """Public exact and identity-index lookup surface."""
+
+    def __init__(self) -> None:
+        self.entries: dict[str, ValidatorRegistryEntry] = {}
+
+    def async_get(self, entity_id: str):
+        return self.entries.get(entity_id)
+
+    def async_get_entity_id(
+        self,
+        domain: str,
+        platform: str,
+        unique_id: str,
+    ) -> str | None:
+        for entry in self.entries.values():
+            if (
+                entry.entity_id.partition(".")[0] == domain
+                and entry.platform == platform
+                and entry.unique_id == unique_id
+            ):
+                return entry.entity_id
+        return None
+
+
+class ValidatorStore:
+    """Per-Hass managed metadata Store fixture."""
+
+    def __init__(self, hass, *_args, **_kwargs) -> None:
+        self.hass = hass
+
+    async def async_load(self):
+        self.hass.store_load_calls += 1
+        return json.loads(json.dumps(self.hass.store_payload))
+
+    async def async_save(self, payload: dict) -> None:
+        self.hass.store_save_calls += 1
+        if self.hass.metadata_failures:
+            self.hass.metadata_failures -= 1
+            raise OSError("injected validator metadata failure")
+        self.hass.store_payload = json.loads(json.dumps(payload))
+
+
+class ValidatorHass:
+    """Only the public HA surfaces needed by async_install_assets."""
+
+    def __init__(self, config_path: Path, language: str = "pl-PL") -> None:
+        self.config = types.SimpleNamespace(
+            config_dir=str(config_path),
+            language=language,
+        )
+        self.data: dict = {}
+        self.states = ValidatorStateMachine()
+        self.entity_registry = ValidatorEntityRegistry()
+        self.store_payload: dict = {}
+        self.store_load_calls = 0
+        self.store_save_calls = 0
+        self.metadata_failures = 0
+        self.executor_before = None
+        self.executor_after = None
+        self.pause_executor_name: str | None = None
+        self.pause_entered: asyncio.Event | None = None
+        self.pause_release: asyncio.Event | None = None
+        self.replace_failure_path: Path | None = None
+
+    async def async_add_executor_job(self, function, *args):
+        if self.executor_before is not None:
+            self.executor_before(function.__name__, args)
+        if function.__name__ == self.pause_executor_name:
+            require(
+                self.pause_entered is not None
+                and self.pause_release is not None,
+                "Executor pause events are missing",
+            )
+            self.pause_entered.set()
+            await self.pause_release.wait()
+        module = sys.modules[function.__module__]
+        original_replace = module.os.replace
+
+        def replace_with_failure(source, destination) -> None:
+            if (
+                self.replace_failure_path is not None
+                and Path(destination) == self.replace_failure_path
+            ):
+                raise OSError("injected validator replace failure")
+            original_replace(source, destination)
+
+        module.os.replace = replace_with_failure
+        try:
+            result = function(*args)
+        finally:
+            module.os.replace = original_replace
+        if self.executor_after is not None:
+            self.executor_after(function.__name__, result)
+        return result
+
+
+def validator_install(assets, hass: ValidatorHass, overwrite: bool = False):
+    """Invoke only the public runtime transaction."""
+    return asyncio.run(
+        assets.async_install_assets(
+            hass,
+            overwrite=overwrite,
+            publish_frontend=False,
+        )
+    )
+
+
+def validator_set_ui_collision(
+    hass: ValidatorHass,
+    entity_id: str = VALIDATOR_HELPER_IDS[0],
+) -> None:
+    """Publish an exact editable helper before its delayed Store save."""
+    domain, object_id = entity_id.split(".", 1)
+    hass.states.put(ValidatorState(entity_id, "off", {"editable": True}))
+    hass.entity_registry.entries[entity_id] = ValidatorRegistryEntry(
+        entity_id,
+        domain,
+        object_id,
+    )
+
+
+def validator_scheduler_path(config_path: Path) -> Path:
+    return config_path / VALIDATOR_SCHEDULER_RELATIVE
+
+
+def validator_file_identity(path: Path) -> tuple[int, int, int, int, int, int]:
+    info = path.lstat()
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_mode,
+        info.st_nlink,
+    )
+
+
+def validator_metadata_hash(hass: ValidatorHass) -> str | None:
+    values = hass.store_payload.get("assets", {})
+    if not isinstance(values, dict):
+        return None
+    value = values.get(VALIDATOR_SCHEDULER_RELATIVE)
+    return value if isinstance(value, str) else None
 
 # Updated only after the focused production-derived test is reviewed together
 # with the scheduler candidate. Both hashes normalize line endings.
@@ -36,7 +744,7 @@ EXPECTED_BALANCING_TEST_SHA256 = "9b2eac1ad6bb08b1781a58037c063105aeb22e9d2d0978
 EXPECTED_BALANCING_TEST_AST_SHA256 = "45eab98c875249f68c761b5768002fedb1e4233bb386c652d6cb5223e6fdf1e1"
 EXPECTED_BALANCING_RUNTIME_SHA256 = "54b92b20edfad6d8e6f7c2a7fda8767115b53dc94c2d1b1bd73794e9af4d3161"
 EXPECTED_BALANCING_RUNTIME_AST_SHA256 = "255c3cc06b54df6a932545365dc722ec14fea89074716f9edfbe02196580ddaf"
-EXPECTED_BALANCING_SCHEDULER_SHA256 = "f8ff6ed932ae3575481f8f0b3ddf62c86130ccda7ef51246b91ff8f0a0a8e3c1"
+EXPECTED_BALANCING_SCHEDULER_SHA256 = "821294e2c7f7ba3e9896d15333315f35a1acb09d54fabfcb3a6856dd49ef472f"
 EXPECTED_BALANCING_SCRIPT_SEMANTIC_SHA256 = "4136f4458562c8e25f22487c002b595b0f91dcb13d61145dd07afd81f503bee3"
 EXPECTED_BALANCING_CONTROL_SEMANTIC_SHA256 = "f760c84517029cc566decbd96a1af22ac8cbe2a30cb89029f2697a99d59e2a34"
 REQUIRED_BALANCING_TEST_FUNCTIONS = {
@@ -174,6 +882,2317 @@ def require(condition: bool, message: str) -> None:
     """Raise a readable release validation error."""
     if not condition:
         raise RuntimeError(message)
+
+
+def _git_path_set(*args: str) -> set[str]:
+    output = subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    )
+    return {line.strip().replace("\\", "/") for line in output.splitlines() if line.strip()}
+
+
+def _git_blob_sha256(reference: str, relative_path: str) -> str:
+    """Hash exact historical bytes without substituting the current worktree."""
+
+    content = subprocess.check_output(
+        ["git", "show", f"{reference}:{relative_path}"],
+        cwd=ROOT,
+    )
+    return hashlib.sha256(content).hexdigest()
+
+
+def validate_historical_rev28_gate() -> None:
+    """Validate the frozen REV28 fixture independently of current AP-1."""
+
+    historical_branch_paths = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{VALIDATOR_HISTORICAL_REF}...{REV28_HISTORICAL_COMMIT}",
+    )
+    require(
+        historical_branch_paths == SUPERVISOR_BRANCH_PATHS,
+        "Historical REV28 branch manifest is not exactly 32 paths: "
+        f"missing={sorted(SUPERVISOR_BRANCH_PATHS - historical_branch_paths)}, "
+        f"extra={sorted(historical_branch_paths - SUPERVISOR_BRANCH_PATHS)}",
+    )
+    protected_task_paths = frozenset(REV28_PROTECTED_TASK_HASHES)
+    require(
+        len(REV28_CORRECTION_PATHS) == 8
+        and PHASE_2_TASK_PATHS - protected_task_paths == REV28_CORRECTION_PATHS
+        and PHASE_2_TASK_PATHS - REV28_CORRECTION_PATHS == protected_task_paths,
+        "Revision 28 correction manifest is not exactly the authorized 8 paths",
+    )
+    for relative_path, expected_hash in {
+        **REV28_PROTECTED_TASK_HASHES,
+        **REV28_PROTECTED_BACKEND_HASHES,
+    }.items():
+        actual_hash = _git_blob_sha256(
+            REV28_HISTORICAL_COMMIT,
+            relative_path,
+        )
+        require(
+            actual_hash == expected_hash,
+            f"Historical REV28 protected bytes changed: {relative_path}",
+        )
+
+    exact = lambda actual, expected: actual == expected
+    correction_anchor = sorted(REV28_CORRECTION_PATHS)[0]
+    phase_anchor = sorted(PHASE_2_TASK_PATHS)[0]
+    branch_anchor = sorted(SUPERVISOR_BRANCH_PATHS)[0]
+    require(
+        not exact(
+            REV28_CORRECTION_PATHS - {correction_anchor},
+            REV28_CORRECTION_PATHS,
+        ),
+        "Correction 7-path count self-test did not fail",
+    )
+    require(
+        not exact(
+            REV28_CORRECTION_PATHS | {"__unexpected_correction_path__"},
+            REV28_CORRECTION_PATHS,
+        ),
+        "Correction 9-path count self-test did not fail",
+    )
+    require(
+        not exact(PHASE_2_TASK_PATHS - {phase_anchor}, PHASE_2_TASK_PATHS),
+        "Phase 2 13-path count self-test did not fail",
+    )
+    require(
+        not exact(PHASE_2_TASK_PATHS | {"__unexpected_phase2_path__"}, PHASE_2_TASK_PATHS),
+        "Phase 2 15-path count self-test did not fail",
+    )
+    require(
+        not exact(SUPERVISOR_BRANCH_PATHS - {branch_anchor}, SUPERVISOR_BRANCH_PATHS),
+        "Branch 31-path count self-test did not fail",
+    )
+    require(
+        not exact(SUPERVISOR_BRANCH_PATHS | {"__unexpected_branch_path__"}, SUPERVISOR_BRANCH_PATHS),
+        "Branch 33-path count self-test did not fail",
+    )
+
+
+def _effective_path_set(
+    committed_paths: set[str] | frozenset[str],
+    overlay_paths: set[str] | frozenset[str],
+) -> set[str]:
+    """Combine committed and overlay paths exactly once."""
+
+    return set(committed_paths) | set(overlay_paths)
+
+
+def _current_overlay_paths() -> set[str]:
+    """Return every tracked or untracked path in the current overlay."""
+
+    return _git_path_set("diff", "--name-only", "HEAD") | _git_path_set(
+        "ls-files", "--others", "--exclude-standard"
+    )
+
+
+def _effective_git_manifest(base: str, overlay_paths: set[str]) -> set[str]:
+    """Return committed base-to-HEAD paths plus the current overlay."""
+
+    committed_paths = _git_path_set("diff", "--name-only", f"{base}..HEAD")
+    return _effective_path_set(committed_paths, overlay_paths)
+
+
+def _git_text(*args: str) -> str:
+    """Return stripped Git output for an exact scalar fact."""
+
+    return subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    ).strip()
+
+
+def _git_name_status(*args: str) -> set[tuple[str, ...]]:
+    """Return name-status records without hiding rename or delete records."""
+
+    output = subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    )
+    return {
+        tuple(part.replace("\\", "/") for part in line.split("\t"))
+        for line in output.splitlines()
+        if line
+    }
+
+
+def _git_commit_parents(reference: str) -> tuple[str, ...]:
+    """Return every parent of one commit."""
+
+    fields = _git_text("rev-list", "--parents", "-n", "1", reference).split()
+    return tuple(fields[1:])
+
+
+def _git_tree_modes(reference: str, relative_paths: frozenset[str]) -> dict[str, str]:
+    """Return final tree modes for the selected paths."""
+
+    output = subprocess.check_output(
+        ["git", "ls-tree", "-r", reference, "--", *sorted(relative_paths)],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    )
+    modes: dict[str, str] = {}
+    for line in output.splitlines():
+        metadata, relative_path = line.split("\t", 1)
+        modes[relative_path.replace("\\", "/")] = metadata.split()[0]
+    return modes
+
+
+def _working_blob_sha256(relative_path: str) -> str:
+    """Hash one regular working-tree file without Git index substitution."""
+
+    path = ROOT / relative_path
+    require(
+        path.is_file() and not path.is_symlink(),
+        f"AP-2R1 protected working file is missing or not regular: {relative_path}",
+    )
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _require_ap2r1_protected_hashes(reference: str | None) -> None:
+    """Require the thirteen reviewed AP-2R1F blobs in a tree or overlay."""
+
+    for relative_path, expected_hash in AP2R1F_PROTECTED_HASHES.items():
+        actual_hash = (
+            _git_blob_sha256(reference, relative_path)
+            if reference is not None
+            else _working_blob_sha256(relative_path)
+        )
+        require(
+            actual_hash == expected_hash,
+            f"AP-2R1F protected blob changed: {relative_path}",
+        )
+
+
+def _ap2r1j_path_bytes(relative_path: str, reference: str | None) -> bytes:
+    """Read exact AP-2R1J bytes from a commit or the working tree."""
+
+    if reference is not None:
+        return subprocess.check_output(
+            ["git", "show", f"{reference}:{relative_path}"],
+            cwd=ROOT,
+        )
+    path = ROOT / relative_path
+    require(
+        path.is_file() and not path.is_symlink(),
+        f"AP-2R1J file is missing or not regular: {relative_path}",
+    )
+    return path.read_bytes()
+
+
+def _require_ap2r1j_protected_hashes(reference: str | None) -> None:
+    """Keep every AP-2R1F blob outside the three-file correction exact."""
+
+    for relative_path, expected_hash in AP2R1J_PROTECTED_HASHES.items():
+        actual_hash = hashlib.sha256(
+            _ap2r1j_path_bytes(relative_path, reference)
+        ).hexdigest()
+        require(
+            actual_hash == expected_hash,
+            f"AP-2R1J protected blob changed: {relative_path}",
+        )
+
+
+def _ap2r1j_expected_product_bytes() -> bytes:
+    """Build the only authorized product result from the exact reviewed base."""
+
+    original = _ap2r1j_path_bytes(AP2R1J_PRODUCT_PATH, AP2R1J_CORRECTION_BASE)
+    unconditional = (
+        b"        _validate_grid_signs(point)\n"
+        b"        _validate_power_balance(point)\n"
+        b'        _validate_policy(policy_id, point["policy"])\n'
+    )
+    scoped = (
+        b"        _validate_grid_signs(point)\n"
+        b'        if policy_id == "rcm":\n'
+        b"            _validate_power_balance(point)\n"
+        b'        _validate_policy(policy_id, point["policy"])\n'
+    )
+    require(
+        original.count(unconditional) == 1,
+        "Frozen AP-2R1J base no longer has one exact unconditional balance call",
+    )
+    return original.replace(unconditional, scoped, 1)
+
+
+def _require_ap2r1j_product_contract(reference: str | None) -> None:
+    """Require the exact one-condition production correction."""
+
+    require(
+        _ap2r1j_path_bytes(AP2R1J_PRODUCT_PATH, reference)
+        == _ap2r1j_expected_product_bytes(),
+        "AP-2R1J production bytes differ from the exact RCEm-only balance scope",
+    )
+
+
+def _canonical_ap2_ast_dump(node: ast.AST) -> str:
+    options = {
+        "annotate_fields": True,
+        "include_attributes": False,
+        "indent": None,
+    }
+    if sys.version_info >= (3, 13):
+        options["show_empty"] = True
+    return ast.dump(node, **options)
+
+
+def _canonical_ap2_ast_sha256(node: ast.AST) -> str:
+    return hashlib.sha256(
+        _canonical_ap2_ast_dump(node).encode("utf-8")
+    ).hexdigest()
+
+
+def _require_current_ap2_ast_gates(source: str) -> None:
+    """Reject skipped, mixed or weakened current AP-2 AST gates."""
+
+    functions = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in AP2_CANONICAL_GATE_AST_SHA256
+    }
+    require(
+        len(functions) == 7 and functions == AP2_CANONICAL_GATE_AST_SHA256,
+        "Current AP-2 canonical AST serialization or regression gate changed",
+    )
+
+
+def _require_ap2r1j_regression_contract(reference: str | None) -> None:
+    """Require the complete real-HA convergence regression without deletions."""
+
+    content = _ap2r1j_path_bytes(AP2R1J_TEST_PATH, reference)
+    require(
+        hashlib.sha256(content).hexdigest() == AP2R1J_TEST_SHA256,
+        "AP-2R1J real-HA regression bytes differ",
+    )
+    tree = ast.parse(content, filename=AP2R1J_TEST_PATH)
+    functions = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in AP2R1J_REGRESSION_AST_SHA256
+    }
+    require(
+        functions == AP2R1J_REGRESSION_AST_SHA256,
+        "AP-2R1J convergence or invalid-balance regression group changed",
+    )
+
+
+def _require_ap2r1j_validator(reference: str | None = None) -> None:
+    """Require the bounded AP-2R1J overlay and future-clean validator markers."""
+
+    source = _ap2r1j_path_bytes(AP2R1_VALIDATOR_PATH, reference).decode("utf-8")
+    required_markers = (
+        'AP2R1J_CONVERGENCE_FIX_OVERLAY = "AP2R1J_CONVERGENCE_FIX_OVERLAY"',
+        'AP2R1J_COMMITTED_CLEAN = "AP2R1J_COMMITTED_CLEAN"',
+        "def _require_ap2r1j_product_contract(reference: str | None) -> None:",
+        "def _require_ap2r1j_regression_contract(reference: str | None) -> None:",
+        "def _require_ap2r1j_commit_shape(reference: str) -> None:",
+        "def _ap2r1j_manifests_match(",
+    )
+    require(
+        all(marker in source for marker in required_markers),
+        "AP-2R1J validator markers are incomplete",
+    )
+
+
+def _require_ap2r1j_contract(reference: str | None) -> None:
+    """Require exact protected, product, regression and validator contracts."""
+
+    _require_ap2r1j_protected_hashes(reference)
+    _require_ap2r1j_product_contract(reference)
+    _require_ap2r1j_regression_contract(reference)
+    _require_ap2r1j_validator(reference)
+
+
+def _require_corrected_ap2r1_validator(reference: str | None = None) -> None:
+    """Require a working or committed validator to expose all bounded states."""
+
+    content = (
+        subprocess.check_output(
+            ["git", "show", f"{reference}:{AP2R1_VALIDATOR_PATH}"], cwd=ROOT
+        )
+        if reference is not None
+        else (ROOT / AP2R1_VALIDATOR_PATH).read_bytes()
+    )
+    source = content.decode("utf-8")
+    required_markers = (
+        'AP2R1F_OVERLAY_CANDIDATE = "AP2R1F_OVERLAY_CANDIDATE"',
+        'AP2R1F_COMMITTED_CLEAN = "AP2R1F_COMMITTED_CLEAN"',
+        'AP2R1G_VALIDATOR_FIX_OVERLAY = "AP2R1G_VALIDATOR_FIX_OVERLAY"',
+        "def _classify_ap2r1_git_state() -> str:",
+    )
+    require(
+        all(marker in source for marker in required_markers),
+        "AP-2R1 corrected dual-state validator markers are incomplete",
+    )
+
+
+def _require_ap2r1kr1_regression_contract(reference: str | None) -> None:
+    """Freeze malformed IDs, exact exceptions, no calls/writes and RCEm control."""
+
+    content = _ap2r1j_path_bytes(AP2R1J_TEST_PATH, reference)
+    functions = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in ast.parse(content, filename=AP2R1J_TEST_PATH).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in AP2R1KR1_REGRESSION_AST_SHA256
+    }
+    require(
+        len(functions) == 5 and functions == AP2R1KR1_REGRESSION_AST_SHA256,
+        "AP-2R1K-R1 malformed-ID, no-write or invalid-balance regression changed",
+    )
+
+
+def _require_ap2r1kr1_contract(reference: str | None) -> None:
+    """Freeze the type guard and complete real-HA malformed-ID regression."""
+
+    _require_ap2r1j_protected_hashes(reference)
+    for relative_path, expected_hash in (
+        (AP2R1J_PRODUCT_PATH, AP2R1KR1_PRODUCT_SHA256),
+        (AP2R1J_TEST_PATH, AP2R1KR1_TEST_SHA256),
+    ):
+        require(
+            hashlib.sha256(_ap2r1j_path_bytes(relative_path, reference)).hexdigest()
+            == expected_hash,
+            f"AP-2R1K-R1 exact policy-ID contract changed: {relative_path}",
+        )
+    _require_ap2r1kr1_regression_contract(reference)
+    source = _ap2r1j_path_bytes(AP2R1_VALIDATOR_PATH, reference).decode("utf-8")
+    _require_current_ap2_ast_gates(source)
+    required_markers = (
+        'AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY = "AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY"',
+        'AP2R1KR1_COMMITTED_CLEAN = "AP2R1KR1_COMMITTED_CLEAN"',
+        'AP2R1KR1_COMMIT_SUBJECT = "fix: normalize timeline policy identifiers"',
+    )
+    require(
+        all(marker in source for marker in required_markers),
+        "AP-2R1K-R1 validator markers are incomplete",
+    )
+    functions = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in AP2R1KR1_GIT_AST_SHA256
+    }
+    require(
+        len(functions) == 3 and functions == AP2R1KR1_GIT_AST_SHA256,
+        "AP-2R1K-R1 exact Git state/parent/manifest guard changed",
+    )
+
+
+def _require_ap2r1_manifests(reference: str, overlay_paths: set[str]) -> None:
+    """Require exact AP-2R1 correction, task and public-branch manifests."""
+
+    correction_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP2R1_CORRECTION_BASE}..{reference}"),
+        overlay_paths,
+    )
+    task_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{reference}"),
+        overlay_paths,
+    )
+    branch_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{reference}"),
+        overlay_paths,
+    )
+    require(
+        _ap2r1_manifests_match(correction_paths, task_paths, branch_paths),
+        "Current AP-2R1 manifests are not exactly 14/23/46 paths: "
+        f"correction_missing={sorted(AP2R1_CORRECTION_PATHS - correction_paths)}, "
+        f"correction_extra={sorted(correction_paths - AP2R1_CORRECTION_PATHS)}, "
+        f"task_missing={sorted(AP2R1_CUMULATIVE_TASK_PATHS - task_paths)}, "
+        f"task_extra={sorted(task_paths - AP2R1_CUMULATIVE_TASK_PATHS)}, "
+        f"branch_missing={sorted(AP2R1_BRANCH_PATHS - branch_paths)}, "
+        f"branch_extra={sorted(branch_paths - AP2R1_BRANCH_PATHS)}",
+    )
+
+
+def _require_ap2r1j_manifests(reference: str, overlay_paths: set[str]) -> None:
+    """Require exact AP-2R1J correction, task and public-branch manifests."""
+
+    correction_paths = _effective_path_set(
+        _git_path_set(
+            "diff", "--name-only", f"{AP2R1J_CORRECTION_BASE}..{reference}"
+        ),
+        overlay_paths,
+    )
+    task_paths = _effective_path_set(
+        _git_path_set(
+            "diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{reference}"
+        ),
+        overlay_paths,
+    )
+    branch_paths = _effective_path_set(
+        _git_path_set(
+            "diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{reference}"
+        ),
+        overlay_paths,
+    )
+    require(
+        _ap2r1j_manifests_match(correction_paths, task_paths, branch_paths),
+        "Current AP-2R1J manifests are not exactly 3/23/46 paths: "
+        f"correction_missing={sorted(AP2R1J_CORRECTION_PATHS - correction_paths)}, "
+        f"correction_extra={sorted(correction_paths - AP2R1J_CORRECTION_PATHS)}, "
+        f"task_missing={sorted(AP2R1_CUMULATIVE_TASK_PATHS - task_paths)}, "
+        f"task_extra={sorted(task_paths - AP2R1_CUMULATIVE_TASK_PATHS)}, "
+        f"branch_missing={sorted(AP2R1_BRANCH_PATHS - branch_paths)}, "
+        f"branch_extra={sorted(branch_paths - AP2R1_BRANCH_PATHS)}",
+    )
+
+
+def _require_ap2r1_commit_shape(reference: str) -> None:
+    """Require one exact atomic AP-2R1 commit on the frozen parent."""
+
+    require(
+        _git_commit_parents(reference) == (AP2R1_CORRECTION_BASE,),
+        "AP-2R1 committed candidate must have exactly one parent: 4a49343",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", reference) == AP2R1_COMMIT_SUBJECT,
+        "AP-2R1 committed candidate subject differs",
+    )
+    commit_paths = _git_path_set(
+        "diff-tree", "--no-commit-id", "--name-only", "-r", reference
+    )
+    require(
+        commit_paths == AP2R1_CORRECTION_PATHS,
+        "AP-2R1 committed candidate is not the exact fourteen-path commit",
+    )
+    name_status = _git_name_status(
+        "diff-tree", "--no-commit-id", "--name-status", "--find-renames", "-r", reference
+    )
+    expected_name_status = {
+        ("A" if path in AP2R1_NEW_PATHS else "M", path)
+        for path in AP2R1_CORRECTION_PATHS
+    }
+    require(
+        name_status == expected_name_status,
+        "AP-2R1 committed candidate contains a rename, delete or wrong path status",
+    )
+    require(
+        _git_tree_modes(reference, AP2R1_CORRECTION_PATHS)
+        == {path: "100644" for path in AP2R1_CORRECTION_PATHS},
+        "AP-2R1 committed candidate contains a missing or extra mode-only change",
+    )
+    _require_ap2r1_protected_hashes(reference)
+    _require_ap2r1_manifests(reference, set())
+
+
+def _require_ap2r1j_commit_shape(reference: str) -> None:
+    """Require one exact atomic AP-2R1J commit on d7d0c246."""
+
+    require(
+        _git_commit_parents(reference) == (AP2R1J_CORRECTION_BASE,),
+        "AP-2R1J committed candidate must have exactly one parent: d7d0c246",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", reference)
+        == AP2R1J_COMMIT_SUBJECT,
+        "AP-2R1J committed candidate subject differs",
+    )
+    commit_paths = _git_path_set(
+        "diff-tree", "--no-commit-id", "--name-only", "-r", reference
+    )
+    require(
+        commit_paths == AP2R1J_CORRECTION_PATHS,
+        "AP-2R1J committed candidate is not the exact three-path commit",
+    )
+    require(
+        _git_name_status(
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "--find-renames",
+            "-r",
+            reference,
+        )
+        == {("M", path) for path in AP2R1J_CORRECTION_PATHS},
+        "AP-2R1J committed candidate contains a rename, delete or wrong status",
+    )
+    require(
+        _git_tree_modes(reference, AP2R1J_CORRECTION_PATHS)
+        == {path: "100644" for path in AP2R1J_CORRECTION_PATHS},
+        "AP-2R1J committed candidate contains a missing or mode-only change",
+    )
+    _require_ap2r1j_contract(reference)
+    _require_ap2r1j_manifests(reference, set())
+
+
+def _require_ap2r1kr1_commit_shape(reference: str) -> None:
+    """Require one exact three-file type-normalization child of d7d0c246."""
+
+    require(
+        _git_commit_parents(reference) == (AP2R1J_CORRECTION_BASE,),
+        "AP-2R1K-R1 requires exactly one parent: d7d0c246",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", reference) == AP2R1KR1_COMMIT_SUBJECT,
+        "AP-2R1K-R1 committed subject differs",
+    )
+    require(
+        _git_path_set("diff-tree", "--no-commit-id", "--name-only", "-r", reference)
+        == AP2R1J_CORRECTION_PATHS,
+        "AP-2R1K-R1 committed paths are not the exact three paths",
+    )
+    require(
+        _git_name_status(
+            "diff-tree", "--no-commit-id", "--name-status", "--find-renames",
+            "-r", reference,
+        ) == {("M", path) for path in AP2R1J_CORRECTION_PATHS},
+        "AP-2R1K-R1 commit contains a rename, delete or wrong status",
+    )
+    require(
+        _git_tree_modes(reference, AP2R1J_CORRECTION_PATHS)
+        == {path: "100644" for path in AP2R1J_CORRECTION_PATHS},
+        "AP-2R1K-R1 committed modes differ",
+    )
+    _require_ap2r1kr1_contract(reference)
+    _require_ap2r1j_manifests(reference, set())
+
+
+def _classify_ap2r1_git_state() -> str:
+    """Classify only exact d7d0c246, J/R1 overlays and one R1 follow-up."""
+
+    head = _git_text("rev-parse", "HEAD")
+    parents = _git_commit_parents(head)
+    staged_paths = _git_path_set("diff", "--cached", "--name-only")
+    unstaged_paths = _git_path_set("diff", "--name-only")
+    untracked_paths = _git_path_set("ls-files", "--others", "--exclude-standard")
+    overlay_paths = unstaged_paths | staged_paths | untracked_paths
+    require(
+        not staged_paths,
+        f"AP-2R1 recognized states require zero staged paths; found={len(staged_paths)}",
+    )
+    if head == AP2R1J_CORRECTION_BASE:
+        if not overlay_paths:
+            _require_corrected_ap2r1_validator(head)
+            _require_ap2r1_commit_shape(head)
+            return AP2R1F_COMMITTED_CLEAN
+        require(
+            unstaged_paths == AP2R1J_CORRECTION_PATHS
+            and not untracked_paths
+            and overlay_paths == AP2R1J_CORRECTION_PATHS,
+            "AP-2R1J/K-R1 overlay requires the exact three paths",
+        )
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == {("M", path) for path in AP2R1J_CORRECTION_PATHS},
+            "AP-2R1J/K-R1 overlay contains a rename, delete or wrong status",
+        )
+        require(
+            not _git_text("diff", "--summary", "HEAD"),
+            "AP-2R1J/K-R1 overlay contains a mode mutation",
+        )
+        _require_ap2r1j_manifests(head, overlay_paths)
+        if _working_blob_sha256(AP2R1_VALIDATOR_PATH) == AP2R1J_VALIDATOR_SHA256:
+            _require_ap2r1j_contract(None)
+            return AP2R1J_CONVERGENCE_FIX_OVERLAY
+        _require_ap2r1kr1_contract(None)
+        return AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY
+
+    if parents == (AP2R1J_CORRECTION_BASE,):
+        require(
+            not overlay_paths,
+            "AP2R1KR1_COMMITTED_CLEAN requires a clean working tree",
+        )
+        _require_ap2r1kr1_commit_shape(head)
+        return AP2R1KR1_COMMITTED_CLEAN
+
+    raise RuntimeError(
+        "Unsupported AP-2R1 Git state: "
+        f"head={head[:12]}, parents={len(parents)}, staged={len(staged_paths)}, "
+        f"unstaged={len(unstaged_paths)}, untracked={len(untracked_paths)}"
+    )
+
+
+def _ap1_committed_manifests_match(
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact frozen committed AP-1 baseline verdict."""
+
+    return (
+        task_paths == AP1_COMMITTED_TASK_PATHS
+        and branch_paths == AP1_COMMITTED_BRANCH_PATHS
+    )
+
+
+def _ap1e_manifests_match(
+    correction_paths: set[str] | frozenset[str],
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact current AP-1E candidate verdict."""
+
+    return (
+        correction_paths == AP1E_CORRECTION_PATHS
+        and task_paths == AP1E_CUMULATIVE_TASK_PATHS
+        and branch_paths == AP1E_BRANCH_PATHS
+    )
+
+
+def validate_current_ap1_manifests() -> str:
+    """Validate frozen AP-1 and effective AP-1E manifests independently."""
+
+    committed_ap1_task = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{AP1_CUMULATIVE_TASK_BASE}..{AP1E_CORRECTION_BASE}",
+    )
+    committed_ap1_branch = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{AP1_PUBLIC_BRANCH_BASE}..{AP1E_CORRECTION_BASE}",
+    )
+    require(
+        _ap1_committed_manifests_match(
+            committed_ap1_task,
+            committed_ap1_branch,
+        ),
+        "Committed AP-1 baseline is not exactly 16/40 paths",
+    )
+
+    staged_paths = _git_path_set("diff", "--cached", "--name-only")
+    overlay_paths = _current_overlay_paths()
+    correction_paths = _effective_git_manifest(
+        AP1E_CORRECTION_BASE,
+        overlay_paths,
+    )
+    task_paths = _effective_git_manifest(
+        AP1_CUMULATIVE_TASK_BASE,
+        overlay_paths,
+    )
+    branch_paths = _effective_git_manifest(
+        AP1_PUBLIC_BRANCH_BASE,
+        overlay_paths,
+    )
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    ).strip()
+
+    if not correction_paths:
+        require(
+            head == AP1E_CORRECTION_BASE
+            and not overlay_paths
+            and _ap1_committed_manifests_match(task_paths, branch_paths),
+            "Clean AP-1 baseline gate differs from exact f630529 16/40 state",
+        )
+        gate_state = "clean_committed_ap1"
+    else:
+        require(
+            _ap1e_manifests_match(
+                correction_paths,
+                task_paths,
+                branch_paths,
+            ),
+            "Current AP-1E manifests are not exactly 4/18/41 paths: "
+            f"correction_missing={sorted(AP1E_CORRECTION_PATHS - correction_paths)}, "
+            f"correction_extra={sorted(correction_paths - AP1E_CORRECTION_PATHS)}, "
+            f"task_missing={sorted(AP1E_CUMULATIVE_TASK_PATHS - task_paths)}, "
+            f"task_extra={sorted(task_paths - AP1E_CUMULATIVE_TASK_PATHS)}, "
+            f"branch_missing={sorted(AP1E_BRANCH_PATHS - branch_paths)}, "
+            f"branch_extra={sorted(branch_paths - AP1E_BRANCH_PATHS)}",
+        )
+        gate_state = "ap1e_candidate"
+    require(not staged_paths, "Current AP-1E validation requires zero staged paths")
+
+    # Effective-manifest self-tests cover clean committed AP-1, an uncommitted
+    # AP-1E overlay, and the same AP-1E paths after a future clean commit.
+    require(
+        _ap1_committed_manifests_match(
+            _effective_path_set(AP1_COMMITTED_TASK_PATHS, set()),
+            _effective_path_set(AP1_COMMITTED_BRANCH_PATHS, set()),
+        ),
+        "Clean committed AP-1 manifest self-test failed",
+    )
+    require(
+        _ap1e_manifests_match(
+            _effective_path_set(set(), AP1E_CORRECTION_PATHS),
+            _effective_path_set(
+                AP1_COMMITTED_TASK_PATHS,
+                AP1E_CORRECTION_PATHS,
+            ),
+            _effective_path_set(
+                AP1_COMMITTED_BRANCH_PATHS,
+                AP1E_CORRECTION_PATHS,
+            ),
+        ),
+        "Uncommitted AP-1E overlay manifest self-test failed",
+    )
+    require(
+        _ap1e_manifests_match(
+            _effective_path_set(AP1E_CORRECTION_PATHS, set()),
+            _effective_path_set(AP1E_CUMULATIVE_TASK_PATHS, set()),
+            _effective_path_set(AP1E_BRANCH_PATHS, set()),
+        ),
+        "Committed-clean AP-1E manifest self-test failed",
+    )
+
+    missing_init = AP1E_CORRECTION_PATHS - {
+        "custom_components/hoymiles_hit_modbus/__init__.py"
+    }
+    missing_test = AP1E_CORRECTION_PATHS - {
+        "tests/test_timeline_platform_registration.py"
+    }
+    missing_timeline_sensor = AP1E_CORRECTION_PATHS - {
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py"
+    }
+    require(
+        not _ap1e_manifests_match(
+            missing_init,
+            AP1E_CUMULATIVE_TASK_PATHS
+            - {"custom_components/hoymiles_hit_modbus/__init__.py"},
+            AP1E_BRANCH_PATHS,
+        ),
+        "Missing __init__.py correction survived the AP-1E gate",
+    )
+    require(
+        not _ap1e_manifests_match(
+            missing_test,
+            AP1E_CUMULATIVE_TASK_PATHS
+            - {"tests/test_timeline_platform_registration.py"},
+            AP1E_BRANCH_PATHS
+            - {"tests/test_timeline_platform_registration.py"},
+        ),
+        "Missing real HA test survived the AP-1E gate",
+    )
+    require(
+        not _ap1e_manifests_match(
+            missing_timeline_sensor,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS,
+        ),
+        "Missing timeline_sensor.py correction survived the AP-1E gate",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS | {"__unexpected_ap1e_path__"},
+            AP1E_CUMULATIVE_TASK_PATHS | {"__unexpected_ap1e_path__"},
+            AP1E_BRANCH_PATHS | {"__unexpected_ap1e_path__"},
+        ),
+        "Extra fifth AP-1E correction path survived the gate",
+    )
+    task_anchor = sorted(AP1E_CUMULATIVE_TASK_PATHS)[0]
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS - {task_anchor},
+            AP1E_BRANCH_PATHS,
+        ),
+        "AP-1E task 17-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS | {"__unexpected_ap1e_task_path__"},
+            AP1E_BRANCH_PATHS,
+        ),
+        "AP-1E task 19-path self-test did not fail",
+    )
+    branch_anchor = "tests/test_timeline_platform_registration.py"
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS - {branch_anchor},
+        ),
+        "AP-1E branch 40-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS | {"__unexpected_ap1e_branch_path__"},
+        ),
+        "AP-1E branch 42-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            PHASE_2_TASK_PATHS,
+            PHASE_2_TASK_PATHS,
+            SUPERVISOR_BRANCH_PATHS,
+        ),
+        "Historical REV28 PASS was accepted as current AP-1E validation",
+    )
+    return gate_state
+
+
+def _ap2r1_manifests_match(
+    correction_paths: set[str] | frozenset[str],
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact current AP-2R1 14/23/46 verdict."""
+
+    return (
+        correction_paths == AP2R1_CORRECTION_PATHS
+        and task_paths == AP2R1_CUMULATIVE_TASK_PATHS
+        and branch_paths == AP2R1_BRANCH_PATHS
+    )
+
+
+def _ap2r1j_manifests_match(
+    correction_paths: set[str] | frozenset[str],
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact AP-2R1J 3/23/46 verdict."""
+
+    return (
+        correction_paths == AP2R1J_CORRECTION_PATHS
+        and task_paths == AP2R1_CUMULATIVE_TASK_PATHS
+        and branch_paths == AP2R1_BRANCH_PATHS
+    )
+
+
+def validate_current_ap2r1_manifests() -> str:
+    """Freeze committed AP-1/AP-1E and the current AP-2R1 overlay separately."""
+
+    _require_current_ap2_ast_gates(Path(__file__).read_text(encoding="utf-8"))
+    committed_ap1_task = _git_path_set(
+        "diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{AP1E_CORRECTION_BASE}"
+    )
+    committed_ap1_branch = _git_path_set(
+        "diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{AP1E_CORRECTION_BASE}"
+    )
+    require(
+        _ap1_committed_manifests_match(committed_ap1_task, committed_ap1_branch),
+        "Committed AP-1 baseline is not exactly 16/40 paths",
+    )
+
+    committed_ap1e_correction = _git_path_set(
+        "diff", "--name-only", f"{AP1E_CORRECTION_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    committed_ap1e_task = _git_path_set(
+        "diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    committed_ap1e_branch = _git_path_set(
+        "diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    require(
+        _ap1e_manifests_match(
+            committed_ap1e_correction,
+            committed_ap1e_task,
+            committed_ap1e_branch,
+        ),
+        "Committed AP-1E-R2 baseline is not exactly 4/18/41 paths",
+    )
+
+    gate_state = _classify_ap2r1_git_state()
+    require(
+        len(AP2R1_CORRECTION_PATHS) == 14
+        and len(AP2R1_CUMULATIVE_TASK_PATHS) == 23
+        and len(AP2R1_BRANCH_PATHS) == 46,
+        "Frozen AP-2R1 manifest constants are not 14/23/46",
+    )
+    require(
+        AP2R1J_CORRECTION_PATHS
+        == {
+            "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+            "tests/test_timeline_platform_registration.py",
+            "tools/validate_release.py",
+        }
+        and len(AP2R1J_CORRECTION_PATHS) == 3,
+        "Frozen AP-2R1J correction manifest is not the exact three paths",
+    )
+    require(
+        _ap2r1_manifests_match(
+            _effective_path_set(AP2R1_CORRECTION_PATHS, set()),
+            _effective_path_set(AP2R1_CUMULATIVE_TASK_PATHS, set()),
+            _effective_path_set(AP2R1_BRANCH_PATHS, set()),
+        ),
+        "Simulated committed-clean AP-2R1 14/23/46 state failed",
+    )
+    require(
+        _ap2r1j_manifests_match(
+            _effective_path_set(set(), AP2R1J_CORRECTION_PATHS),
+            _effective_path_set(
+                AP2R1_CUMULATIVE_TASK_PATHS,
+                AP2R1J_CORRECTION_PATHS,
+            ),
+            _effective_path_set(AP2R1_BRANCH_PATHS, AP2R1J_CORRECTION_PATHS),
+        ),
+        "Simulated AP-2R1J overlay 3/23/46 state failed",
+    )
+    require(
+        _ap2r1j_manifests_match(
+            _effective_path_set(AP2R1J_CORRECTION_PATHS, set()),
+            _effective_path_set(AP2R1_CUMULATIVE_TASK_PATHS, set()),
+            _effective_path_set(AP2R1_BRANCH_PATHS, set()),
+        ),
+        "Simulated committed-clean AP-2R1J 3/23/46 state failed",
+    )
+
+    correction_anchor = sorted(AP2R1_CORRECTION_PATHS)[0]
+    task_anchor = sorted(AP2R1_CUMULATIVE_TASK_PATHS)[0]
+    branch_anchor = sorted(AP2R1_BRANCH_PATHS)[0]
+    negative_manifests = (
+        (AP2R1_CORRECTION_PATHS - {correction_anchor}, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS, "correction 13"),
+        (AP2R1_CORRECTION_PATHS | {"__extra_correction__"}, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS, "correction 15"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS - {task_anchor}, AP2R1_BRANCH_PATHS, "task 22"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS | {"__extra_task__"}, AP2R1_BRANCH_PATHS, "task 24"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS - {branch_anchor}, "branch 45"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS | {"__extra_branch__"}, "branch 47"),
+    )
+    for correction, task, branch, label in negative_manifests:
+        require(
+            not _ap2r1_manifests_match(correction, task, branch),
+            f"AP-2R1 negative self-test survived: {label}",
+        )
+    ap2r1j_anchor = sorted(AP2R1J_CORRECTION_PATHS)[0]
+    ap2r1j_negative_manifests = (
+        (
+            AP2R1J_CORRECTION_PATHS - {ap2r1j_anchor},
+            AP2R1_CUMULATIVE_TASK_PATHS,
+            AP2R1_BRANCH_PATHS,
+            "correction 2",
+        ),
+        (
+            AP2R1J_CORRECTION_PATHS | {"__extra_ap2r1j_correction__"},
+            AP2R1_CUMULATIVE_TASK_PATHS | {"__extra_ap2r1j_correction__"},
+            AP2R1_BRANCH_PATHS | {"__extra_ap2r1j_correction__"},
+            "correction 4",
+        ),
+        (
+            AP2R1J_CORRECTION_PATHS,
+            AP2R1_CUMULATIVE_TASK_PATHS - {task_anchor},
+            AP2R1_BRANCH_PATHS,
+            "task 22",
+        ),
+        (
+            AP2R1J_CORRECTION_PATHS,
+            AP2R1_CUMULATIVE_TASK_PATHS,
+            AP2R1_BRANCH_PATHS | {"__extra_ap2r1j_branch__"},
+            "branch 47",
+        ),
+    )
+    for correction, task, branch, label in ap2r1j_negative_manifests:
+        require(
+            not _ap2r1j_manifests_match(correction, task, branch),
+            f"AP-2R1J negative self-test survived: {label}",
+        )
+    for required_path in AP2R1J_CORRECTION_PATHS:
+        require(
+            not _ap2r1j_manifests_match(
+                AP2R1J_CORRECTION_PATHS - {required_path},
+                AP2R1_CUMULATIVE_TASK_PATHS - {required_path},
+                AP2R1_BRANCH_PATHS - {required_path},
+            ),
+            f"Missing AP-2R1J correction path survived: {required_path}",
+        )
+    for required_path in (
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "tests/test_timeline_platform_registration.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_rcm_optimizer.py",
+    ):
+        require(
+            not _ap2r1_manifests_match(
+                AP2R1_CORRECTION_PATHS - {required_path},
+                AP2R1_CUMULATIVE_TASK_PATHS - {required_path},
+                AP2R1_BRANCH_PATHS - {required_path},
+            ),
+            f"Missing AP-2R1 product/test path survived: {required_path}",
+        )
+    require(
+        not _ap2r1_manifests_match(
+            PHASE_2_TASK_PATHS,
+            PHASE_2_TASK_PATHS,
+            SUPERVISOR_BRANCH_PATHS,
+        ),
+        "Historical REV28 PASS was accepted as current AP-2R1",
+    )
+    return gate_state
+
+
+def _ap1e_r2_identity_contracts(
+    timeline_source: str,
+    init_source: str,
+) -> bool:
+    """Return whether current sources keep timeline identity pre-registration."""
+
+    try:
+        normalizer_source = init_source.split(
+            "def _async_prepare_timeline_entity_registry(", 1
+        )[1].split("\n\nasync def ", 1)[0]
+        setup_source = init_source.split("async def async_setup_entry(", 1)[1].split(
+            "\n\nasync def async_unload_entry", 1
+        )[0]
+        reconcile_source = init_source.split(
+            "def _async_reconcile_entity_registry(", 1
+        )[1].split("\n\ndef _async_prepare_timeline_entity_registry(", 1)[0]
+    except (IndexError, ValueError):
+        return False
+
+    prepare_call = "_async_prepare_timeline_entity_registry(hass, entry)"
+    forward_call = "await hass.config_entries.async_forward_entry_setups("
+    reconcile_call = "_async_reconcile_entity_registry("
+    forbidden_normalizer = (
+        ".storage",
+        "deleted_entities.clear",
+        "deleted_entities.values",
+        "async_reload",
+        "async_call_later",
+        "async_track_time_interval",
+        "sleep(",
+    )
+    return (
+        'TIMELINE_POLICY_IDS = ("rce", "tariff", "rcm")' in timeline_source
+        and "from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN"
+        in timeline_source
+        and 'return f"{SENSOR_DOMAIN}.hoymiles_hit_{policy_id}_automation_plan_timeline"'
+        in timeline_source
+        and "self.entity_id = timeline_entity_id(policy_id)" in timeline_source
+        and "self._attr_unique_id = timeline_unique_id(entry.entry_id, policy_id)"
+        in timeline_source
+        and "def suggested_object_id(self)" not in timeline_source
+        and "async_update_entity" not in timeline_source
+        and prepare_call in setup_source
+        and forward_call in setup_source
+        and reconcile_call in setup_source
+        and setup_source.index(prepare_call) < setup_source.index(forward_call)
+        and setup_source.index(forward_call) < setup_source.index(reconcile_call)
+        and "for policy_id in TIMELINE_POLICY_IDS:" in normalizer_source
+        and 'deleted_key = ("sensor", DOMAIN, unique_id)' in normalizer_source
+        and "deleted_entities.get(deleted_key)" in normalizer_source
+        and "deleted_entry.config_entry_id != entry.entry_id" in normalizer_source
+        and "deleted_entry.__replace__(entity_id=desired_entity_id)"
+        in normalizer_source
+        and "entity_registry.async_schedule_save()" in normalizer_source
+        and not any(token in normalizer_source for token in forbidden_normalizer)
+        and reconcile_source.count(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("rcm_automation_plan_timeline")'
+        )
+        == 1
+    )
+
+
+def _require_ap2r1l_ast_contract(
+    content: bytes, expected: dict[str, str], label: str
+) -> None:
+    """Check independent frozen nodes, in addition to whole-file digests."""
+
+    actual = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in ast.parse(content).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in expected
+    }
+    require(actual == expected and bool(expected), f"AP-2R1L {label} AST changed")
+
+
+def _require_ap2r1l_contract(reference: str | None) -> None:
+    """Freeze direction-only behavior, literal HA oracles and exact validator."""
+
+    _require_ap2r1j_protected_hashes(reference)
+    for relative_path, digest, nodes, label in (
+        (AP2R1J_PRODUCT_PATH, AP2R1L_PRODUCT_SHA256, AP2R1L_PRODUCT_AST_SHA256, "product"),
+        (AP2R1J_TEST_PATH, AP2R1L_TEST_SHA256, AP2R1L_TEST_AST_SHA256, "real-HA test"),
+    ):
+        content = _ap2r1j_path_bytes(relative_path, reference)
+        require(
+            hashlib.sha256(content).hexdigest() == digest,
+            f"AP-2R1L exact {label} bytes changed",
+        )
+        _require_ap2r1l_ast_contract(content, nodes, label)
+    # Trust input must come from the external reviewed manifest, never from
+    # hashing this running file (nor from a digest embedded inside itself).
+    expected = os.environ.get("HOYMILES_AP2R1L_VALIDATOR_SHA256", "")
+    require(
+        re.fullmatch(r"[0-9a-f]{64}", expected) is not None,
+        "AP-2R1L requires externally frozen HOYMILES_AP2R1L_VALIDATOR_SHA256",
+    )
+    validator = _ap2r1j_path_bytes(AP2R1_VALIDATOR_PATH, reference)
+    require(
+        hashlib.sha256(validator).hexdigest() == expected
+        and hashlib.sha256(Path(__file__).read_bytes()).hexdigest() == expected,
+        "AP-2R1L validator differs from the external reviewed SHA-256",
+    )
+    _require_current_ap2_ast_gates(validator.decode("utf-8"))
+    _require_ap2r1l_ast_contract(validator, AP2R1L_GATE_AST_SHA256, "current gate")
+
+
+def _classify_ap2r1l_git_state() -> str:
+    """Recognize only the exact overlay or one exact clean child of d7d0c246."""
+
+    head = _git_text("rev-parse", "HEAD")
+    staged = _git_path_set("diff", "--cached", "--name-only")
+    unstaged = _git_path_set("diff", "--name-only")
+    untracked = _git_path_set("ls-files", "--others", "--exclude-standard")
+    require(not staged and not untracked, "AP-2R1L requires staged/untracked 0/0")
+    _require_ap2r1_commit_shape(AP2R1J_CORRECTION_BASE)
+    expected_status = {("M", path) for path in AP2R1J_CORRECTION_PATHS}
+    expected_modes = {path: "100644" for path in AP2R1J_CORRECTION_PATHS}
+    if head == AP2R1J_CORRECTION_BASE:
+        require(unstaged == AP2R1J_CORRECTION_PATHS, "AP-2R1L overlay paths differ")
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == expected_status,
+            "AP-2R1L overlay must contain exactly three M paths",
+        )
+        require(
+            not _git_text("diff", "--summary", "HEAD")
+            and _git_tree_modes(head, AP2R1J_CORRECTION_PATHS) == expected_modes,
+            "AP-2R1L overlay modes differ",
+        )
+        _require_ap2r1l_contract(None)
+        _require_ap2r1j_manifests(head, unstaged)
+        return AP2R1L_BATTERY_DIRECTION_FIX_OVERLAY
+    require(not unstaged, "AP2R1L_COMMITTED_CLEAN requires a clean working tree")
+    require(
+        _git_commit_parents(head) == (AP2R1J_CORRECTION_BASE,),
+        "AP-2R1L requires exactly one parent: d7d0c246",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", head) == AP2R1L_COMMIT_SUBJECT,
+        "AP-2R1L committed subject differs",
+    )
+    require(
+        _git_path_set("diff-tree", "--no-commit-id", "--name-only", "-r", head)
+        == AP2R1J_CORRECTION_PATHS
+        and _git_name_status(
+            "diff-tree", "--no-commit-id", "--name-status", "--find-renames", "-r", head
+        ) == expected_status,
+        "AP-2R1L commit must contain exactly three M paths",
+    )
+    require(
+        _git_tree_modes(head, AP2R1J_CORRECTION_PATHS) == expected_modes,
+        "AP-2R1L committed modes differ",
+    )
+    _require_ap2r1l_contract(head)
+    _require_ap2r1j_manifests(head, set())
+    return AP2R1L_COMMITTED_CLEAN
+
+
+def validate_current_ap2r1l_manifests() -> str:
+    """Extend, without rewriting, the reviewed historical F/J/K-R1 gates."""
+
+    validator = _ap2r1j_path_bytes(AP2R1_VALIDATOR_PATH, None)
+    if AP2R1L_BATTERY_DIRECTION_FIX_OVERLAY.encode("utf-8") not in validator:
+        return validate_current_ap2r1_manifests()
+    for base, reference, expected in (
+        (AP1_CUMULATIVE_TASK_BASE, AP1E_CORRECTION_BASE, AP1_COMMITTED_TASK_PATHS),
+        (AP1_PUBLIC_BRANCH_BASE, AP1E_CORRECTION_BASE, AP1_COMMITTED_BRANCH_PATHS),
+        (AP1E_CORRECTION_BASE, AP2R1_CORRECTION_BASE, AP1E_CORRECTION_PATHS),
+        (AP1_CUMULATIVE_TASK_BASE, AP2R1_CORRECTION_BASE, AP1E_CUMULATIVE_TASK_PATHS),
+        (AP1_PUBLIC_BRANCH_BASE, AP2R1_CORRECTION_BASE, AP1E_BRANCH_PATHS),
+    ):
+        require(
+            _git_path_set("diff", "--name-only", f"{base}..{reference}") == expected,
+            "AP-2R1L committed AP-1/AP-1E historical manifest differs",
+        )
+    require(
+        (len(AP2R1J_CORRECTION_PATHS), len(AP2R1_CUMULATIVE_TASK_PATHS),
+         len(AP2R1_BRANCH_PATHS)) == (3, 23, 46),
+        "AP-2R1L manifest counts differ from 3/23/46",
+    )
+    return _classify_ap2r1l_git_state()
+
+
+def _git_try(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run one read-only Git query without turning an expected miss into an exception."""
+
+    return subprocess.run(
+        ["git", *args],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+@dataclass(frozen=True)
+class _IntegrationStateFacts:
+    """Pure inputs for the two exact integration-state classifications."""
+
+    branch: str
+    head: str
+    parents: tuple[str, ...]
+    head_tree: str
+    expected_tree: str
+    staged: frozenset[str]
+    unstaged: frozenset[str]
+    untracked: frozenset[str]
+    unmerged: frozenset[str]
+    committed_status: frozenset[tuple[str, ...]]
+    committed_modes: dict[str, str]
+    worktree_clean: bool
+    upstream_present: bool
+    remote_tracking_present: bool
+    subject: str
+    message: str
+
+
+def _classify_integration_state(facts: _IntegrationStateFacts) -> str:
+    """Return one exact integration state, or the closed invalid state."""
+
+    tracked_overlay = INTEGRATION_EXPECTED_PATHS - INTEGRATION_UNTRACKED_PATHS
+    expected_commit_status = frozenset(
+        (
+            "A" if path in INTEGRATION_UNTRACKED_PATHS else "M",
+            path,
+        )
+        for path in INTEGRATION_EXPECTED_PATHS
+    )
+    expected_modes = {
+        path: "100644" for path in INTEGRATION_EXPECTED_PATHS
+    }
+    reviewed_overlay = (
+        facts.branch == INTEGRATION_BRANCH
+        and facts.head == INTEGRATION_BAL_INPUT_SHA
+        and facts.head_tree == INTEGRATION_BAL_INPUT_TREE
+        and not facts.staged
+        and facts.unstaged == tracked_overlay
+        and facts.untracked == INTEGRATION_UNTRACKED_PATHS
+        and not facts.unmerged
+        and not facts.worktree_clean
+        and not facts.upstream_present
+        and not facts.remote_tracking_present
+    )
+    committed_clean = (
+        facts.branch == INTEGRATION_BRANCH
+        and facts.head != INTEGRATION_BAL_INPUT_SHA
+        and facts.parents == (INTEGRATION_BAL_INPUT_SHA,)
+        and facts.head_tree == facts.expected_tree
+        and not facts.staged
+        and not facts.unstaged
+        and not facts.untracked
+        and not facts.unmerged
+        and facts.committed_status == expected_commit_status
+        and facts.committed_modes == expected_modes
+        and facts.worktree_clean
+        and facts.subject == INTEGRATION_COMMIT_SUBJECT
+        and facts.message == INTEGRATION_COMMIT_MESSAGE
+    )
+    if reviewed_overlay:
+        return V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY
+    if committed_clean:
+        return V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN
+    return V1_5_8_BAL_AURORA_INTEGRATION_INVALID
+
+
+def _validate_integration_state_classifier_self_tests() -> tuple[int, int]:
+    """Exercise both accepted states and every bounded negative state."""
+
+    expected_tree = "c" * 40
+    exact_status = frozenset(
+        (
+            "A" if path in INTEGRATION_UNTRACKED_PATHS else "M",
+            path,
+        )
+        for path in INTEGRATION_EXPECTED_PATHS
+    )
+    exact_modes = {
+        path: "100644" for path in INTEGRATION_EXPECTED_PATHS
+    }
+    overlay = _IntegrationStateFacts(
+        branch=INTEGRATION_BRANCH,
+        head=INTEGRATION_BAL_INPUT_SHA,
+        parents=(INTEGRATION_BAL_INPUT_PARENT,),
+        head_tree=INTEGRATION_BAL_INPUT_TREE,
+        expected_tree=expected_tree,
+        staged=frozenset(),
+        unstaged=INTEGRATION_EXPECTED_PATHS - INTEGRATION_UNTRACKED_PATHS,
+        untracked=INTEGRATION_UNTRACKED_PATHS,
+        unmerged=frozenset(),
+        committed_status=frozenset(),
+        committed_modes={},
+        worktree_clean=False,
+        upstream_present=False,
+        remote_tracking_present=False,
+        subject=INTEGRATION_BAL_INPUT_SUBJECT,
+        message=INTEGRATION_BAL_INPUT_SUBJECT,
+    )
+    committed = replace(
+        overlay,
+        head="1" * 40,
+        parents=(INTEGRATION_BAL_INPUT_SHA,),
+        head_tree=expected_tree,
+        staged=frozenset(),
+        unstaged=frozenset(),
+        untracked=frozenset(),
+        committed_status=exact_status,
+        committed_modes=exact_modes,
+        worktree_clean=True,
+        subject=INTEGRATION_COMMIT_SUBJECT,
+        message=INTEGRATION_COMMIT_MESSAGE,
+    )
+    require(
+        _classify_integration_state(overlay)
+        == V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY,
+        "Exact reviewed integration overlay self-test failed",
+    )
+    require(
+        _classify_integration_state(committed)
+        == V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN,
+        "Exact clean single-parent integration self-test failed",
+    )
+
+    status_anchor = sorted(exact_status)[0]
+    negative_states = {
+        "wrong_branch": replace(committed, branch="integration/wrong"),
+        "wrong_parent": replace(committed, parents=(INTEGRATION_AURORA_INPUT_SHA,)),
+        "zero_parent": replace(committed, parents=()),
+        "merge_commit": replace(
+            committed,
+            parents=(INTEGRATION_BAL_INPUT_SHA, INTEGRATION_AURORA_INPUT_SHA),
+        ),
+        "more_than_one_parent": replace(
+            committed,
+            parents=(
+                INTEGRATION_BAL_INPUT_SHA,
+                INTEGRATION_AURORA_INPUT_SHA,
+                INTEGRATION_SUPERVISOR_SHA,
+            ),
+        ),
+        "correct_parent_wrong_tree": replace(committed, head_tree="2" * 40),
+        "correct_tree_wrong_parent": replace(committed, parents=("3" * 40,)),
+        "additional_committed_path": replace(
+            committed,
+            committed_status=exact_status | {("A", "__unexpected_path__")},
+            committed_modes={**exact_modes, "__unexpected_path__": "100644"},
+        ),
+        "missing_required_path": replace(
+            committed,
+            committed_status=exact_status - {status_anchor},
+        ),
+        "dirty_worktree": replace(committed, worktree_clean=False),
+        "staged_change": replace(
+            committed,
+            staged=frozenset({"CHANGELOG.md"}),
+            worktree_clean=False,
+        ),
+        "untracked_file": replace(
+            committed,
+            untracked=frozenset({"__unexpected_untracked__"}),
+            worktree_clean=False,
+        ),
+        "additional_commit": replace(
+            committed,
+            head="4" * 40,
+            parents=(committed.head,),
+        ),
+        "wrong_subject": replace(committed, subject="feat: wrong subject"),
+        "wrong_trailer": replace(
+            committed,
+            message=INTEGRATION_COMMIT_MESSAGE.replace(
+                "Aurora-AP-2-Source: 42c59f358f46e2c4dd83328aca5e62ac41c749e3",
+                "Aurora-AP-2-Source: " + "0" * 40,
+            ),
+        ),
+    }
+    for label, state in negative_states.items():
+        require(
+            _classify_integration_state(state)
+            == V1_5_8_BAL_AURORA_INTEGRATION_INVALID,
+            f"Invalid integration state survived: {label}",
+        )
+    return 2, len(negative_states)
+
+
+def _reconstruct_integration_candidate_tree() -> str:
+    """Build the reviewed candidate tree without touching the real index."""
+
+    real_staged_before = _git_path_set("diff", "--cached", "--name-only")
+    common_dir = Path(
+        _git_text(
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        )
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="hoymiles-integration-candidate-tree-"
+    ) as directory:
+        temporary = Path(directory)
+        objects = temporary / "objects"
+        (objects / "info").mkdir(parents=True)
+        (objects / "pack").mkdir()
+        environment = os.environ.copy()
+        environment["GIT_INDEX_FILE"] = str(temporary / "candidate.index")
+        environment["GIT_OBJECT_DIRECTORY"] = str(objects)
+        environment["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = str(
+            common_dir / "objects"
+        )
+        subprocess.check_call(
+            ["git", "read-tree", INTEGRATION_BAL_INPUT_SHA],
+            cwd=ROOT,
+            env=environment,
+        )
+        subprocess.check_call(
+            ["git", "add", "--", *sorted(INTEGRATION_EXPECTED_PATHS)],
+            cwd=ROOT,
+            env=environment,
+        )
+        staged_modes = subprocess.check_output(
+            [
+                "git",
+                "ls-files",
+                "--stage",
+                "--",
+                *sorted(INTEGRATION_EXPECTED_PATHS),
+            ],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            encoding="utf-8",
+        )
+        modes = {
+            line.split(" ", 1)[0]
+            for line in staged_modes.splitlines()
+            if line
+        }
+        require(
+            modes == {"100644"},
+            f"Integrated candidate modes differ from 100644: {sorted(modes)}",
+        )
+        candidate_tree = subprocess.check_output(
+            ["git", "write-tree"],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            encoding="utf-8",
+        ).strip()
+    require(
+        _git_path_set("diff", "--cached", "--name-only")
+        == real_staged_before,
+        "External candidate-tree proof changed the real index",
+    )
+    return candidate_tree
+
+
+def _canonical_integration_bytes(relative_path: str) -> bytes:
+    """Return canonical LF bytes under the repository's explicit EOL contract."""
+
+    path = ROOT / relative_path
+    require(
+        path.is_file() and not path.is_symlink(),
+        f"Integration path is missing or not a regular file: {relative_path}",
+    )
+    attributes = subprocess.check_output(
+        ["git", "check-attr", "text", "eol", "--", relative_path],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    )
+    parsed: dict[str, str] = {}
+    for line in attributes.splitlines():
+        fields = line.split(": ", 2)
+        require(len(fields) == 3, f"Cannot parse Git attributes for {relative_path}")
+        parsed[fields[1]] = fields[2]
+    require(
+        parsed == {"text": "set", "eol": "lf"},
+        f"Integration path has an unexpected EOL contract: {relative_path} {parsed}",
+    )
+    raw = path.read_bytes()
+    require(
+        b"\r" not in raw.replace(b"\r\n", b""),
+        f"Integration path contains a lone CR: {relative_path}",
+    )
+    return raw.replace(b"\r\n", b"\n")
+
+
+def _masked_integration_validator_bytes() -> bytes:
+    """Mask the one self-digest literal so the complete validator can be frozen."""
+
+    content = _canonical_integration_bytes(AP2R1_VALIDATOR_PATH)
+    pattern = re.compile(
+        rb'INTEGRATION_VALIDATOR_CANONICAL_SHA256 = \(\n'
+        rb'    "[0-9a-f]{64}"\n\)'
+    )
+    replacement = (
+        b'INTEGRATION_VALIDATOR_CANONICAL_SHA256 = (\n'
+        b'    "0000000000000000000000000000000000000000000000000000000000000000"\n'
+        b')'
+    )
+    masked, replacements = pattern.subn(replacement, content)
+    require(replacements == 1, "Integration validator self-digest anchor differs")
+    return masked
+
+
+def _validate_integration_source_commits() -> None:
+    """Freeze both divergent inputs, protected Supervisor and their exact graph."""
+
+    require(
+        _git_text("show", "-s", "--format=%T", INTEGRATION_BAL_INPUT_SHA)
+        == INTEGRATION_BAL_INPUT_TREE
+        and _git_commit_parents(INTEGRATION_BAL_INPUT_SHA)
+        == (INTEGRATION_BAL_INPUT_PARENT,)
+        and _git_text("show", "-s", "--format=%s", INTEGRATION_BAL_INPUT_SHA)
+        == INTEGRATION_BAL_INPUT_SUBJECT,
+        "BAL-R2-F1 input identity differs",
+    )
+    bal_status = _git_name_status(
+        "diff-tree",
+        "--no-commit-id",
+        "--name-status",
+        "--find-renames",
+        "-r",
+        INTEGRATION_BAL_INPUT_SHA,
+    )
+    require(
+        bal_status == INTEGRATION_BAL_COMMIT_STATUS
+        and sum(status == "M" for status, _path in bal_status) == 17
+        and sum(status == "A" for status, _path in bal_status) == 2,
+        "BAL-R2-F1 is not the exact 17 M + 2 A atomic commit",
+    )
+    bal_commit_paths = frozenset(path for _status, path in bal_status)
+    require(
+        _git_tree_modes(INTEGRATION_BAL_INPUT_SHA, bal_commit_paths)
+        == {path: "100644" for path in bal_commit_paths},
+        "BAL-R2-F1 committed modes differ",
+    )
+
+    require(
+        _git_text("show", "-s", "--format=%T", INTEGRATION_AURORA_INPUT_SHA)
+        == INTEGRATION_AURORA_INPUT_TREE
+        and _git_commit_parents(INTEGRATION_AURORA_INPUT_SHA)
+        == (INTEGRATION_AURORA_INPUT_PARENT,)
+        and _git_text("show", "-s", "--format=%s", INTEGRATION_AURORA_INPUT_SHA)
+        == INTEGRATION_AURORA_INPUT_SUBJECT,
+        "Aurora AP-2 input identity differs",
+    )
+    require(
+        _git_name_status(
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "--find-renames",
+            "-r",
+            INTEGRATION_AURORA_INPUT_SHA,
+        )
+        == {("M", path) for path in AP2R1J_CORRECTION_PATHS},
+        "Aurora AP-2 final commit is not the exact three-path correction",
+    )
+    require(
+        _git_text("show", "-s", "--format=%T", INTEGRATION_SUPERVISOR_SHA)
+        == INTEGRATION_SUPERVISOR_TREE,
+        "Protected Supervisor input tree differs",
+    )
+
+    require(
+        _git_text("rev-parse", INTEGRATION_BAL_REMOTE_REF)
+        == INTEGRATION_BAL_INPUT_SHA
+        and _git_text("rev-parse", INTEGRATION_AURORA_REMOTE_REF)
+        == INTEGRATION_AURORA_INPUT_SHA
+        and _git_text(
+            "rev-parse",
+            "refs/remotes/origin/feature/ems-supervisor-v1-shadow-runtime-v1.5.7",
+        )
+        == INTEGRATION_SUPERVISOR_SHA,
+        "Fetched source remote-tracking refs differ from the exact inputs",
+    )
+
+    merge_bases = tuple(
+        line
+        for line in _git_text(
+            "merge-base", "--all", INTEGRATION_BAL_INPUT_SHA, INTEGRATION_AURORA_INPUT_SHA
+        ).splitlines()
+        if line
+    )
+    require(
+        merge_bases == (INTEGRATION_PUBLIC_BASE_SHA,),
+        f"Integration requires one exact merge base; found={merge_bases}",
+    )
+    for ancestor, descendant, label in (
+        (INTEGRATION_BAL_INPUT_SHA, INTEGRATION_AURORA_INPUT_SHA, "BAL in Aurora"),
+        (INTEGRATION_AURORA_INPUT_SHA, INTEGRATION_BAL_INPUT_SHA, "Aurora in BAL"),
+    ):
+        ancestry = _git_try("merge-base", "--is-ancestor", ancestor, descendant)
+        require(
+            ancestry.returncode == 1,
+            f"Divergent-history contract failed ({label}); rc={ancestry.returncode}",
+        )
+    require(
+        int(_git_text("rev-list", "--count", f"{INTEGRATION_PUBLIC_BASE_SHA}..{INTEGRATION_BAL_INPUT_SHA}"))
+        == 3
+        and int(_git_text("rev-list", "--count", f"{INTEGRATION_PUBLIC_BASE_SHA}..{INTEGRATION_AURORA_INPUT_SHA}"))
+        == 11,
+        "Input commit counts from the merge base differ from 3/11",
+    )
+    bal_delta = _git_path_set(
+        "diff", "--name-only", f"{INTEGRATION_PUBLIC_BASE_SHA}..{INTEGRATION_BAL_INPUT_SHA}"
+    )
+    aurora_delta = _git_path_set(
+        "diff", "--name-only", f"{INTEGRATION_PUBLIC_BASE_SHA}..{INTEGRATION_AURORA_INPUT_SHA}"
+    )
+    require(
+        bal_delta == INTEGRATION_BAL_DELTA_PATHS
+        and aurora_delta == AP2R1_BRANCH_PATHS
+        and len(bal_delta & aurora_delta) == 15
+        and len(bal_delta - aurora_delta) == 11
+        and len(aurora_delta - bal_delta) == 31,
+        "Frozen 26/46/15 BAL/Aurora graph manifests differ",
+    )
+
+
+def _validate_aurora_input_contract() -> None:
+    """Execute the frozen Aurora historical gates against its exact commit."""
+
+    _require_ap2r1_commit_shape(INTEGRATION_AURORA_INPUT_PARENT)
+    for base, reference, expected in (
+        (AP1_CUMULATIVE_TASK_BASE, AP1E_CORRECTION_BASE, AP1_COMMITTED_TASK_PATHS),
+        (AP1_PUBLIC_BRANCH_BASE, AP1E_CORRECTION_BASE, AP1_COMMITTED_BRANCH_PATHS),
+        (AP1E_CORRECTION_BASE, AP2R1_CORRECTION_BASE, AP1E_CORRECTION_PATHS),
+        (AP1_CUMULATIVE_TASK_BASE, AP2R1_CORRECTION_BASE, AP1E_CUMULATIVE_TASK_PATHS),
+        (AP1_PUBLIC_BRANCH_BASE, AP2R1_CORRECTION_BASE, AP1E_BRANCH_PATHS),
+    ):
+        require(
+            _git_path_set("diff", "--name-only", f"{base}..{reference}") == expected,
+            "Integrated Aurora historical manifest differs",
+        )
+    _require_ap2r1j_manifests(INTEGRATION_AURORA_INPUT_SHA, set())
+    _require_ap2r1j_protected_hashes(INTEGRATION_AURORA_INPUT_SHA)
+    for relative_path, digest, nodes, label in (
+        (AP2R1J_PRODUCT_PATH, AP2R1L_PRODUCT_SHA256, AP2R1L_PRODUCT_AST_SHA256, "product"),
+        (AP2R1J_TEST_PATH, AP2R1L_TEST_SHA256, AP2R1L_TEST_AST_SHA256, "real-HA test"),
+    ):
+        content = _ap2r1j_path_bytes(relative_path, INTEGRATION_AURORA_INPUT_SHA)
+        require(
+            hashlib.sha256(content).hexdigest() == digest,
+            f"Aurora AP-2 exact {label} bytes changed",
+        )
+        _require_ap2r1l_ast_contract(content, nodes, label)
+    validator = _ap2r1j_path_bytes(
+        AP2R1_VALIDATOR_PATH, INTEGRATION_AURORA_INPUT_SHA
+    )
+    require(
+        hashlib.sha256(validator).hexdigest() == INTEGRATION_AURORA_VALIDATOR_SHA256,
+        "Aurora AP-2 source validator differs from its frozen SHA-256",
+    )
+    _require_current_ap2_ast_gates(validator.decode("utf-8"))
+    _require_ap2r1l_ast_contract(
+        validator, AP2R1L_GATE_AST_SHA256, "historical source validator"
+    )
+
+
+def _integration_candidate_matches(
+    paths: set[str] | frozenset[str],
+    hashes: dict[str, str],
+    untracked: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact 49-path, 48-hash and 14-new-path integration verdict."""
+
+    return (
+        paths == INTEGRATION_EXPECTED_PATHS
+        and hashes == INTEGRATION_CANONICAL_SHA256
+        and untracked == INTEGRATION_UNTRACKED_PATHS
+    )
+
+
+def _validate_integration_mutation_self_tests() -> None:
+    """Prove the exact manifest/hash matcher rejects every missing or altered input."""
+
+    expected_paths = set(INTEGRATION_EXPECTED_PATHS)
+    expected_hashes = dict(INTEGRATION_CANONICAL_SHA256)
+    expected_untracked = set(INTEGRATION_UNTRACKED_PATHS)
+    require(
+        _integration_candidate_matches(
+            expected_paths, expected_hashes, expected_untracked
+        ),
+        "Exact integration matcher rejected its frozen state",
+    )
+    for relative_path in sorted(INTEGRATION_EXPECTED_PATHS):
+        require(
+            not _integration_candidate_matches(
+                expected_paths - {relative_path},
+                {
+                    path: digest
+                    for path, digest in expected_hashes.items()
+                    if path != relative_path
+                },
+                expected_untracked - {relative_path},
+            ),
+            f"Missing integration path survived the self-test: {relative_path}",
+        )
+    for relative_path in sorted(INTEGRATION_CANONICAL_SHA256):
+        changed = dict(expected_hashes)
+        changed[relative_path] = "0" * 64
+        require(
+            not _integration_candidate_matches(
+                expected_paths, changed, expected_untracked
+            ),
+            f"Changed integration blob survived the self-test: {relative_path}",
+        )
+    require(
+        not _integration_candidate_matches(set(), {}, set())
+        and not _integration_candidate_matches(
+            set(AP2R1_BRANCH_PATHS), {}, set(AP2R1_NEW_PATHS)
+        ),
+        "A BAL-only or Aurora-only state was accepted as the integration",
+    )
+
+
+def _validate_integration_docs_and_ap3b_boundary() -> None:
+    """Freeze truthful candidate status and require AP-3B to remain absent."""
+
+    for relative_path in ("CHANGELOG.md", "docs/releases/v1.5.8.md"):
+        content = " ".join(
+            (ROOT / relative_path).read_text(encoding="utf-8").split()
+        )
+        for required in (
+            "Exact-commit AP-2 live",
+            "acceptance remains frozen and incomplete",
+            "AP-3A is a design freeze only",
+            "AP-3B custom card and dashboard view are not implemented",
+            "no public",
+            "v1.5.8 release exists yet",
+            "offline only and still requires exact-version real-inverter acceptance",
+            "adds no physical execution authority",
+        ):
+            require(
+                required in content,
+                f"Integrated release status is missing from {relative_path}: {required}",
+            )
+    releasing = (ROOT / "RELEASING.md").read_text(encoding="utf-8")
+    for command in (
+        "python tools/test_automation_plan_timeline.py",
+        "python tools/test_rcm_timeline_model.py",
+        "python tools/test_optimizer_executor_contract.py",
+        "python tools/test_optimizer_startup_contract.py",
+        "python tools/test_battery_balancing_contract.py",
+        "python tools/test_automation_matrix.py --exhaustive",
+        "node tools/test_supervisor_aurora_ui_contract.js",
+        "node tools/validate_rce_card.js",
+        "python tools/test_battery_balancing_ha_runtime.py",
+        "python -m pytest -q tests/test_timeline_platform_registration.py",
+    ):
+        require(command in releasing, f"RELEASING.md omits the integrated gate: {command}")
+
+    protected_sources = [
+        ROOT / "dashboard_hoymiles.yaml",
+        ROOT / "home_assistant" / "www" / "hoymiles-dashboard-strategy.js",
+        ROOT / "home_assistant" / "www" / "hoymiles-rce-chart-card.js",
+    ]
+    frontend = "\n".join(path.read_text(encoding="utf-8") for path in protected_sources)
+    require(
+        "hoymiles-automation-planner-card" not in frontend
+        and "path: plan-automatyki" not in frontend
+        and '"plan-automatyki"' not in frontend,
+        "AP-3B custom element or dashboard view is present before authorization",
+    )
+    assets_source = (COMPONENT / "assets.py").read_text(encoding="utf-8")
+    strategy_source = protected_sources[1].read_text(encoding="utf-8")
+    require(
+        "FRONTEND_ASSET_REVISION = 28" in assets_source
+        and "FRONTEND_ASSET_REVISION = 29" not in assets_source
+        and "/local/hoymiles-rce-chart-card.js?v=1.5.7.28" in strategy_source,
+        "INT-1 must retain the already committed frontend revision 28",
+    )
+
+
+def _classify_v158_bal_aurora_integration() -> str:
+    """Recognize the exact reviewed overlay or its exact clean child commit."""
+
+    branch = _git_text("branch", "--show-current")
+    require(branch == INTEGRATION_BRANCH, "Integration branch identity differs")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+
+    head = _git_text("rev-parse", "HEAD")
+    expected_tree = _reconstruct_integration_candidate_tree()
+    staged = frozenset(_git_path_set("diff", "--cached", "--name-only"))
+    unstaged = frozenset(_git_path_set("diff", "--name-only", "HEAD"))
+    untracked = frozenset(
+        _git_path_set("ls-files", "--others", "--exclude-standard")
+    )
+    unmerged = frozenset(
+        _git_path_set("diff", "--name-only", "--diff-filter=U")
+    )
+    status = _git_try("status", "--porcelain=v1", "--untracked-files=all")
+    require(status.returncode == 0, "Cannot inspect integration worktree status")
+    upstream = _git_try(
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        "@{upstream}",
+    )
+    remote_tracking = _git_try(
+        "show-ref",
+        "--verify",
+        "--quiet",
+        INTEGRATION_REMOTE_REF,
+    )
+    require(
+        remote_tracking.returncode in {0, 1},
+        "Cannot inspect the integration remote-tracking ref",
+    )
+    committed_status = (
+        frozenset(
+            _git_name_status(
+                "diff",
+                "--name-status",
+                "--find-renames",
+                INTEGRATION_BAL_INPUT_SHA,
+                head,
+            )
+        )
+        if head != INTEGRATION_BAL_INPUT_SHA
+        else frozenset()
+    )
+    committed_modes = (
+        _git_tree_modes(head, INTEGRATION_EXPECTED_PATHS)
+        if head != INTEGRATION_BAL_INPUT_SHA
+        else {}
+    )
+    facts = _IntegrationStateFacts(
+        branch=branch,
+        head=head,
+        parents=_git_commit_parents(head),
+        head_tree=_git_text("show", "-s", "--format=%T", head),
+        expected_tree=expected_tree,
+        staged=staged,
+        unstaged=unstaged,
+        untracked=untracked,
+        unmerged=unmerged,
+        committed_status=committed_status,
+        committed_modes=committed_modes,
+        worktree_clean=not status.stdout.strip(),
+        upstream_present=upstream.returncode == 0,
+        remote_tracking_present=remote_tracking.returncode == 0,
+        subject=_git_text("show", "-s", "--format=%s", head),
+        message=_git_text("show", "-s", "--format=%B", head),
+    )
+    positive_self_tests, negative_self_tests = (
+        _validate_integration_state_classifier_self_tests()
+    )
+    require(
+        (positive_self_tests, negative_self_tests) == (2, 15),
+        "Integration classifier self-test counts differ from 2/15",
+    )
+    state = _classify_integration_state(facts)
+    require(
+        state != V1_5_8_BAL_AURORA_INTEGRATION_INVALID,
+        "Integration is neither the exact reviewed overlay nor its exact clean "
+        "single-parent commit",
+    )
+    if state == V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY:
+        overlay = set(unstaged | untracked)
+        added_paths = set(untracked)
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == {("M", path) for path in unstaged}
+            and not _git_text("diff", "--summary", "HEAD"),
+            "Integrated overlay contains a rename, delete or mode change",
+        )
+        for relative_path in INTEGRATION_UNTRACKED_PATHS:
+            path = ROOT / relative_path
+            require(
+                path.is_file() and not path.is_symlink(),
+                f"Integrated new path is not a regular file: {relative_path}",
+            )
+    else:
+        overlay = {
+            path
+            for record in committed_status
+            for path in record[1:]
+        }
+        added_paths = {
+            record[1]
+            for record in committed_status
+            if len(record) == 2 and record[0] == "A"
+        }
+
+    _validate_integration_source_commits()
+    _validate_aurora_input_contract()
+    actual_hashes = {
+        relative_path: hashlib.sha256(
+            _canonical_integration_bytes(relative_path)
+        ).hexdigest()
+        for relative_path in INTEGRATION_CANONICAL_SHA256
+    }
+    require(
+        _integration_candidate_matches(overlay, actual_hashes, added_paths),
+        "Integrated canonical blob map differs",
+    )
+    require(
+        hashlib.sha256(_masked_integration_validator_bytes()).hexdigest()
+        == INTEGRATION_VALIDATOR_CANONICAL_SHA256,
+        "Integrated validator differs from its frozen masked-source SHA-256",
+    )
+    _validate_integration_mutation_self_tests()
+    _validate_integration_docs_and_ap3b_boundary()
+    return state
+
+
+def validate_current_integrated_manifests() -> str:
+    """Select the explicit integration state without weakening historical gates."""
+
+    if _git_text("branch", "--show-current") == INTEGRATION_BRANCH:
+        return _classify_v158_bal_aurora_integration()
+    return validate_current_ap2r1l_manifests()
+
+
+def validate_current_ap1_contract() -> None:
+    """Run current AP-1 contracts and inspect the actual current adapters."""
+
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    for test_name in (
+        "test_automation_plan_timeline.py",
+        "test_rcm_timeline_model.py",
+        "test_rcm_optimizer.py",
+        "test_optimizer_startup_contract.py",
+        "test_optimizer_executor_contract.py",
+    ):
+        completed = subprocess.run(
+            [sys.executable, "-B", str(ROOT / "tools" / test_name)],
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        require(
+            completed.returncode == 0,
+            f"Current AP-1 contract failed: {test_name}\n"
+            f"{completed.stdout}{completed.stderr}",
+        )
+
+    timeline_source = (COMPONENT / "timeline_sensor.py").read_text(
+        encoding="utf-8"
+    )
+    common_source = (COMPONENT / "automation_plan_timeline.py").read_text(
+        encoding="utf-8"
+    )
+    sensor_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
+    init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
+    rcm_source = (COMPONENT / "rcm_sensor.py").read_text(encoding="utf-8")
+    rcm_model_source = (COMPONENT / "rcm_timeline_model.py").read_text(
+        encoding="utf-8"
+    )
+    registration_contract_path = (
+        ROOT / "tests" / "test_timeline_platform_registration.py"
+    )
+    require(
+        registration_contract_path.is_file(),
+        "Current AP-1E real Home Assistant registration test is missing",
+    )
+    registration_test_source = registration_contract_path.read_text(encoding="utf-8")
+    require(
+        "_unrecorded_attributes = frozenset({MATCH_ALL})" in timeline_source
+        and "RestoreEntity" not in timeline_source
+        and "_attr_should_poll = False" in timeline_source,
+        "Current AP-1 Recorder/Restore/polling contract differs",
+    )
+    require(
+        "MAX_POINTS = 192" in common_source
+        and "MAX_SERIALIZED_BYTES = 262_144" in common_source
+        and "MAX_SOURCES = 16" in common_source
+        and 'PLAN_REVISION_SCOPE = "runtime"' in common_source
+        and 'ACTIVE_SCOPE = "publication_snapshot"' in common_source,
+        "Current AP-1 schema or bounded-limit contract differs",
+    )
+    require(
+        'policy_id="rce"' in sensor_source
+        and 'policy_id="tariff"' in sensor_source
+        and 'policy_id="rcm"' in sensor_source
+        and _ap1e_r2_identity_contracts(timeline_source, init_source),
+        "Current AP-1 timeline IDs or unique-ID construction differs",
+    )
+    require(
+        sensor_source.count("entities.append(rcm_plan)") == 1
+        and sensor_source.count('policy_id="rcm"') == 1
+        and "source_sensor=rcm_plan" in sensor_source
+        and sum(
+            isinstance(node, ast.Name) and node.id == "optimize_rcm"
+            for node in ast.walk(ast.parse(rcm_source))
+        )
+        == 1
+        and "build_rcm_timeline_trace(" in rcm_source
+        and rcm_source.index(
+            "optimize_rcm,", rcm_source.index("async_add_executor_job(")
+        )
+        < rcm_source.index("build_rcm_timeline_trace(")
+        and "optimize_rcm" not in rcm_model_source
+        and "MAX_HORIZON_SECONDS = 48 * 60 * 60" in rcm_model_source
+        and "SLOT_MINUTES = 15" in rcm_model_source,
+        "Current AP-2R1 RCEm registration/model boundary differs",
+    )
+    future_voltage_tokens = (
+        "future_voltage_l1",
+        "future_voltage_l2",
+        "future_voltage_l3",
+        "predicted_voltage_l1",
+        "predicted_voltage_l2",
+        "predicted_voltage_l3",
+    )
+    authority_tokens = (
+        "services.async_call",
+        "write_register",
+        "modbus.write",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+    )
+    require(
+        not any(token in rcm_model_source for token in future_voltage_tokens)
+        and not any(token in rcm_model_source for token in authority_tokens),
+        "Current AP-2R1 model fabricates voltage or adds authority",
+    )
+    for language in ("en", "pl"):
+        translations = load_json(COMPONENT / "translations" / f"{language}.json")
+        sensor_translations = translations.get("entity", {}).get("sensor", {})
+        require(
+            "rcm_automation_plan_timeline" in sensor_translations,
+            f"Missing RCEm timeline translation key: {language}",
+        )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source.replace(
+                "self.entity_id = timeline_entity_id(policy_id)",
+                "# suggested_object_id-only mutation",
+                1,
+            ),
+            init_source,
+        ),
+        "Suggested-object-ID-only mutation survived the AP-1E-R2 gate",
+    )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source,
+            init_source.replace(
+                "for policy_id in TIMELINE_POLICY_IDS:",
+                "for deleted_entry in entity_registry.deleted_entities.values():",
+                1,
+            ),
+        ),
+        "Broad deleted-row normalization survived the AP-1E-R2 gate",
+    )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source + "\nentity_registry.async_update_entity(timeline.entity_id)\n",
+            init_source,
+        ),
+        "Post-add timeline rename survived the AP-1E-R2 gate",
+    )
+    forbidden = (
+        "async_track_time_interval",
+        "async_call_later",
+        "services.async_call",
+        "modbus.write",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+    )
+    require(
+        not any(token in timeline_source for token in forbidden),
+        "Current AP-1 gained polling, timers or physical authority",
+    )
+    reconcile_source = init_source.split(
+        "def _async_reconcile_entity_registry(", 1
+    )[1].split("\n\nasync def ", 1)[0]
+    require(
+        reconcile_source.count(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("rcm_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.index(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        < reconcile_source.index("for registry_entry in")
+        and reconcile_source.index(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        < reconcile_source.index("for registry_entry in")
+        and not any(
+            token in reconcile_source
+            for token in ("startswith(", "endswith(", "re.search(", "re.match(")
+        ),
+        "Current AP-1E exact timeline reconciliation keys differ",
+    )
+    for key in (
+        "rce_automation_plan_timeline",
+        "tariff_automation_plan_timeline",
+        "rcm_automation_plan_timeline",
+    ):
+        require(
+            not _ap1e_r2_identity_contracts(
+                timeline_source,
+                init_source.replace(
+                    f'    active_translation_keys.add("{key}")\n',
+                    "",
+                    1,
+                ),
+            ),
+            f"Missing {key} survived the AP-1E-R2 static gate",
+        )
+    real_test_tokens = (
+        'HA_VERSION == "2026.8.2"',
+        "ConfigEntry(",
+        "EntityPlatform(",
+        "sensor_platform.async_setup_entry",
+        "entity_registry.async_get_or_create",
+        "device_registry.async_get_or_create",
+        "hass.states.get",
+        "_async_prepare_timeline_entity_registry",
+        "_async_reconcile_entity_registry",
+        "platform.async_reset",
+        "pref_disable_new_entities=disable_new_entities",
+        "RegistryEntryDisabler.INTEGRATION",
+        "DeletedRegistryEntry",
+        "TimelineIdentityCollisionError",
+        "EVENT_ENTITY_REGISTRY_UPDATED",
+        "reconciliation_changed_active_timeline",
+        '"rcm": (',
+        "unexpected_rcm_call",
+    )
+    require(
+        all(token in registration_test_source for token in real_test_tokens)
+        and "class FakeEntityPlatform" not in registration_test_source
+        and "class StubEntityPlatform" not in registration_test_source,
+        "Current AP-1E registration test does not freeze the real HA lifecycle",
+    )
+
+
+def _write_historical_paths(
+    destination: Path,
+    reference: str,
+    paths: set[str] | frozenset[str],
+) -> None:
+    """Overlay exact tracked blobs from one frozen historical reference."""
+
+    for relative_path in paths:
+        target = destination / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(
+            subprocess.check_output(
+                ["git", "show", f"{reference}:{relative_path}"],
+                cwd=ROOT,
+            )
+        )
+
+
+def build_historical_rev28_frontend_fixture(destination: Path) -> None:
+    """Build the original 14/32 REV28 validator fixture outside the repo."""
+
+    archive = subprocess.check_output(
+        ["git", "archive", "--format=tar", VALIDATOR_HISTORICAL_REF],
+        cwd=ROOT,
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
+        bundle.extractall(destination, filter="fully_trusted")
+
+    quiet = {"cwd": destination, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    subprocess.check_call(["git", "init"], **quiet)
+    subprocess.check_call(["git", "config", "user.name", "AP-1 validator"], **quiet)
+    subprocess.check_call(
+        ["git", "config", "user.email", "validator@example.invalid"],
+        **quiet,
+    )
+    subprocess.check_call(["git", "add", "--all"], **quiet)
+    subprocess.check_call(["git", "commit", "-m", "v1.5.7 fixture"], **quiet)
+    subprocess.check_call(["git", "tag", VALIDATOR_HISTORICAL_REF], **quiet)
+
+    historical_base_paths = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{VALIDATOR_HISTORICAL_REF}...{PROTECTED_ASSETS_AST_BASE}",
+    )
+    _write_historical_paths(
+        destination,
+        PROTECTED_ASSETS_AST_BASE,
+        historical_base_paths,
+    )
+    subprocess.check_call(["git", "add", "--all"], **quiet)
+    subprocess.check_call(["git", "commit", "-m", "Supervisor fixture"], **quiet)
+
+    _write_historical_paths(
+        destination,
+        REV28_HISTORICAL_COMMIT,
+        PHASE_2_TASK_PATHS,
+    )
+
+
+def _require_protected_assets_ast(module: ast.Module) -> None:
+    """Require the exact c65e8b73 function/class AST declaration set."""
+    actual_nodes = {
+        f"assets.{node.name}": node
+        for node in module.body
+        if isinstance(
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+        )
+    }
+    require(
+        set(actual_nodes) == set(PROTECTED_ASSETS_AST_SHA256),
+        "Protected assets.py function/class declaration set changed",
+    )
+    for qualified_name, expected_hash in PROTECTED_ASSETS_AST_SHA256.items():
+        node = actual_nodes[qualified_name]
+        if sys.version_info >= (3, 13):
+            canonical = ast.dump(
+                node,
+                annotate_fields=True,
+                include_attributes=False,
+                show_empty=True,
+            )
+        else:
+            canonical = ast.dump(node, annotate_fields=True, include_attributes=False)
+        actual_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        require(
+            actual_hash == expected_hash,
+            f"Protected scheduler-delivery AST changed: {qualified_name}",
+        )
+
+
+def validate_protected_assets_ast(assets_source: str) -> None:
+    """Protect all assets.py declarations and prove the S29 detector fires."""
+    require(
+        PROTECTED_ASSETS_AST_BASE
+        == "c65e8b73096cb64ff2d21b6e2b05602f71a4a2af",
+        "Protected assets.py AST base is not the reviewed exact commit",
+    )
+    _require_protected_assets_ast(ast.parse(assets_source))
+
+    # S29: a semantic edit to final destination attestation must be rejected
+    # by the same literal AST oracle used for the real current worktree.
+    mutation = ast.parse(assets_source)
+    target = next(
+        (
+            node
+            for node in mutation.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_attest_scheduler_destination"
+        ),
+        None,
+    )
+    require(target is not None, "S29 mutation target is missing")
+    target.body.append(ast.Pass())
+    try:
+        _require_protected_assets_ast(mutation)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("S29 protected scheduler-delivery mutation survived")
 
 
 def load_json(path: Path) -> dict | list:
@@ -682,6 +3701,65 @@ def validate_mandatory_workflow_step(
     )
 
 
+def validate_effective_workflow_command(
+    workflow: dict,
+    command: str,
+    *,
+    job_name: str,
+    allowed_condition: str | None = None,
+) -> None:
+    """Require one live command line, including reviewed conditional gates."""
+
+    jobs = workflow.get("jobs", {})
+    require(isinstance(jobs, dict), "Validation workflow jobs are not a mapping")
+    matches: list[tuple[str, dict, dict]] = []
+    for candidate_job_name, candidate_job in jobs.items():
+        if not isinstance(candidate_job, dict):
+            continue
+        steps = candidate_job.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            commands = {
+                line.strip()
+                for line in str(step.get("run", "")).splitlines()
+                if line.strip()
+            }
+            if command in commands:
+                matches.append((str(candidate_job_name), candidate_job, step))
+    require(
+        len(matches) == 1,
+        f"CI must contain exactly one effective command line: {command}",
+    )
+    actual_job_name, job, step = matches[0]
+    require(
+        actual_job_name == job_name,
+        f"Mandatory command moved from {job_name} to {actual_job_name}: {command}",
+    )
+    require(
+        "continue-on-error" not in job and "continue-on-error" not in step,
+        f"Mandatory command is continue-on-error: {command}",
+    )
+    job_condition = job.get("if")
+    step_condition = step.get("if")
+    require(
+        job_condition is None,
+        f"Mandatory workflow job has an unauthorized condition: {job_name}",
+    )
+    if allowed_condition is None:
+        require(
+            step_condition is None,
+            f"Mandatory command has an unauthorized condition: {command}",
+        )
+    else:
+        require(
+            step_condition == allowed_condition,
+            f"Conditional mandatory command differs: {command}",
+        )
+
+
 def iter_mappings(value):
     """Yield every mapping in a nested dashboard payload."""
     if isinstance(value, dict):
@@ -722,7 +3800,7 @@ def load_localization_module():
 
 
 def load_assets_module():
-    """Load the asset installer with a minimal Home Assistant type stub."""
+    """Load assets.py with only documented public HA surfaces stubbed."""
     homeassistant = types.ModuleType("homeassistant")
     components = types.ModuleType("homeassistant.components")
     lovelace = types.ModuleType("homeassistant.components.lovelace")
@@ -731,14 +3809,19 @@ def load_assets_module():
     core = types.ModuleType("homeassistant.core")
     helpers = types.ModuleType("homeassistant.helpers")
     storage = types.ModuleType("homeassistant.helpers.storage")
+    entity_registry = types.ModuleType(
+        "homeassistant.helpers.entity_registry"
+    )
     core.HomeAssistant = object
     lovelace_const.CONF_RESOURCE_TYPE_WS = "res_type"
     lovelace_const.LOVELACE_DATA = "lovelace"
     lovelace_const.MODE_STORAGE = "storage"
+    ha_const.ATTR_EDITABLE = "editable"
     ha_const.CONF_ID = "id"
     ha_const.CONF_TYPE = "type"
     ha_const.CONF_URL = "url"
-    storage.Store = object
+    storage.Store = ValidatorStore
+    entity_registry.async_get = lambda hass: hass.entity_registry
     homeassistant.components = components
     components.lovelace = lovelace
     lovelace.const = lovelace_const
@@ -746,14 +3829,16 @@ def load_assets_module():
     homeassistant.core = core
     homeassistant.helpers = helpers
     helpers.storage = storage
-    sys.modules.setdefault("homeassistant", homeassistant)
-    sys.modules.setdefault("homeassistant.components", components)
-    sys.modules.setdefault("homeassistant.components.lovelace", lovelace)
-    sys.modules.setdefault("homeassistant.components.lovelace.const", lovelace_const)
-    sys.modules.setdefault("homeassistant.const", ha_const)
-    sys.modules.setdefault("homeassistant.core", core)
-    sys.modules.setdefault("homeassistant.helpers", helpers)
-    sys.modules.setdefault("homeassistant.helpers.storage", storage)
+    helpers.entity_registry = entity_registry
+    sys.modules["homeassistant"] = homeassistant
+    sys.modules["homeassistant.components"] = components
+    sys.modules["homeassistant.components.lovelace"] = lovelace
+    sys.modules["homeassistant.components.lovelace.const"] = lovelace_const
+    sys.modules["homeassistant.const"] = ha_const
+    sys.modules["homeassistant.core"] = core
+    sys.modules["homeassistant.helpers"] = helpers
+    sys.modules["homeassistant.helpers.storage"] = storage
+    sys.modules["homeassistant.helpers.entity_registry"] = entity_registry
 
     custom_components = types.ModuleType("custom_components")
     package = types.ModuleType("custom_components.hoymiles_hit_modbus")
@@ -766,6 +3851,8 @@ def load_assets_module():
     const_module.VERSION = json.loads(
         (COMPONENT / "manifest.json").read_text(encoding="utf-8")
     )["version"]
+    const_module.EMS_PACKAGE_VERSION = VALIDATOR_PACKAGE_MARKER
+    const_module.EMS_PACKAGE_VERSION_ENTITY = VALIDATOR_MARKER_ENTITY
     sys.modules[const_module.__name__] = const_module
 
     path = COMPONENT / "assets.py"
@@ -781,148 +3868,543 @@ def load_assets_module():
 
 
 def validate_fresh_asset_install() -> None:
-    """Exercise fresh installation and the legacy-dashboard migration path."""
+    """Exercise managed assets only through async_install_assets."""
     assets = load_assets_module()
+    assets_source = (COMPONENT / "assets.py").read_text(encoding="utf-8")
+    module = ast.parse(assets_source)
+    symbols = {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    require("_copy_assets" not in symbols, "Removed _copy_assets symbol returned")
+    validator_module = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    validator_calls = {
+        (node.func.value.id, node.func.attr)
+        for node in ast.walk(validator_module)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+    }
+    require(
+        ("assets", "_copy_assets") not in validator_calls,
+        "Validator calls removed path",
+    )
+    require(
+        ("assets", "_sync_assets") not in validator_calls,
+        "Validator bypasses the actual async state machine",
+    )
+    require(
+        VALIDATOR_STORE_CONTRACTS
+        == {
+            "input_select": (1, frozenset({1, 2})),
+            "input_boolean": (1, frozenset({1})),
+        },
+        "Literal Store contract oracle differs",
+    )
+    require(
+        tuple(VALIDATOR_HELPER_IDS)
+        == (
+            "input_select.hoymiles_ems_supervisor_mode",
+            "input_select.hoymiles_ems_supervisor_profile",
+            "input_boolean.hoymiles_ems_supervisor_allow_rce",
+            "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+            "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+        ),
+        "Literal canonical helper oracle differs",
+    )
+
     with tempfile.TemporaryDirectory(prefix="hoymiles_hacs_install_") as tmp:
         config_path = Path(tmp)
         dashboard_path = config_path / "dashboard_hoymiles.yaml"
-        package_path = (
-            config_path / "packages" / "hoymiles_ems_scheduler.yaml"
-        )
-        frontend_local_ready = (config_path / "www").is_dir()
-        polish_written = assets._copy_assets(config_path, "pl-PL", False)
+        package_path = validator_scheduler_path(config_path)
+        hass = ValidatorHass(config_path)
+        results: list = []
+
+        def capture(name: str, result) -> None:
+            if name == "_sync_assets":
+                results.append(result)
+
+        hass.executor_after = capture
+        polish_written = validator_install(assets, hass)
         require(
             len(polish_written) == 7,
-            "Fresh Polish installation did not copy all seven assets",
+            "Fresh Polish async installation did not write seven assets",
         )
         require(
-            (config_path / "www").is_dir()
-            and not frontend_local_ready,
-            "Fresh-no-www setup must remain restart-gated after copying assets",
+            dashboard_path.read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_bytes(),
+            "Fresh async installation copied wrong Polish dashboard",
         )
         require(
-            dashboard_path.read_text(encoding="utf-8")
-            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_text(
-                encoding="utf-8"
-            ),
-            "Fresh Polish installation copied the wrong dashboard",
+            package_path.read_bytes()
+            == (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes(),
+            "Fresh async installation copied wrong scheduler",
+        )
+        require(
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["fresh"],
+            "Fresh literal transition differs",
+        )
+        require(
+            validator_metadata_hash(hass) == VALIDATOR_NEW_HASHES["pl"],
+            "Fresh scheduler metadata differs",
         )
         for filename in assets.LOCAL_FRONTEND_ASSETS:
             require(
                 (config_path / "www" / filename).read_bytes()
                 == (RESOURCES / "www" / filename).read_bytes(),
-                f"Fresh installation copied the wrong /local asset: {filename}",
+                f"Fresh async installation copied wrong /local asset: {filename}",
             )
+        inode = package_path.stat().st_ino
+        saves = hass.store_save_calls
+        results.clear()
+        second = validator_install(assets, hass)
+        require(second == [], "Second async run is not idempotent")
+        require(package_path.stat().st_ino == inode, "Second async run replaced scheduler")
+        require(hass.store_save_calls == saves, "Second async run churned Store")
         require(
-            assets._copy_assets(config_path, "pl-PL", False) == [],
-            "Asset installer overwrites user files without explicit permission",
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["current"],
+            "Current literal transition differs",
         )
 
-        legacy_dashboard = """\
-title: Custom user dashboard
-entities:
-  - sensor.hoymiles_inverter_pv1_voltage
-  - sensor.pv_hoymiles_inverter_pv1_current
-  - sensor.unrelated_user_entity
-"""
-        dashboard_path.write_text(legacy_dashboard, encoding="utf-8")
-        legacy_package = """\
-script:
-  custom_user_script:
-    sequence:
-      - action: select.select_option
-        target:
-          entity_id: select.pv_hoymiles_inverter_tryb_ems
-"""
-        package_path.write_text(legacy_package, encoding="utf-8")
-        migrated = assets._copy_assets(config_path, "pl-PL", False)
-        require(
-            migrated == [dashboard_path, package_path],
-            "Existing legacy assets were not migrated in place",
-        )
-        migrated_text = dashboard_path.read_text(encoding="utf-8")
-        require(
-            "sensor.hoymiles_hit_pv1_voltage" in migrated_text
-            and "sensor.hoymiles_hit_pv1_current" in migrated_text,
-            "Legacy dashboard ids were not replaced with stable proxy ids",
-        )
-        require(
-            "title: Custom user dashboard" in migrated_text
-            and "sensor.unrelated_user_entity" in migrated_text,
-            "Legacy migration did not preserve user dashboard content",
-        )
-        backup_path = dashboard_path.with_name(
-            f"{dashboard_path.name}{assets.LEGACY_ENTITY_BACKUP_SUFFIX}"
-        )
-        require(
-            backup_path.read_text(encoding="utf-8") == legacy_dashboard,
-            "Legacy dashboard migration did not create an exact backup",
-        )
-        migrated_package = package_path.read_text(encoding="utf-8")
-        require(
-            "select.hoymiles_hit_ems_mode" in migrated_package
-            and "custom_user_script" in migrated_package,
-            "Legacy EMS package was not safely migrated",
-        )
-        package_backup = package_path.with_name(
-            f"{package_path.name}{assets.LEGACY_ENTITY_BACKUP_SUFFIX}"
-        )
-        require(
-            package_backup.read_text(encoding="utf-8") == legacy_package,
-            "Legacy EMS migration did not create an exact backup",
-        )
-        require(
-            assets._copy_assets(config_path, "pl-PL", False) == [],
-            "Stable dashboard migration is not idempotent",
-        )
-
-        english_written = assets._copy_assets(config_path, "en-GB", True)
-        require(
-            len(english_written) == 7,
-            "English overwrite installation did not copy all seven assets",
-        )
-        require(
-            (config_path / "dashboard_hoymiles.yaml").read_text(
-                encoding="utf-8"
+    for language in ("pl", "en"):
+        with tempfile.TemporaryDirectory(prefix=f"hoymiles_historical_{language}_") as tmp:
+            config_path = Path(tmp)
+            package_path = validator_scheduler_path(config_path)
+            package_path.parent.mkdir(parents=True)
+            relative = (
+                "custom_components/hoymiles_hit_modbus/resources/"
+                f"home_assistant/{language}/hoymiles_ems_scheduler.yaml"
             )
-            == (RESOURCES / "dashboard_hoymiles_en.yaml").read_text(
-                encoding="utf-8"
+            historical = subprocess.check_output(
+                ["git", "show", f"{VALIDATOR_HISTORICAL_REF}:{relative}"],
+                cwd=ROOT,
+            )
+            require(
+                hashlib.sha256(historical).hexdigest()
+                == VALIDATOR_HISTORICAL_HASHES[language],
+                f"Literal historical {language} hash differs",
+            )
+            package_path.write_bytes(historical)
+            hass = ValidatorHass(
+                config_path,
+                "pl-PL" if language == "pl" else "en-GB",
+            )
+            written = validator_install(assets, hass)
+            require(package_path in written, f"Historical {language} did not update")
+            require(
+                package_path.with_name(
+                    package_path.name + VALIDATOR_BACKUP_SUFFIX
+                ).read_bytes()
+                == historical,
+                f"Historical {language} backup differs",
+            )
+            require(
+                validator_metadata_hash(hass) == VALIDATOR_NEW_HASHES[language],
+                f"Historical {language} metadata differs",
+            )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_final_attestation_foreign_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        historical = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{VALIDATOR_HISTORICAL_REF}:custom_components/"
+                "hoymiles_hit_modbus/resources/"
+                "home_assistant/pl/hoymiles_ems_scheduler.yaml",
+            ],
+            cwd=ROOT,
+        )
+        old_hash = hashlib.sha256(historical).hexdigest()
+        package_path.write_bytes(historical)
+        backup = package_path.with_name(
+            package_path.name + VALIDATOR_BACKUP_SUFFIX
+        )
+        foreign = b"validator foreign destination after filesystem transaction\n"
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        observed: dict = {}
+
+        def install_foreign_after_sync(name: str, result) -> None:
+            if name == "_sync_assets":
+                observed["backup"] = (
+                    validator_file_identity(backup),
+                    backup.read_bytes(),
+                )
+                winner = package_path.parent / "validator-foreign-winner"
+                winner.write_bytes(foreign)
+                winner.replace(package_path)
+                observed["foreign_identity"] = validator_file_identity(package_path)
+            elif name == "_attest_scheduler_destination":
+                observed["attestation"] = result
+
+        hass.executor_after = install_foreign_after_sync
+        written = validator_install(assets, hass)
+        require(
+            package_path not in written,
+            "Final destination mismatch reported scheduler write",
+        )
+        require(
+            package_path.read_bytes() == foreign,
+            "Final destination mismatch overwrote foreign bytes",
+        )
+        require(
+            validator_file_identity(package_path) == observed["foreign_identity"],
+            "Final destination mismatch changed foreign identity",
+        )
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Final destination mismatch advanced scheduler metadata",
+        )
+        require(
+            (validator_file_identity(backup), backup.read_bytes())
+            == observed["backup"],
+            "Final destination mismatch changed fixed backup",
+        )
+        require(
+            observed["attestation"].action.value
+            == VALIDATOR_TRANSITIONS["destination_changed"],
+            "Final destination mismatch category differs",
+        )
+        require(
+            not list(
+                package_path.parent.glob(
+                    f".{package_path.name}.hoymiles_hit_modbus.rollback.*.tmp"
+                )
             ),
-            "English installation copied the wrong dashboard",
+            "Final destination mismatch left rollback artifact",
         )
 
-    with tempfile.TemporaryDirectory(prefix="hoymiles_managed_upgrade_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="hoymiles_final_attestation_inode_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        historical = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{VALIDATOR_HISTORICAL_REF}:custom_components/"
+                "hoymiles_hit_modbus/resources/"
+                "home_assistant/pl/hoymiles_ems_scheduler.yaml",
+            ],
+            cwd=ROOT,
+        )
+        old_hash = hashlib.sha256(historical).hexdigest()
+        package_path.write_bytes(historical)
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        observed = {}
+
+        def replace_with_same_hash(name: str, result) -> None:
+            if name == "_sync_assets":
+                observed["installed_identity"] = result.scheduler.after.identity
+                winner = package_path.parent / "validator-same-hash-new-inode"
+                winner.write_bytes(
+                    (
+                        RESOURCES
+                        / "home_assistant"
+                        / "pl"
+                        / "hoymiles_ems_scheduler.yaml"
+                    ).read_bytes()
+                )
+                winner.replace(package_path)
+                observed["winner_identity"] = validator_file_identity(package_path)
+            elif name == "_attest_scheduler_destination":
+                observed["attestation"] = result
+
+        hass.executor_after = replace_with_same_hash
+        written = validator_install(assets, hass)
+        require(
+            package_path not in written,
+            "Hash-only final attestation reported scheduler write",
+        )
+        require(
+            hashlib.sha256(package_path.read_bytes()).hexdigest()
+            == VALIDATOR_NEW_HASHES["pl"],
+            "Same-hash replacement bytes differ",
+        )
+        require(
+            validator_file_identity(package_path) == observed["winner_identity"],
+            "Same-hash replacement identity changed after attestation",
+        )
+        require(
+            observed["attestation"].resulting_snapshot.identity
+            != observed["installed_identity"],
+            "Same-hash replacement did not exercise identity mismatch",
+        )
+        require(
+            observed["attestation"].action.value
+            == VALIDATOR_TRANSITIONS["destination_changed"],
+            "Hash-only final attestation accepted a different inode",
+        )
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Same-hash identity mismatch advanced scheduler metadata",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_dashboard_managed_") as tmp:
         config_path = Path(tmp)
         dashboard_path = config_path / "dashboard_hoymiles.yaml"
-        dashboard_path.write_text("title: previous managed release\n", encoding="utf-8")
-        previous_hash = assets._sha256(dashboard_path)
-        written, managed = assets._sync_assets(
-            config_path,
-            "pl-PL",
-            False,
-            {"dashboard_hoymiles.yaml": previous_hash},
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(
+            (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes()
+        )
+        old_dashboard = b"title: previous managed release\n"
+        dashboard_path.write_bytes(old_dashboard)
+        old_hash = hashlib.sha256(old_dashboard).hexdigest()
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {
+                "dashboard_hoymiles.yaml": old_hash,
+                VALIDATOR_SCHEDULER_RELATIVE: VALIDATOR_NEW_HASHES["pl"],
+            },
+        }
+        written = validator_install(assets, hass)
+        require(dashboard_path in written, "Managed dashboard was not upgraded")
+        require(
+            dashboard_path.read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_bytes(),
+            "Managed dashboard async update bytes differ",
+        )
+        custom = b"title: user customization\n"
+        dashboard_path.write_bytes(custom)
+        stale = dict(hass.store_payload)
+        written = validator_install(assets, hass)
+        require(dashboard_path not in written, "Customized dashboard was overwritten")
+        require(dashboard_path.read_bytes() == custom, "Customized dashboard changed")
+        require(
+            hass.store_payload.get("assets", {}).get("dashboard_hoymiles.yaml")
+            is None,
+            "Customized dashboard retained false managed metadata",
+        )
+        require(stale != hass.store_payload, "Customized dashboard metadata did not reconcile")
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_english_overwrite_") as tmp:
+        config_path = Path(tmp)
+        hass = ValidatorHass(config_path, "en-GB")
+        written = validator_install(assets, hass, overwrite=True)
+        require(len(written) == 7, "Fresh English async overwrite count differs")
+        require(
+            (config_path / "dashboard_hoymiles.yaml").read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_en.yaml").read_bytes(),
+            "English async overwrite copied wrong dashboard",
         )
         require(
-            dashboard_path in written
-            and managed["dashboard_hoymiles.yaml"]
-            == assets._sha256(dashboard_path),
-            "An unchanged managed dashboard was not upgraded",
+            validator_metadata_hash(hass) == VALIDATOR_NEW_HASHES["en"],
+            "English scheduler metadata differs",
         )
 
-        dashboard_path.write_text("title: user customization\n", encoding="utf-8")
-        custom_content = dashboard_path.read_text(encoding="utf-8")
-        written, managed = assets._sync_assets(
-            config_path,
-            "pl-PL",
-            False,
-            {"dashboard_hoymiles.yaml": previous_hash},
+    with tempfile.TemporaryDirectory(prefix="hoymiles_live_collision_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(
+            (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes()
+        )
+        hass = ValidatorHass(config_path)
+        results: list = []
+
+        def capture_collision(name: str, result) -> None:
+            if name == "_sync_assets":
+                results.append(result)
+
+        hass.executor_after = capture_collision
+        validator_set_ui_collision(hass)
+        written = validator_install(assets, hass)
+        require(package_path not in written, "Live editable collision was missed")
+        require(validator_metadata_hash(hass) is None, "Collision repaired missing metadata")
+        require(
+            not package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX).exists(),
+            "Current collision created backup",
         )
         require(
-            dashboard_path not in written
-            and dashboard_path.read_text(encoding="utf-8") == custom_content
-            and "dashboard_hoymiles.yaml" not in managed,
-            "A user-modified dashboard was overwritten",
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["collision"],
+            "Literal collision transition differs",
         )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_backup_exact_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        backup = package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX)
+        backup.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        before = (backup.stat().st_ino, backup.stat().st_mtime_ns, backup.read_bytes())
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path in written, "Exact existing backup blocked overwrite")
+        require(
+            (backup.stat().st_ino, backup.stat().st_mtime_ns, backup.read_bytes())
+            == before,
+            "Exact existing backup was overwritten",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_backup_foreign_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        backup = package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX)
+        backup.write_bytes(b"foreign backup")
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path not in written, "Foreign backup allowed overwrite")
+        require(package_path.read_bytes() == VALIDATOR_BACKUP_FIXTURE, "Foreign backup changed scheduler")
+        require(backup.read_bytes() == b"foreign backup", "Foreign backup was overwritten")
+        require(validator_metadata_hash(hass) is None, "Foreign backup advanced metadata")
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_legacy_temp_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        legacy = package_path.parent / VALIDATOR_OLD_TEMP
+        legacy.write_bytes(b"protected legacy temp")
+        identity = (legacy.stat().st_ino, legacy.stat().st_mtime_ns)
+        written = validator_install(assets, ValidatorHass(config_path), overwrite=True)
+        require(package_path in written, "Legacy fixed temp blocked unique-temp transaction")
+        require(legacy.read_bytes() == b"protected legacy temp", "Legacy temp bytes changed")
+        require(
+            (legacy.stat().st_ino, legacy.stat().st_mtime_ns) == identity,
+            "Legacy temp identity changed",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_metadata_recovery_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        old_hash = hashlib.sha256(VALIDATOR_BACKUP_FIXTURE).hexdigest()
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        hass.metadata_failures = 1
+        try:
+            validator_install(assets, hass, overwrite=True)
+        except OSError:
+            pass
+        else:
+            raise RuntimeError("Injected metadata failure was swallowed")
+        inode = package_path.stat().st_ino
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Metadata failure advanced scheduler hash",
+        )
+        written = validator_install(assets, hass)
+        require(package_path not in written, "Metadata self-heal replaced current file")
+        require(package_path.stat().st_ino == inode, "Metadata self-heal changed identity")
+        require(
+            validator_metadata_hash(hass) == VALIDATOR_NEW_HASHES["pl"],
+            "Metadata self-heal did not commit exact new hash",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_modified_policy_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        modified = b"# user modified scheduler\nstate: custom\n"
+        package_path.write_bytes(modified)
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=False)
+        require(package_path not in written, "overwrite false replaced modified scheduler")
+        require(package_path.read_bytes() == modified, "modified scheduler changed")
+        require(
+            not package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX).exists(),
+            "modified hold created backup",
+        )
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path in written, "explicit overwrite did not replace modified scheduler")
+        require(
+            package_path.with_name(
+                package_path.name + VALIDATOR_BACKUP_SUFFIX
+            ).read_bytes()
+            == modified,
+            "Explicit overwrite backup differs",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_replace_failure_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        hass = ValidatorHass(config_path)
+        hass.replace_failure_path = package_path
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path not in written, "Replace failure reported success")
+        require(
+            package_path.read_bytes() == VALIDATOR_BACKUP_FIXTURE,
+            "Replace failure changed scheduler",
+        )
+        require(
+            validator_metadata_hash(hass) is None,
+            "Replace failure advanced scheduler metadata",
+        )
+
+    async def validate_executor_pause_collision() -> None:
+        with tempfile.TemporaryDirectory(prefix="hoymiles_pause_collision_") as tmp:
+            config_path = Path(tmp)
+            hass = ValidatorHass(config_path)
+            hass.pause_executor_name = "_sync_assets"
+            hass.pause_entered = asyncio.Event()
+            hass.pause_release = asyncio.Event()
+            task = asyncio.create_task(
+                assets.async_install_assets(
+                    hass,
+                    overwrite=False,
+                    publish_frontend=False,
+                )
+            )
+            await hass.pause_entered.wait()
+            validator_set_ui_collision(hass)
+            hass.pause_release.set()
+            written = await task
+            package_path = validator_scheduler_path(config_path)
+            require(package_path not in written, "Paused collision reported write")
+            require(not package_path.exists(), "Paused collision did not remove fresh file")
+            require(
+                validator_metadata_hash(hass) is None,
+                "Paused collision advanced scheduler metadata",
+            )
+
+    asyncio.run(validate_executor_pause_collision())
+
+    require(
+        "hass.services.async_call" not in assets_source
+        and "write_register" not in assets_source
+        and "grant_execution" not in assets_source,
+        "Managed-package delivery added a physical execution path",
+    )
 
     class FakeResourceCollection:
         """Exercise the same live collection contract as Lovelace websocket."""
@@ -1236,12 +4718,12 @@ script:
 
     require(
         assets.FRONTEND_RESOURCE_URL
-        == f"/local/hoymiles-rce-chart-card.js?v={assets.VERSION}.24"
+        == f"/local/hoymiles-rce-chart-card.js?v={assets.VERSION}.28"
         and assets.FRONTEND_BOOTSTRAP_URL
-        == f"/local/hoymiles-dashboard-strategy.js?v={assets.VERSION}.24"
+        == f"/local/hoymiles-dashboard-strategy.js?v={assets.VERSION}.28"
         and "/local/hoymiles-dashboard-strategy.js"
         in assets.MANAGED_FRONTEND_RESOURCE_PATHS,
-        "Frontend revision 24 or bootstrap migration paths changed",
+        "Frontend revision 28 or bootstrap migration paths changed",
     )
 
 
@@ -1408,6 +4890,286 @@ def validate_frontend_asset_failure_isolation(init_source: str) -> None:
     )
 
 
+def validate_ui_count_self_tests(
+    node_executable: str,
+    validation_root: Path = ROOT,
+) -> None:
+    """Prove both exact UI counters reject one-less and one-more oracles."""
+    ui_test = validation_root / "tools" / "test_supervisor_aurora_ui_contract.js"
+    source = ui_test.read_text(encoding="utf-8")
+    cases = (
+        ("const EXPECTED_GROUP_COUNT = 65;", "const EXPECTED_GROUP_COUNT = 64;"),
+        ("const EXPECTED_GROUP_COUNT = 65;", "const EXPECTED_GROUP_COUNT = 66;"),
+        ("const EXPECTED_CHECK_COUNT = 913;", "const EXPECTED_CHECK_COUNT = 912;"),
+        ("const EXPECTED_CHECK_COUNT = 913;", "const EXPECTED_CHECK_COUNT = 914;"),
+    )
+    with tempfile.TemporaryDirectory(prefix="hoymiles-rev28-counts-") as directory:
+        target = Path(directory) / ui_test.name
+        for index, (anchor, replacement) in enumerate(cases, start=1):
+            require(
+                source.count(anchor) == 1,
+                f"UI count self-test {index} anchor is not unique",
+            )
+            target.write_text(
+                source.replace(anchor, replacement, 1),
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["HOYMILES_UI_TEST_ROOT"] = str(validation_root)
+            completed = subprocess.run(
+                [node_executable, str(target)],
+                cwd=validation_root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            require(
+                completed.returncode != 0
+                and "UI "
+                in f"{completed.stdout}{completed.stderr}",
+                f"UI count ±1 self-test {index} unexpectedly survived",
+            )
+
+
+def validate_rev28_visual_mutations(
+    node_executable: str,
+    validation_root: Path = ROOT,
+) -> int:
+    """Run V01–V12 against both canonical and packaged card bytes."""
+
+    def replace_once(text: str, old: str, new: str, mutation_id: str) -> str:
+        require(
+            text.count(old) == 1,
+            f"{mutation_id} mutation anchor count is {text.count(old)}, expected 1",
+        )
+        return text.replace(old, new, 1)
+
+    def remove_last_reduced_motion(text: str) -> str:
+        marker = "  @media (prefers-reduced-motion: reduce) {"
+        component_start = text.find("const HOYMILES_EMS_SUPERVISOR_CSS")
+        component_end = text.find(
+            "class HoymilesEmsSupervisorPanel", component_start
+        )
+        start = text.rfind(marker, component_start, component_end)
+        end = text.find(
+            "  @container (max-width: 1024px)", start, component_end
+        )
+        require(start >= 0 and end > start, "V08 reduced-motion block anchor missing")
+        return text[:start] + text[end:]
+
+    mutations = (
+        (
+            "V01",
+            lambda text: text.replace(
+                "--policy-accent: var(--supervisor-rce);",
+                "--policy-accent: var(--supervisor-cyan);",
+            )
+            .replace(
+                "--policy-accent: var(--supervisor-tariff);",
+                "--policy-accent: var(--supervisor-cyan);",
+            )
+            .replace(
+                "--policy-accent: var(--supervisor-rcm);",
+                "--policy-accent: var(--supervisor-cyan);",
+            ),
+        ),
+        (
+            "V02",
+            lambda text: replace_once(
+                text,
+                '  .supervisor-panel[data-tone="shadow-selected"] {\n'
+                "    --supervisor-tone: var(--supervisor-violet);",
+                '  .supervisor-panel[data-tone="shadow-selected"] {\n'
+                "    --supervisor-tone: var(--supervisor-ready);",
+                "V02",
+            ),
+        ),
+        (
+            "V03",
+            lambda text: replace_once(
+                text,
+                'this._copyElement("span", "", "physicalAuthority")',
+                'this._copyElement("span", "", "heroIntro")',
+                "V03",
+            ),
+        ),
+        (
+            "V04",
+            lambda text: replace_once(
+                text,
+                '      "details",\n'
+                '      ("supervisor-knowledge-detail " + className).trim()',
+                '      "section",\n'
+                '      ("supervisor-knowledge-detail " + className).trim()',
+                "V04",
+            ),
+        ),
+        (
+            "V05",
+            lambda text: replace_once(
+                text,
+                'this._copyElement("span", "", "safetyStrip")',
+                'this._copyElement("span", "", "heroIntro")',
+                "V05",
+            ),
+        ),
+        (
+            "V06",
+            lambda text: replace_once(
+                replace_once(
+                    text,
+                    "--supervisor-tariff: #49a5ff;",
+                    "--supervisor-tariff: #f2b84b;",
+                    "V06",
+                ),
+                "--supervisor-rcm: #b07cff;",
+                "--supervisor-rcm: #f2b84b;",
+                "V06",
+            ),
+        ),
+        (
+            "V07",
+            lambda text: replace_once(
+                text,
+                "  .supervisor-title {\n"
+                "    color: var(--hoymiles-aurora-text);",
+                "  .supervisor-title {\n"
+                "    color: #12ab34;",
+                "V07",
+            ),
+        ),
+        ("V08", remove_last_reduced_motion),
+        (
+            "V09",
+            lambda text: replace_once(
+                text,
+                "  @container (max-width: 390px) {\n"
+                "    .supervisor-hero { gap: 17px; padding: 15px 12px; }",
+                "  @container (max-width: 390px) {\n"
+                "    .supervisor-scope { display: none; }\n"
+                "    .supervisor-hero { gap: 17px; padding: 15px 12px; }",
+                "V09",
+            ),
+        ),
+        (
+            "V10",
+            lambda text: replace_once(
+                text,
+                "      hero,\n"
+                "      liveGrid,\n"
+                "      policySection,\n"
+                "      howSection,\n"
+                "      safetyStrip,\n"
+                "      knowledgeSection",
+                "      hero,\n"
+                "      knowledgeSection,\n"
+                "      liveGrid,\n"
+                "      policySection,\n"
+                "      howSection,\n"
+                "      safetyStrip",
+                "V10",
+            ),
+        ),
+        (
+            "V11",
+            lambda text: replace_once(
+                text,
+                '  rce: "mdi:chart-line",',
+                '  rce: "mdi:circle-outline",',
+                "V11",
+            ),
+        ),
+        (
+            "V12",
+            lambda text: replace_once(
+                text,
+                "  .supervisor-backdrop,\n"
+                "  .supervisor-blob,\n"
+                "  .supervisor-points,\n"
+                "  .supervisor-vignette {\n"
+                "    inset: 0;\n"
+                "    pointer-events: none;",
+                "  .supervisor-backdrop,\n"
+                "  .supervisor-blob,\n"
+                "  .supervisor-points,\n"
+                "  .supervisor-vignette {\n"
+                "    inset: 0;\n"
+                "    pointer-events: auto;",
+                "V12",
+            ),
+        ),
+    )
+
+    validation_component = (
+        validation_root / "custom_components" / "hoymiles_hit_modbus"
+    )
+    canonical_card = (
+        validation_root / "home_assistant" / "www" / "hoymiles-rce-chart-card.js"
+    )
+    packaged_card = (
+        validation_component / "resources" / "www" / "hoymiles-rce-chart-card.js"
+    )
+    baseline = canonical_card.read_text(encoding="utf-8")
+    require(
+        packaged_card.read_text(encoding="utf-8") == baseline,
+        "Visual mutation baseline lacks generated card parity",
+    )
+    with tempfile.TemporaryDirectory(prefix="hoymiles-rev28-visual-") as directory:
+        fixture_root = Path(directory)
+        shutil.copytree(
+            validation_component,
+            fixture_root / "custom_components" / "hoymiles_hit_modbus",
+        )
+        for relative_path in (
+            "dashboard_hoymiles.yaml",
+            "home_assistant/hoymiles_ems_scheduler.yaml",
+            "home_assistant/www/hoymiles-dashboard-strategy.js",
+            "home_assistant/www/hoymiles-rce-chart-card.js",
+            "tools/build_hacs_assets.py",
+            "tools/validate_rce_card.js",
+            "tools/validate_release.py",
+        ):
+            source_path = validation_root / relative_path
+            target_path = fixture_root / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+
+        ui_test = (
+            validation_root / "tools" / "test_supervisor_aurora_ui_contract.js"
+        )
+        environment = os.environ.copy()
+        environment["HOYMILES_UI_TEST_ROOT"] = str(fixture_root)
+        detected = 0
+        for mutation_id, mutate in mutations:
+            mutated = mutate(baseline)
+            require(mutated != baseline, f"{mutation_id} did not alter the card")
+            for relative_path in (
+                "home_assistant/www/hoymiles-rce-chart-card.js",
+                "custom_components/hoymiles_hit_modbus/resources/www/"
+                "hoymiles-rce-chart-card.js",
+            ):
+                (fixture_root / relative_path).write_text(
+                    mutated,
+                    encoding="utf-8",
+                )
+            completed = subprocess.run(
+                [node_executable, str(ui_test)],
+                cwd=fixture_root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if completed.returncode != 0:
+                detected += 1
+        require(
+            detected == len(mutations) == 12,
+            f"Visual mutation result is {detected}/12, expected 12/12",
+        )
+    return detected
+
+
 def png_dimensions(path: Path) -> tuple[int, int]:
     """Return PNG dimensions using only the Python standard library."""
     header = path.read_bytes()[:24]
@@ -1430,6 +5192,9 @@ def entity_translation_keys(translations: dict) -> dict[str, set[str]]:
 
 def main() -> int:
     """Validate HACS layout, translations, Python and bundled assets."""
+    validate_historical_rev28_gate()
+    current_ap2r1_gate = validate_current_integrated_manifests()
+    validate_current_ap1_contract()
     integration_dirs = [
         path for path in COMPONENT_ROOT.iterdir() if path.is_dir()
     ]
@@ -1474,6 +5239,7 @@ def main() -> int:
     entity_source = (COMPONENT / "entity.py").read_text(encoding="utf-8")
     init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
     assets_source = (COMPONENT / "assets.py").read_text(encoding="utf-8")
+    validate_protected_assets_ast(assets_source)
     config_flow_source = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
     sensor_platform_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
     const_source = (COMPONENT / "const.py").read_text(encoding="utf-8")
@@ -1872,6 +5638,20 @@ def main() -> int:
         "RCE details must remain in the main column below the discharge plan",
     )
     dashboard_payloads = []
+    supervisor_bindings = {
+        "supervisor_entity": "sensor.hoymiles_hit_ems_supervisor",
+        "supervisor_mode_entity": "input_select.hoymiles_ems_supervisor_mode",
+        "supervisor_profile_entity": "input_select.hoymiles_ems_supervisor_profile",
+        "supervisor_allow_rce_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_rce"
+        ),
+        "supervisor_allow_tariff_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_tariff"
+        ),
+        "supervisor_allow_rcm_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_rcm"
+        ),
+    }
     for dashboard_json in required_assets[-2:]:
         dashboard_data = load_json(dashboard_json)
         dashboard_payloads.append(dashboard_data)
@@ -1899,6 +5679,59 @@ def main() -> int:
             )
             == 4,
             f"{dashboard_json.name} must contain four authored Aurora frames",
+        )
+        start_view = next(
+            (
+                view
+                for view in dashboard_data["views"]
+                if view.get("path") == "start"
+            ),
+            None,
+        )
+        supervisor_view = next(
+            (
+                view
+                for view in dashboard_data["views"]
+                if view.get("path") == "ems-supervisor"
+            ),
+            None,
+        )
+        expected_supervisor_title = (
+            "EMS Supervisor"
+            if dashboard_json.name.endswith("_en.json")
+            else "Nadzorca EMS"
+        )
+        energy_card = next(
+            (
+                card
+                for card in (start_view or {}).get("cards", [])
+                if card.get("type")
+                == "custom:hoymiles-aurora-energy-card"
+            ),
+            None,
+        )
+        supervisor_cards = (supervisor_view or {}).get("cards", [])
+        supervisor_card = (
+            supervisor_cards[0] if len(supervisor_cards) == 1 else None
+        )
+        require(
+            energy_card is not None
+            and all(key not in energy_card for key in supervisor_bindings)
+            and dashboard_data["views"].index(start_view) == 0
+            and dashboard_data["views"].index(supervisor_view) == 1
+            and dashboard_data["views"][2].get("path") == "automatyka-ems"
+            and supervisor_view.get("title") == expected_supervisor_title
+            and supervisor_view.get("icon") == "mdi:eye-circle-outline"
+            and supervisor_view.get("type") == "panel"
+            and supervisor_card is not None
+            and supervisor_card.get("type")
+            == "custom:hoymiles-ems-supervisor-card"
+            and set(supervisor_card) == {"type", *supervisor_bindings}
+            and all(
+                supervisor_card.get(key) == entity_id
+                for key, entity_id in supervisor_bindings.items()
+            ),
+            f"{dashboard_json.name} lacks the exact second Supervisor view",
         )
     require(
         dashboard_structure(dashboard_payloads[0])
@@ -1964,12 +5797,289 @@ def main() -> int:
         and "class HoymilesAuroraFinanceCard" in card_source,
         "Complete Aurora dashboard card set is not registered",
     )
+    supervisor_start = card_source.find("const HOYMILES_SUPERVISOR_BINDINGS")
+    supervisor_end = card_source.find("class HoymilesAuroraEnergyCard")
+    require(
+        supervisor_start >= 0 and supervisor_end > supervisor_start,
+        "Internal EMS Supervisor panel source is missing",
+    )
+    supervisor_source = card_source[supervisor_start:supervisor_end]
+    reason_start = supervisor_source.find(
+        "const HOYMILES_SUPERVISOR_REASON_COPY"
+    )
+    reason_end = supervisor_source.find(
+        "const HOYMILES_SUPERVISOR_COPY", reason_start
+    )
+    reason_source = supervisor_source[reason_start:reason_end]
+    require(
+        len(re.findall(r"^  [a-z0-9_]+: Object\.freeze\(", reason_source, re.M))
+        == 45,
+        "EMS Supervisor reason map is not 45/45",
+    )
+    energy_end = card_source.find("class HoymilesPowerFlowCard", supervisor_end)
+    energy_source = card_source[supervisor_end:energy_end]
+    aurora_markup = energy_source.find('<div class="aurora">')
+    daily_markup = energy_source.find('<div class="daily">', aurora_markup)
+    require(
+        0 <= aurora_markup < daily_markup
+        and "data-supervisor" not in energy_source
+        and "_supervisorPanel" not in energy_source
+        and "HOYMILES_SUPERVISOR_BINDINGS" not in energy_source,
+        "Start was not restored to Aurora followed directly by daily energy",
+    )
+    require(
+        "class HoymilesEmsSupervisorPanel" in supervisor_source
+        and "class HoymilesEmsSupervisorCard extends HTMLElement"
+        in supervisor_source
+        and supervisor_source.count(
+            '"hoymiles-ems-supervisor-card",\n    HoymilesEmsSupervisorCard'
+        )
+        == 1
+        and "data-supervisor-card" in supervisor_source
+        and 'customElements.define("hoymiles-ems-supervisor-panel"'
+        not in card_source
+        and 'Object.freeze(["Off", "Shadow"])' in supervisor_source
+        and "Observation only" in supervisor_source
+        and "Tylko obserwacja" in supervisor_source
+        and "Profiles currently affect only the observation decision"
+        in supervisor_source
+        and "Profile wpływają obecnie wyłącznie na decyzję obserwacyjną"
+        in supervisor_source,
+        "EMS Supervisor standalone observation-only contract is incomplete",
+    )
+    for required_ui_token in (
+        "heroIntro",
+        "howItWorksTitle",
+        "modesTitle",
+        "modeActiveDescription",
+        "profilesTitle",
+        "permissionsTitle",
+        "readResultTitle",
+        "safetyTitle",
+        "technicalTitle",
+        "actionWarning",
+        "max-width: 1440px",
+        "supervisor-blob-three",
+        "@media (prefers-reduced-motion: reduce)",
+        'activeCard.setAttribute("aria-disabled", "true")',
+        "SUPERVISOR_SEMANTIC_PALETTE_REV28",
+        "supervisor-authority",
+        "supervisor-core-orb",
+        "supervisor-hero-result",
+        "supervisor-policy-identity",
+        "supervisor-policy-permission",
+        "supervisor-permission-context",
+        "supervisor-safety-strip",
+        "supervisor-knowledge-detail",
+        "supervisor-core-ring { animation: none",
+        'content: "↓"',
+    ):
+        require(
+            required_ui_token in supervisor_source,
+            f"EMS Supervisor standalone UI token missing: {required_ui_token}",
+        )
+    css_start = supervisor_source.find("const HOYMILES_EMS_SUPERVISOR_CSS")
+    css_end = supervisor_source.find(
+        "class HoymilesEmsSupervisorPanel", css_start
+    )
+    supervisor_css = supervisor_source[css_start:css_end]
+    palette_marker = "SUPERVISOR_SEMANTIC_PALETTE_REV28"
+    palette_start = supervisor_css.find(palette_marker)
+    palette_end = supervisor_css.find("  }", palette_start)
+    require(
+        supervisor_css.count(palette_marker) == 1
+        and palette_start >= 0
+        and palette_end > palette_start,
+        "Revision 28 does not contain one centralized Supervisor palette",
+    )
+    palette_block = supervisor_css[palette_start:palette_end]
+    css_outside_palette = (
+        supervisor_css[:palette_start] + supervisor_css[palette_end:]
+    )
+    for name, value in (
+        ("cyan", "#43d5ff"),
+        ("blue", "#4c91ff"),
+        ("violet", "#9b7cff"),
+        ("rce", "#f2b84b"),
+        ("tariff", "#49a5ff"),
+        ("rcm", "#b07cff"),
+        ("ready", "#47df91"),
+        ("warning", "#f1b84b"),
+        ("error", "#ff647c"),
+    ):
+        require(
+            f"--supervisor-{name}: {value}" in palette_block,
+            f"Revision 28 palette lost {name}",
+        )
+    require(
+        re.search(r"#[0-9a-fA-F]{3,8}", css_outside_palette) is None,
+        "Revision 28 has an ad-hoc raw color outside its semantic palette",
+    )
+    require(
+        supervisor_source.count("this._knowledgeDetail(") == 5
+        and 'details.setAttribute("open"' not in supervisor_source
+        and "accordionState" not in supervisor_source
+        and "toggleDetails" not in supervisor_source,
+        "Revision 28 knowledge area is not exactly five closed native details",
+    )
+    content_start = supervisor_source.find("    content.append(")
+    content_end = supervisor_source.find("    panel.append(", content_start)
+    content_append = supervisor_source[content_start:content_end]
+    require(
+        re.search(
+            r"hero,[\s\S]*liveGrid,[\s\S]*policySection,[\s\S]*"
+            r"howSection,[\s\S]*safetyStrip,[\s\S]*knowledgeSection",
+            content_append,
+        )
+        is not None
+        and not re.search(
+            r"modesSection|profilesSection|permissionsSection|"
+            r"readSection|safetySection|technical\b",
+            content_append,
+        ),
+        "Revision 28 documentation wall appears before live information",
+    )
+    selected_start = supervisor_css.find(
+        '.supervisor-panel[data-tone="shadow-selected"]'
+    )
+    selected_end = supervisor_css.find(
+        '.supervisor-panel[data-tone="blocked"]', selected_start
+    )
+    require(
+        selected_start >= 0
+        and selected_end > selected_start
+        and "supervisor-ready"
+        not in supervisor_css[selected_start:selected_end]
+        and '.supervisor-policy-badge[data-tone="ready"]'
+        in supervisor_css,
+        "Revision 28 selected Shadow uses readiness green",
+    )
+    light_start = supervisor_css.find("@media (prefers-color-scheme: light)")
+    light_end = supervisor_css.find(
+        "@media (prefers-reduced-motion: reduce)", light_start
+    )
+    light_css = supervisor_css[light_start:light_end]
+    require(
+        light_start >= 0
+        and light_end > light_start
+        and all(
+            token in light_css
+            for token in (
+                "--supervisor-page-base: color-mix(in srgb, "
+                "var(--primary-background-color, var(--supervisor-on-deep)) "
+                "94%, var(--supervisor-blue) 6%)",
+                "--supervisor-page-cyan-glow: color-mix(in srgb, "
+                "var(--supervisor-cyan) 5%, transparent)",
+                "--supervisor-page-violet-glow: color-mix(in srgb, "
+                "var(--supervisor-violet) 4%, transparent)",
+                ".supervisor-blob { opacity: .08; }",
+                ".supervisor-points { opacity: .1; }",
+            )
+        ),
+        "Revision 28 light theme is not independently pale and restrained",
+    )
+    require(
+        re.search(r"opacity:\s*\.(?:64|72)\b", supervisor_css) is None
+        and ".supervisor-info-disabled { border-style: dashed; opacity: 1; }"
+        in supervisor_css
+        and '.supervisor-policy[data-permitted="false"] '
+        '{ filter: saturate(.68); opacity: 1; }' in supervisor_css,
+        "Revision 28 disabled content loses light-theme contrast",
+    )
+    undersized_supervisor_text = [
+        float(match.group(1))
+        for match in re.finditer(
+            r"font-size:\s*(\d+(?:\.\d+)?)px", supervisor_css
+        )
+        if float(match.group(1)) < 11
+    ]
+    require(
+        not undersized_supervisor_text,
+        "Revision 28 contains Supervisor text below the accepted 11px minimum",
+    )
+    for forbidden in (
+        "setInterval",
+        "setTimeout",
+        "requestAnimationFrame",
+        "number.set_value",
+        "select.select_option",
+        "button.press",
+        "input_boolean.toggle",
+        "modbus.write",
+    ):
+        require(
+            forbidden not in supervisor_source,
+            f"EMS Supervisor contains forbidden scope: {forbidden}",
+        )
+    ui_contract_test = ROOT / "tools" / "test_supervisor_aurora_ui_contract.js"
+    require(
+        ui_contract_test.is_file(),
+        "Missing EMS Supervisor Aurora UI contract test",
+    )
+    ui_contract_source = ui_contract_test.read_text(encoding="utf-8")
+    require(
+        "const EXPECTED_GROUP_COUNT = 65;" in ui_contract_source
+        and "const EXPECTED_CHECK_COUNT = 913;" in ui_contract_source
+        and all(
+            f'group("{group_name}"' in ui_contract_source
+            for group_name in (
+                "CENTRALIZED_AURORA_PALETTE",
+                "COLOR_SEMANTICS",
+                "HERO_VISUAL_HIERARCHY",
+                "HERO_STATE_COPY",
+                "POLICY_VISUAL_IDENTITIES",
+                "POLICY_SWITCH_ACCENTS",
+                "DECISION_HIERARCHY",
+                "VISIBLE_SAFETY_STRIP",
+                "KNOWLEDGE_DETAILS",
+                "FIRST_SCREEN_PRIORITY",
+                "AURORA_BACKGROUND_REV28",
+                "REDUCED_MOTION_REV28",
+                "LIGHT_DARK_CONTRAST",
+                "MOBILE_REV28",
+                "FUNCTIONAL_INERTNESS",
+            )
+        ),
+        "Revision 28 UI contract group/check freeze is incomplete",
+    )
     for dashboard_path in required_assets[:2]:
         dashboard_text = dashboard_path.read_text(encoding="utf-8")
+        expected_title = (
+            "EMS Supervisor"
+            if dashboard_path.name.endswith("_en.yaml")
+            else "Nadzorca EMS"
+        )
+        start_index = dashboard_text.index("  - title: Start")
+        supervisor_index = dashboard_text.index(
+            f"  - title: {expected_title}"
+        )
+        rce_index = dashboard_text.index(
+            "  - title: RCE and Results"
+            if dashboard_path.name.endswith("_en.yaml")
+            else "  - title: RCE i Wyniki"
+        )
+        start_yaml = dashboard_text[start_index:supervisor_index]
+        supervisor_yaml = dashboard_text[supervisor_index:rce_index]
         require(
             "entity: sensor.hoymiles_rce_day_tomorrow\n"
             "            future_data: true" in dashboard_text,
             f"{dashboard_path.name} does not mark the tomorrow chart as future data",
+        )
+        require(
+            start_index < supervisor_index < rce_index
+            and "path: ems-supervisor" in supervisor_yaml
+            and "icon: mdi:eye-circle-outline" in supervisor_yaml
+            and "type: panel" in supervisor_yaml
+            and supervisor_yaml.count(
+                "type: custom:hoymiles-ems-supervisor-card"
+            )
+            == 1
+            and all(
+                f"{key}: {entity_id}" in supervisor_yaml
+                for key, entity_id in supervisor_bindings.items()
+            )
+            and all(key not in start_yaml for key in supervisor_bindings),
+            f"{dashboard_path.name} lacks exact isolated Supervisor view",
         )
         require(
             "type: custom:hoymiles-aurora-energy-card" in dashboard_text
@@ -2041,6 +6151,18 @@ def main() -> int:
             in dashboard_text,
             f"{dashboard_path.name} lacks the LOAD power/energy graphs",
         )
+
+    generator_source = (ROOT / "tools" / "build_hacs_assets.py").read_text(
+        encoding="utf-8"
+    )
+    require(
+        '"  - title: Nadzorca EMS\\n"' in generator_source
+        and '"    path: ems-supervisor\\n"' in generator_source
+        and '"    icon: mdi:eye-circle-outline\\n"' in generator_source
+        and '"  - title: EMS Supervisor\\n"' in generator_source
+        and '"Nadzorca EMS": "EMS Supervisor"' not in generator_source,
+        "Generator lacks the narrow full-view Supervisor title translation",
+    )
 
     rce_sensor_source = (
         COMPONENT / "rce_sensor.py"
@@ -2116,6 +6238,7 @@ def main() -> int:
         ("sensor", "tariff_charge_plan"),
         ("sensor", "rcm_voltage_plan"),
         ("sensor", "setup_status"),
+        ("sensor", "ems_supervisor"),
     }
     for asset_path in stable_entity_assets:
         asset_text = asset_path.read_text(encoding="utf-8")
@@ -2992,7 +7115,11 @@ def main() -> int:
         )
 
     for python_file in COMPONENT.glob("*.py"):
-        py_compile.compile(python_file, doraise=True)
+        compile(
+            python_file.read_text(encoding="utf-8"),
+            str(python_file),
+            "exec",
+        )
 
     localization = load_localization_module()
     require(
@@ -3063,6 +7190,41 @@ def main() -> int:
     )
     workflow_data = yaml.safe_load(workflow_text)
     require(isinstance(workflow_data, dict), "Validation workflow is not a mapping")
+    project_steps = workflow_data.get("jobs", {}).get("project-checks", {}).get(
+        "steps", []
+    )
+    require(
+        isinstance(project_steps, list),
+        "Validation workflow project-checks steps are not a list",
+    )
+    project_checkouts = [
+        step
+        for step in project_steps
+        if isinstance(step, dict) and step.get("uses") == "actions/checkout@v5"
+    ]
+    require(
+        len(project_checkouts) == 1
+        and project_checkouts[0].get("with")
+        == {
+            "fetch-depth": 0,
+            "ref": "${{ github.event.pull_request.head.sha || github.sha }}",
+        },
+        "Project checks must fetch full history at the exact push or PR head",
+    )
+    branch_identity_steps = [
+        step
+        for step in project_steps
+        if isinstance(step, dict)
+        and step.get("name") == "Restore validator branch identity"
+    ]
+    require(
+        len(branch_identity_steps) == 1
+        and branch_identity_steps[0].get("env")
+        == {"VALIDATOR_BRANCH": "${{ github.head_ref || github.ref_name }}"}
+        and branch_identity_steps[0].get("run")
+        == 'git checkout -B "$VALIDATOR_BRANCH" HEAD',
+        "Project checks must restore the exact push or PR branch identity",
+    )
     validate_mandatory_workflow_step(
         workflow_data,
         "python tools/test_battery_balancing_contract.py",
@@ -3073,6 +7235,41 @@ def main() -> int:
         "python tools/test_battery_balancing_ha_runtime.py",
         job_name="battery-balancing-ha-runtime",
     )
+    for command, job_name, allowed_condition in (
+        ("python tools/validate_release.py", "project-checks", None),
+        ("python tools/test_rce_optimizer.py", "project-checks", None),
+        ("python tools/test_tariff_optimizer.py", "project-checks", None),
+        ("python tools/test_rcm_optimizer.py", "project-checks", None),
+        ("python tools/test_automation_plan_timeline.py", "project-checks", None),
+        ("python tools/test_rcm_timeline_model.py", "project-checks", None),
+        ("python tools/test_optimizer_executor_contract.py", "project-checks", None),
+        ("python tools/test_optimizer_startup_contract.py", "project-checks", None),
+        ("python tools/test_automation_matrix.py", "project-checks", None),
+        ("python tools/test_battery_balancing_contract.py", "project-checks", None),
+        ("node tools/validate_rce_card.js", "project-checks", None),
+        ("node tools/test_supervisor_aurora_ui_contract.js", "project-checks", None),
+        (
+            "python tools/test_automation_matrix.py --exhaustive",
+            "project-checks",
+            "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+        ),
+        (
+            "python tools/test_battery_balancing_ha_runtime.py",
+            "battery-balancing-ha-runtime",
+            None,
+        ),
+        (
+            "python -m pytest -q tests/test_timeline_platform_registration.py",
+            "battery-balancing-ha-runtime",
+            None,
+        ),
+    ):
+        validate_effective_workflow_command(
+            workflow_data,
+            command,
+            job_name=job_name,
+            allowed_condition=allowed_condition,
+        )
     require(
         license_text.startswith("MIT License\n\nCopyright (c) 2026 Kaluzaburza")
         and "Permission is hereby granted, free of charge" in license_text
@@ -3131,10 +7328,79 @@ def main() -> int:
         "Official HACS validation must be mandatory and unignored",
     )
 
+    node_executable = os.environ.get("HOYMILES_NODE_EXECUTABLE") or shutil.which(
+        "node"
+    )
+    require(
+        node_executable is not None,
+        "Node.js is required for managed frontend validation",
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="hoymiles_rev28_frontend_fixture_"
+    ) as temporary:
+        historical_root = Path(temporary)
+        build_historical_rev28_frontend_fixture(historical_root)
+        historical_environment = os.environ.copy()
+        historical_environment["HOYMILES_UI_TEST_ROOT"] = str(historical_root)
+        for frontend_test_name in (
+            "validate_rce_card.js",
+            "test_supervisor_aurora_ui_contract.js",
+        ):
+            frontend_test = historical_root / "tools" / frontend_test_name
+            completed = subprocess.run(
+                [node_executable, str(frontend_test)],
+                cwd=historical_root,
+                env=historical_environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            require(
+                completed.returncode == 0,
+                f"Historical frontend validation failed: {frontend_test.name}\n"
+                f"{completed.stdout}{completed.stderr}",
+            )
+        validate_ui_count_self_tests(node_executable, historical_root)
+        visual_mutations_detected = validate_rev28_visual_mutations(
+            node_executable,
+            historical_root,
+        )
+
     print(f"HACS layout: OK ({len(integration_dirs)} integration)")
+    print("Historical REV28 fixture gate: OK (32-path frozen branch)")
+    print("Committed AP-1 baseline gate: OK (16-path task, 40-path branch)")
+    print(
+        "Committed AP-1E-R2 gate: OK "
+        "(4-path correction, 18-path task, 41-path branch)"
+    )
+    if current_ap2r1_gate in {
+        V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY,
+        V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN,
+    }:
+        integration_state = (
+            "49-path unstaged overlay, 35 M + 14 A, staged 0"
+            if current_ap2r1_gate == V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY
+            else "49-path clean single-parent commit, 35 M + 14 A"
+        )
+        print(
+            "Current BAL-R2-F1 + Aurora AP-2 integration gate: OK "
+            f"({integration_state})"
+        )
+        print(
+            "Integration state classifier self-tests: OK "
+            "(2 positive, 15 negative, survivors 0)"
+        )
+    else:
+        print(
+            "Current AP-2R1 gate: OK "
+            f"({current_ap2r1_gate}; "
+            f"{'14' if current_ap2r1_gate == AP2R1F_COMMITTED_CLEAN else '3'}-path correction, "
+            "23-path task, 46-path branch)"
+        )
     print(f"Manifest: OK (version {manifest['version']})")
     print(f"Localized entities: {len(catalog)} (English and Polish)")
     print("Bundled dashboards/EMS assets: OK")
+    print("Protected assets AST: OK (58/58)")
     print("HACS-visible user update instructions: OK")
     print("README screenshots: OK")
     print("Public ESPHome remote packages: OK")
@@ -3145,6 +7411,11 @@ def main() -> int:
     print("MIT/OSI license and current license documentation: OK")
     print("Contribution rights, sign-off and CODEOWNERS: OK")
     print("RCE/tariff/RCEm CI regression matrix: OK")
+    print("Managed frontend validators: OK (historical REV28 fixture)")
+    print(
+        "Revision 28 visual mutations: "
+        f"{visual_mutations_detected}/12 detected, 0 survivors"
+    )
     return 0
 
 

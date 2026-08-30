@@ -763,6 +763,7 @@ async def _assert_fifo_single_flight(
 
     probe._recalculate_locked = MethodType(fake_locked, probe)
     probe._mark_result_current = MethodType(lambda self: None, probe)
+    probe._publish_timeline_result = MethodType(lambda self: None, probe)
     first = asyncio.create_task(probe._recalculate(), name="first")
     await asyncio.wait_for(first_started.wait(), timeout=5.0)
     second = asyncio.create_task(probe._recalculate(), name="second")
@@ -822,12 +823,42 @@ async def _assert_loop_remains_responsive(
     assert result == label
 
 
+def _assert_timeline_has_no_execution_authority() -> None:
+    """AP-1 projections may observe results but never enter execution paths."""
+
+    timeline_source = (COMPONENT / "timeline_sensor.py").read_text(encoding="utf-8")
+    forbidden = (
+        "services.async_call",
+        "write_register",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+        "scheduler_command",
+        "executor_command",
+    )
+    assert not any(token in timeline_source for token in forbidden)
+    for filename in ("rce_sensor.py", "tariff_sensor.py"):
+        tree = ast.parse((COMPONENT / filename).read_text(encoding="utf-8"))
+        optimizer_name = SENSORS[filename][1]
+        assert sum(
+            isinstance(node, ast.Name) and node.id == optimizer_name
+            for node in ast.walk(tree)
+        ) == 1, f"{filename} introduced a second optimizer invocation"
+    execution_sources = (
+        ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml"
+    ).read_text(encoding="utf-8") + (
+        COMPONENT / "supervisor_runtime.py"
+    ).read_text(encoding="utf-8")
+    assert "automation_plan_timeline" not in execution_sources
+
+
 async def _async_main() -> None:
     _assert_revision_fingerprint_contract()
     _assert_scheduler_result_current_gates()
     _assert_tariff_feedback_is_not_a_planning_input()
     _assert_rce_live_telemetry_is_minute_coalesced()
     _assert_tariff_live_telemetry_is_five_minute_coalesced()
+    _assert_timeline_has_no_execution_authority()
     await _assert_dirty_result_is_never_committed()
     contracts: list[tuple[str, ast.AsyncFunctionDef, ast.Await]] = []
     for filename, (class_name, optimizer_name) in SENSORS.items():

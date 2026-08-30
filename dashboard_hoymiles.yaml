@@ -128,6 +128,18 @@ views:
             energię, możesz wesprzeć jej dalszy rozwój:
 
             [**☕ Postaw kawę autorowi**](https://buycoffee.to/kaluzaaa)
+  - title: Nadzorca EMS
+    path: ems-supervisor
+    icon: mdi:eye-circle-outline
+    type: panel
+    cards:
+      - type: custom:hoymiles-ems-supervisor-card
+        supervisor_entity: sensor.hoymiles_hit_ems_supervisor
+        supervisor_mode_entity: input_select.hoymiles_ems_supervisor_mode
+        supervisor_profile_entity: input_select.hoymiles_ems_supervisor_profile
+        supervisor_allow_rce_entity: input_boolean.hoymiles_ems_supervisor_allow_rce
+        supervisor_allow_tariff_entity: input_boolean.hoymiles_ems_supervisor_allow_tariff
+        supervisor_allow_rcm_entity: input_boolean.hoymiles_ems_supervisor_allow_rcm
   - title: RCE i Wyniki
     path: automatyka-ems
     icon: mdi:calendar-clock

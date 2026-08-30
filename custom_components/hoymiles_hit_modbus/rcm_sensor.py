@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Callable
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 import logging
 from math import isfinite
 import re
@@ -45,6 +45,13 @@ from .rcm_optimizer import (
     select_rcm_pv_profile,
     stateful_natural_headroom_kwh,
     stateful_pre_risk_home_buffer_kwh,
+)
+from .rcm_timeline_model import (
+    RCMTimelineEnergyPoint,
+    RCMTimelineModelError,
+    RCMTimelineModelInput,
+    RCMTimelineRiskInterval,
+    build_rcm_timeline_trace,
 )
 from .rce_optimizer import floor_half_hour
 from .rce_sensor import (
@@ -146,6 +153,7 @@ class RCMEnergyForecast:
     headroom_load_profile_source: str
     reserve_load_profile_source: str
     window_forecasts: tuple[RCMRiskWindowInput, ...]
+    timeline_energy_points: tuple[RCMTimelineEnergyPoint, ...]
 
 STATUS_TEXT = {
     "pl": {
@@ -238,6 +246,140 @@ def _stable_battery_capacity(
     return None, ""
 
 
+def _utc_quarter_ceiling(value: datetime) -> datetime:
+    """Return the next UTC quarter boundary without local wall-clock stepping."""
+
+    utc_value = value.astimezone(timezone.utc)
+    discarded = utc_value.minute % 15 or utc_value.second or utc_value.microsecond
+    if discarded:
+        utc_value += timedelta(minutes=15 - utc_value.minute % 15)
+    return utc_value.replace(second=0, microsecond=0)
+
+
+def _timeline_horizon_bounds(
+    *,
+    now: datetime,
+    target_date: date,
+    risk_day_offset: int,
+) -> tuple[datetime, datetime]:
+    """Return the exact requested UTC horizon without wall-clock stepping."""
+
+    local_zone = now.tzinfo
+    assert local_zone is not None
+    local_midnight = datetime.combine(target_date, time.min, tzinfo=local_zone)
+    local_end = datetime.combine(
+        target_date + timedelta(days=1),
+        time.min,
+        tzinfo=local_zone,
+    )
+    start = (
+        _utc_quarter_ceiling(now)
+        if risk_day_offset == 0
+        else local_midnight.astimezone(timezone.utc)
+    )
+    return start, local_end.astimezone(timezone.utc)
+
+
+def _timeline_energy_points(
+    *,
+    now: datetime,
+    target_date: date,
+    risk_day_offset: int,
+    pv_profile: tuple[float, ...],
+    load_profile: tuple[float, ...],
+) -> tuple[RCMTimelineEnergyPoint, ...]:
+    """Project exact 30-minute source energy onto native UTC quarter slots."""
+
+    local_zone = now.tzinfo
+    assert local_zone is not None
+    start, end = _timeline_horizon_bounds(
+        now=now,
+        target_date=target_date,
+        risk_day_offset=risk_day_offset,
+    )
+    available_start_minute = (
+        now.hour * 60 + now.minute if risk_day_offset == 0 else 0
+    )
+    points: list[RCMTimelineEnergyPoint] = []
+    profile_occurrences: dict[
+        tuple[date, int],
+        tuple[timedelta | None, int],
+    ] = {}
+    cursor = start
+    while cursor < end and len(points) < 192:
+        point_end = min(cursor + timedelta(minutes=15), end)
+        if (point_end - cursor).total_seconds() != 15 * 60:
+            break
+        local_start = cursor.astimezone(local_zone)
+        slot = local_start.hour * 2 + local_start.minute // 30
+        source_slot = (local_start.date(), slot)
+        occurrence = (local_start.utcoffset(), local_start.fold)
+        selected_occurrence = profile_occurrences.setdefault(
+            source_slot,
+            occurrence,
+        )
+        source_covered = occurrence == selected_occurrence
+        slot_start_minute = slot * 30
+        overlap_minutes = 15
+        available_minutes = 30
+        if (
+            risk_day_offset == 0
+            and slot_start_minute <= available_start_minute < slot_start_minute + 30
+        ):
+            available_minutes = max(
+                slot_start_minute + 30 - available_start_minute,
+                1,
+            )
+        points.append(
+            RCMTimelineEnergyPoint(
+                start=cursor,
+                end=point_end,
+                pv_kwh=(
+                    pv_profile[slot] * overlap_minutes / available_minutes
+                    if source_covered
+                    else None
+                ),
+                load_kwh=(
+                    load_profile[slot] * overlap_minutes / 30.0
+                    if source_covered
+                    else None
+                ),
+            )
+        )
+        cursor = point_end
+    return tuple(points)
+
+
+def _timeline_risk_intervals(
+    now: datetime,
+    result: Any,
+) -> tuple[RCMTimelineRiskInterval, ...]:
+    """Convert existing optimizer risk plans to absolute UTC intervals."""
+
+    local_zone = now.tzinfo
+    assert local_zone is not None
+    intervals: list[RCMTimelineRiskInterval] = []
+    for plan in result.risk_window_plans:
+        target_date = now.date() + timedelta(days=plan.day_offset)
+        midnight = datetime.combine(target_date, time.min, tzinfo=local_zone)
+        start = midnight + timedelta(minutes=plan.start_minute)
+        end = midnight + timedelta(minutes=plan.end_minute)
+        if end <= start:
+            end += timedelta(days=1)
+        intervals.append(
+            RCMTimelineRiskInterval(
+                start=start.astimezone(timezone.utc),
+                end=end.astimezone(timezone.utc),
+                voltage_risk_code="historical_risk_window",
+                required_headroom_kwh=plan.required_headroom_kwh,
+                headroom_shortfall_kwh=(
+                    plan.cumulative_headroom_shortfall_kwh
+                ),
+            )
+        )
+    return tuple(intervals)
+
+
 class HoymilesRCMOptimizerSensor(SensorEntity):
     """Expose voltage history, battery headroom and a safe charge setpoint."""
 
@@ -270,6 +412,10 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
         self._startup_warmup_task: asyncio.Task[None] | None = None
         self._optimizer_lock = asyncio.Lock()
         self._input_revision = OptimizerInputRevision()
+        self._timeline_sensor: Any | None = None
+        self._timeline_trace: Any | None = None
+        self._timeline_blocker = "awaiting_first_calculation"
+        self._timeline_metadata: dict[str, Any] = {}
         self._dynamic_forecast_listener_entities: frozenset[str] = frozenset()
         self._dynamic_forecast_listener_unsub: Callable[[], None] | None = None
         self._attributes: dict[str, Any] = {
@@ -305,6 +451,31 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return self._attributes
+
+    def attach_timeline_sensor(self, timeline_sensor: Any) -> None:
+        """Bind the one entry-local observation-only RCEm publisher."""
+
+        if self._timeline_sensor is not None and self._timeline_sensor is not timeline_sensor:
+            raise RuntimeError("RCEm timeline sensor already attached")
+        self._timeline_sensor = timeline_sensor
+
+    @callback
+    def _publish_timeline_result(self) -> None:
+        """Publish only the model built from the committed input revision."""
+
+        if self._timeline_sensor is None:
+            return
+        if self._timeline_trace is None:
+            self._timeline_sensor.publish_unavailable(
+                input_revision=self._input_revision.value,
+                blocker_code=self._timeline_blocker,
+            )
+            return
+        self._timeline_sensor.publish_current(
+            self._timeline_trace,
+            input_revision=self._input_revision.value,
+            metadata=self._timeline_metadata,
+        )
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -459,6 +630,8 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
             self._attributes.get("result_current") is False
             and self._attributes.get("recalculation_pending") is True
         ):
+            if self._timeline_sensor is not None:
+                self._timeline_sensor.publish_pending(self._input_revision.value)
             return
         self._attributes = {
             **self._attributes,
@@ -466,6 +639,8 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
             "recalculation_pending": True,
         }
         self.async_write_ha_state()
+        if self._timeline_sensor is not None:
+            self._timeline_sensor.publish_pending(self._input_revision.value)
 
     @callback
     def _mark_result_current(self) -> None:
@@ -514,6 +689,8 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
                 or previous_attributes != self._attributes
             ):
                 self.async_write_ha_state()
+            if committed:
+                self._publish_timeline_result()
 
     async def _recalculate(self) -> None:
         """Serialize startup and event-driven optimizer runs."""
@@ -521,6 +698,7 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
             for _attempt in range(MAX_IMMEDIATE_RECALCULATIONS):
                 if await self._recalculate_locked():
                     self._mark_result_current()
+                    self._publish_timeline_result()
                     return
 
     def _append_voltage_sample(self, now: datetime | None = None) -> None:
@@ -615,6 +793,7 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
             headroom_load_profile_source="missing",
             reserve_load_profile_source="missing",
             window_forecasts=(),
+            timeline_energy_points=(),
         )
         rce = self.hass.states.get("sensor.hoymiles_hit_rce_optimized_plan")
         timezone = ZoneInfo(self.hass.config.time_zone)
@@ -1104,6 +1283,13 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
             headroom_load_profile_source=headroom_load_selection.source,
             reserve_load_profile_source=reserve_load_selection.source,
             window_forecasts=tuple(window_forecasts),
+            timeline_energy_points=_timeline_energy_points(
+                now=now,
+                target_date=target_date,
+                risk_day_offset=risk_day_offset,
+                pv_profile=pv_selection.slot_kwh,
+                load_profile=headroom_load_selection.slot_kwh,
+            ),
         )
 
     async def _recalculate_locked(self) -> bool:
@@ -1329,6 +1515,8 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
             # explicit actuator-unavailable emergency when the write path is
             # stale, instead of silently degrading to missing_data/learning.
             if missing and not live_emergency:
+                self._timeline_trace = None
+                self._timeline_blocker = "missing_data"
                 self._attributes = {
                     "status_code": "missing_data",
                     "missing_entities": missing,
@@ -1343,6 +1531,11 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
                     "data_freshness": freshness,
                     "data_age_seconds": ages,
                 }
+                if self._timeline_sensor is not None:
+                    self._timeline_sensor.publish_unavailable(
+                        input_revision=captured_revision,
+                        blocker_code=self._timeline_blocker,
+                    )
                 return
 
             self._append_voltage_sample(now)
@@ -1541,9 +1734,7 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
                 and battery_soc_fresh
                 and battery_capacity is not None
             )
-            result = await self.hass.async_add_executor_job(
-                optimize_rcm,
-                RCMOptimizerInput(
+            optimizer_input = RCMOptimizerInput(
                     now=now,
                     voltage_l1_v=voltage_samples[GRID_VOLTAGE_ENTITIES[0]][0] or 0.0,
                     voltage_l2_v=voltage_samples[GRID_VOLTAGE_ENTITIES[1]][0] or 0.0,
@@ -1643,7 +1834,10 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
                         "on",
                     ),
                     system_power_data_valid=system_power_data_valid,
-                ),
+            )
+            result = await self.hass.async_add_executor_job(
+                optimize_rcm,
+                optimizer_input,
             )
             if (
                 not self._input_revision.is_current(captured_revision)
@@ -1651,6 +1845,75 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
             ):
                 self._mark_recalculation_pending()
                 return False
+            timeline_target_date = now.date() + timedelta(
+                days=max(energy_forecast.risk_day_offset, 0)
+            )
+            timeline_horizon_start, timeline_horizon_end = (
+                _timeline_horizon_bounds(
+                    now=now,
+                    target_date=timeline_target_date,
+                    risk_day_offset=energy_forecast.risk_day_offset,
+                )
+            )
+            try:
+                self._timeline_trace = build_rcm_timeline_trace(
+                    RCMTimelineModelInput(
+                        generated_at=now,
+                        requested_horizon_start=timeline_horizon_start,
+                        requested_horizon_end=timeline_horizon_end,
+                        energy_points=energy_forecast.timeline_energy_points,
+                        risk_intervals=_timeline_risk_intervals(now, result),
+                        battery_capacity_kwh=(
+                            battery_capacity if battery_capacity is not None else None
+                        ),
+                        current_soc_percent=battery_soc,
+                        protected_soc_floor_percent=(
+                            result.protected_minimum_soc_percent
+                        ),
+                        maximum_soc_percent=100.0,
+                        charge_power_limit_kw=(
+                            min(
+                                system_power_kw,
+                                physical_charge_power_kw / charge_efficiency,
+                            )
+                            if result.bms_charge_available
+                            else None
+                        ),
+                        discharge_power_limit_kw=(
+                            result.bms_discharge_power_limit_kw
+                            if result.bms_discharge_available
+                            else None
+                        ),
+                        charge_efficiency=charge_efficiency,
+                        discharge_efficiency=charge_efficiency,
+                        system_power_kw=(
+                            system_power_kw if system_power_data_valid else None
+                        ),
+                        result=result,
+                        inputs_fresh=bool(
+                            forecast_data_fresh
+                            and energy_forecast.load_profile_data_fresh
+                            and battery_soc_fresh
+                            and battery_capacity is not None
+                        ),
+                    )
+                )
+                self._timeline_blocker = ""
+                self._timeline_metadata = {
+                    "forecast_today_entity": (
+                        energy_forecast.forecast_entity_id
+                    ),
+                    "load_profile_broker_entity_id": (
+                        "sensor.hoymiles_hit_rce_optimized_plan"
+                    ),
+                }
+            except RCMTimelineModelError as err:
+                self._timeline_trace = None
+                self._timeline_blocker = err.blocker_code
+            except Exception:  # noqa: BLE001 - never alter the optimizer result
+                _LOGGER.exception("Cannot build the observation-only RCEm timeline")
+                self._timeline_trace = None
+                self._timeline_blocker = "timeline_model_error"
             risk_window_details = [
                 {
                     "start": (
@@ -1951,6 +2214,8 @@ class HoymilesRCMOptimizerSensor(SensorEntity):
                 self._mark_recalculation_pending()
                 return False
             _LOGGER.exception("Cannot calculate the RCEm voltage plan")
+            self._timeline_trace = None
+            self._timeline_blocker = "optimizer_error"
             self._attributes = {
                 "status_code": "optimizer_error",
                 "missing_entities": [],

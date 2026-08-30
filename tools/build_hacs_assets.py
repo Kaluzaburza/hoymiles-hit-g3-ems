@@ -285,6 +285,68 @@ TEXT_STATE_TRANSLATIONS = {
 }
 
 ENGLISH_REPLACEMENTS = {
+    (
+        "  - title: Nadzorca EMS\n"
+        "    path: ems-supervisor\n"
+        "    icon: mdi:eye-circle-outline\n"
+        "    type: panel"
+    ): (
+        "  - title: EMS Supervisor\n"
+        "    path: ems-supervisor\n"
+        "    icon: mdi:eye-circle-outline\n"
+        "    type: panel"
+    ),
+    (
+        "  # Pozwala Nadzorcy EMS uwzględniać RCE wyłącznie w arbitrażu Shadow.\n"
+        "  # Nie włącza automatyki RCE, nie zmienia jej przełącznika i nie udziela\n"
+        "  # prawa do fizycznego zapisu."
+    ): (
+        "  # Allows EMS Supervisor to consider RCE only in Shadow arbitration. It does\n"
+        "  # not enable RCE automation, change its enable helper, or grant physical\n"
+        "  # write authority."
+    ),
+    (
+        "  # Pozwala Nadzorcy EMS uwzględniać tanie ładowanie wyłącznie w arbitrażu\n"
+        "  # Shadow. Nie włącza ładowania taryfowego, nie zmienia jego przełącznika\n"
+        "  # i nie udziela prawa do fizycznego zapisu."
+    ): (
+        "  # Allows EMS Supervisor to consider tariff charging only in Shadow\n"
+        "  # arbitration. It does not enable tariff charging, change its enable\n"
+        "  # helper, or grant physical write authority."
+    ),
+    (
+        "  # Pozwala Nadzorcy EMS uwzględniać RCEm wyłącznie w arbitrażu Shadow.\n"
+        "  # Nie włącza RCEm, nie zmienia jego przełączników i nie udziela prawa do\n"
+        "  # fizycznego zapisu."
+    ): (
+        "  # Allows EMS Supervisor to consider RCEm only in Shadow arbitration. It\n"
+        "  # does not enable RCEm, change its helpers, or grant physical write\n"
+        "  # authority."
+    ),
+    (
+        "  # Tryb obserwacyjny Nadzorcy EMS. Off wyłącza arbitraż, a Shadow publikuje\n"
+        "  # wyłącznie decyzję obserwacyjną. Żaden wybór nie uruchamia fizycznego\n"
+        "  # wykonania ani nie zmienia automatyki legacy."
+    ): (
+        "  # EMS Supervisor observation mode. Off disables arbitration, while Shadow\n"
+        "  # publishes an observation-only decision. Neither option starts physical\n"
+        "  # execution or changes legacy automation."
+    ),
+    (
+        "  # Profil jest tylko publikowany w arbitrażu Shadow. Efekty profilu pozostają\n"
+        "  # niezaaplikowane i nie zmieniają fizycznego wykonania ani automatyki legacy."
+    ): (
+        "  # The profile is only published in Shadow arbitration. Profile effects\n"
+        "  # remain unapplied and do not change physical execution or legacy\n"
+        "  # automation."
+    ),
+    '"Nadzorca EMS — uwzględniaj tanie ładowanie"': (
+        '"EMS Supervisor — consider tariff charging"'
+    ),
+    '"Nadzorca EMS — uwzględniaj RCE"': '"EMS Supervisor — consider RCE"',
+    '"Nadzorca EMS — uwzględniaj RCEm"': '"EMS Supervisor — consider RCEm"',
+    '"Nadzorca EMS — profil"': '"EMS Supervisor — profile"',
+    '"Nadzorca EMS — tryb"': '"EMS Supervisor — mode"',
     "EMS — potwierdź zbiorczą reakcję mocy po Grid Discharge": (
         "EMS — verify aggregate power response after Grid Discharge"
     ),
@@ -3711,6 +3773,54 @@ def build() -> None:
     pl["entity"]["sensor"]["tariff_charge_plan"] = {
         "name": "Plan automatycznego ładowania taryfowego"
     }
+    en["entity"]["sensor"]["rce_automation_plan_timeline"] = {
+        "name": "RCE automation plan timeline",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["rce_automation_plan_timeline"] = {
+        "name": "Oś czasu planu automatyki RCE",
+        "state": {
+            "current": "Aktualna",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępna",
+        },
+    }
+    en["entity"]["sensor"]["tariff_automation_plan_timeline"] = {
+        "name": "Tariff automation plan timeline",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["tariff_automation_plan_timeline"] = {
+        "name": "Oś czasu planu automatyki taryfowej",
+        "state": {
+            "current": "Aktualna",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępna",
+        },
+    }
+    en["entity"]["sensor"]["rcm_automation_plan_timeline"] = {
+        "name": "RCEm automation plan timeline",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["rcm_automation_plan_timeline"] = {
+        "name": "Oś czasu planu automatyki RCEm",
+        "state": {
+            "current": "Aktualna",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępna",
+        },
+    }
     en["entity"]["sensor"]["rcm_voltage_plan"] = {
         "name": "RCEm 253 V+ plan"
     }
@@ -3723,25 +3833,34 @@ def build() -> None:
     pl["entity"]["sensor"]["setup_status"] = {
         "name": "Stan instalacji"
     }
+    en["entity"]["sensor"]["ems_supervisor"] = {
+        "name": "EMS Supervisor"
+    }
+    pl["entity"]["sensor"]["ems_supervisor"] = {
+        "name": "Nadzorca EMS"
+    }
 
     COMPONENT.mkdir(parents=True, exist_ok=True)
     TRANSLATIONS.mkdir(parents=True, exist_ok=True)
     (COMPONENT / "entity_catalog.json").write_text(
         json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     (TRANSLATIONS / "en.json").write_text(
         json.dumps(en, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     (TRANSLATIONS / "pl.json").write_text(
         json.dumps(pl, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
     for destination, content in render_managed_assets(catalog).items():
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8")
+        destination.write_text(content, encoding="utf-8", newline="\n")
 
     for bundled_www_asset in (
         "hoymiles-dashboard-strategy.js",

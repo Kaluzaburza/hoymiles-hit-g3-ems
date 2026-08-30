@@ -6,6 +6,7 @@ import asyncio
 import ast
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import hashlib
 import importlib.util
 from itertools import product
 import math
@@ -69,6 +70,19 @@ NOW = datetime(2026, 7, 28, 0, 0, tzinfo=WARSAW)
 # ceiling for the heavy 96/110-slot regressions; event-loop safety is proved by
 # the separate executor/offload contract rather than by this benchmark.
 SHARED_RUNNER_SOLVER_CEILING_SECONDS = 1.0
+V158_BAL_AURORA_RCE_OPTIMIZER_SHA256 = (
+    "86787c3fbf6de62206e0efd8d1822ad3fc0d59bbb22f06e049b53a2a1fd19484"
+)
+
+
+def test_v158_bal_aurora_rce_optimizer_source_is_frozen() -> None:
+    """Freeze the exact integrated RCE implementation and timeline sidecar."""
+
+    assert hashlib.sha256(MODULE_PATH.read_bytes()).hexdigest() == (
+        V158_BAL_AURORA_RCE_OPTIMIZER_SHA256
+    )
+
+
 def test_battery_discharge_base_is_separate_from_ac_bridge_power() -> None:
     """A model calibration must not reduce PV/LOAD/charge AC headroom."""
 
