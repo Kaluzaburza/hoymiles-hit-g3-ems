@@ -127,6 +127,21 @@ an exact manual-stop timestamp. It is therefore hardware/protocol evidence,
 not acceptance of v1.5.5 or v1.5.6. Repeat the full gate on the exact v1.5.6
 candidate before publication.
 
+### Battery-balancing manual recovery
+
+`RECOVERY_REQUIRED` means that an active/owned balancing cycle has no trusted
+current-cycle snapshot. It is intentionally not migrated or restored
+automatically. Keep balancing disabled, do not clear the active/lifecycle
+helpers, and retain the transaction reason, cycle ID, current physical mode,
+4303/4304 readbacks and a support bundle. A qualified operator must establish
+the intended settings from commissioning evidence or manufacturer controls,
+never from the untrusted legacy record, and obtain fresh physical readbacks.
+Only after the balancing timers and verified-write scripts are idle and those
+readbacks have been reviewed may a maintainer release the retained owner and
+reset the internal lifecycle. Until then, leave the fail-closed reservation in
+place. This is a support/commissioning procedure, not field proof and not an
+automatic legacy-migration promise.
+
 ## Frontend asset startup contract
 
 When a release changes managed dashboard or frontend assets:
@@ -199,6 +214,10 @@ technical identities listed above as part of a later branding change.
    and explain explicitly that no ESP32 rebuild is required.
 4. Run the release validators and tests:
 
+   **Python 3.12 — structural/offline gate.** Run the generator, validator,
+   focused contract and the remaining non-HA commands below with the reviewed
+   Python 3.12 environment. Do not install Home Assistant into this environment.
+
    ```text
    python tools/build_hacs_assets.py
    git diff --exit-code
@@ -216,12 +235,35 @@ technical identities listed above as part of a later branding change.
    python tools/test_optimizer_executor_contract.py
    python tools/test_optimizer_startup_contract.py
    python tools/test_source_device_rebind.py
+   python tools/test_battery_balancing_contract.py
    python tools/test_automation_matrix.py
    python tools/test_diagnostics.py
    python tools/test_diagnostic_analyzer.py
    python tools/test_automation_matrix.py --exhaustive
    node tools/validate_rce_card.js
    ```
+
+   **Python 3.14.7 + Home Assistant 2026.8.2 — isolated runtime gate.** In a
+   separate disposable virtual environment whose interpreter reports exactly
+   Python 3.14.7 and whose installed `homeassistant` reports exactly 2026.8.2,
+   run only:
+
+   ```text
+   python tools/test_battery_balancing_ha_runtime.py
+   ```
+
+   Do not merge this command into the Python 3.12 path and do not accept a
+   different Home Assistant version as equivalent evidence.
+
+   For the v1.5.8 balancing gate, retain the exact service-boundary fixtures:
+   generation drift before the first physical helper; SOC loss across the
+   `HOLD_ARMING` timing write; sunrise, sunset and owner/hard-stop changes at
+   the guarded lifecycle write; and 100 lower-priority triggers followed by a
+   101st higher-priority trigger. The accepted steady lifecycle is conditional:
+   the durable record remains raw `APPLYING` with a phase/mode token, and the
+   canonical parser may expose the steady phase only while the live sun, mode,
+   owner, cycle, timing and abort guards match. These are isolated offline
+   checks, not real-inverter or field acceptance.
 
    Run the generator determinism check from a clean release-preparation tree;
    unrelated working-tree changes must not be mistaken for generated-asset

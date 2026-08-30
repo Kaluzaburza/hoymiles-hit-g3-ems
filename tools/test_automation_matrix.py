@@ -642,7 +642,7 @@ def assert_automation_interlocks() -> None:
         "forecast_today_age_minutes",
         "forecast_tomorrow_age_minutes",
         "input_text.hoymiles_ems_last_push_fingerprint",
-        "as_timestamp(now()) - last >= 300",
+        "as_timestamp(now()) - last_push >= 300",
         "end - as_timestamp(now()) >= 300",
         "Falownik nie potwierdził limitu ładowania",
         "Falownik nie potwierdził nowego limitu ładowania",
@@ -720,333 +720,349 @@ def assert_automation_interlocks() -> None:
         "is_state('sensor.hoymiles_ems_hardware_mode', 'grid_discharge') }}"
         in source
     ), "RCE command acknowledgement is not based on the actual EMS readback"
+    balancing_scripts = source.split(
+        "  hoymiles_notify_battery_balancing_lifecycle:", 1
+    )[1].split("\nautomation:", 1)[0]
     balancing_start = source.split(
         "hoymiles_start_battery_balancing:", 1
     )[1].split("hoymiles_stop_battery_balancing:", 1)[0]
-    assert balancing_start.index(
-        "input_boolean.hoymiles_battery_balancing_active"
-    ) < balancing_start.index('value: "handover"')
     balancing_stop = source.split(
         "hoymiles_stop_battery_balancing:", 1
     )[1].split("automation:", 1)[0]
+    balancing_abort = balancing_scripts.split(
+        "hoymiles_abort_or_pause_battery_balancing:", 1
+    )[1].split("hoymiles_battery_balancing_soft_gap_guard:", 1)[0]
+    balancing_control = source.split(
+        "- id: hoymiles_battery_balancing_control", 1
+    )[1].split("- id: hoymiles_ems_push_status_notification", 1)[0]
+    balancing_worker = source.split(
+        "hoymiles_battery_balancing_transaction_worker:", 1
+    )[1].split("\nautomation:", 1)[0]
+
+    # The wrapper queues one worker. The worker reserves ownership first,
+    # captures a provenance-bound b2 snapshot and revalidates it before the
+    # first physical write.
+    assert "mode: queued" in balancing_start
+    assert "script.turn_on" in balancing_start
+    assert "script.hoymiles_battery_balancing_transaction_worker" in balancing_start
+    assert not any(
+        helper in balancing_start
+        for helper in (
+            "script.hoymiles_verified_set_ems_maximum_charge_power",
+            "script.hoymiles_verified_set_ems_force_charge_soc",
+            "script.hoymiles_verified_set_ems_mode",
+        )
+    )
     for marker in (
-        "stopping_complete",
-        "stopping_abort",
-        "Ownership is released only",
-        "is_state('sensor.hoymiles_ems_hardware_mode', 'self_use')",
+        "next_sequence",
+        "input_number.hoymiles_battery_balancing_cycle_sequence",
+        'transaction_state: "REQUESTED"',
+        'transaction_state: "OWNER_ACQUIRED"',
+        "captured_mode",
+        "sensor.hoymiles_hit_ems_maximum_charge_power_readback",
+        "sensor.hoymiles_hit_ems_force_charge_soc_readback",
+        "captured_ems_generation",
+        "captured_topology_generation",
+        'transaction_state: "SNAPSHOT_VALID"',
+        "snapshot_valid: true",
+        "snapshot_still_equal",
+        "snapshot_changed_before_transaction",
+        "write_started: true",
+    ):
+        assert marker in balancing_worker, f"Balancing transaction lacks {marker}"
+    owner_ack = balancing_worker.index('transaction_state: "OWNER_ACQUIRED"')
+    snapshot_capture = balancing_worker.index("captured_mode", owner_ack)
+    snapshot_commit = balancing_worker.index('transaction_state: "SNAPSHOT_VALID"', snapshot_capture)
+    snapshot_recheck = balancing_worker.index("snapshot_still_equal", snapshot_commit)
+    write_started = balancing_worker.index("write_started: true", snapshot_recheck)
+    first_apply_write = balancing_worker.index(
+        "script.hoymiles_verified_set_ems_maximum_charge_power", write_started
+    )
+    assert owner_ack < snapshot_capture < snapshot_commit < snapshot_recheck
+    assert snapshot_recheck < write_started < first_apply_write
+
+    # Active foreign writers and manual timers are preserved by a hard start
+    # gate, not cancelled and reconstructed from guessed state.
+    for marker in (
+        "input_boolean.hoymiles_discharge_cycle_active",
+        "input_boolean.hoymiles_charge_cycle_active",
+        "input_boolean.hoymiles_rce_discharge_active",
+        "input_boolean.hoymiles_tariff_charge_active",
+        "input_boolean.hoymiles_rcm_active",
+        "input_boolean.hoymiles_rcm_pre_discharge_active",
+        "binary_sensor.hoymiles_ems_control_conflict",
+        "timer.hoymiles_discharge",
+        "timer.hoymiles_charge",
+    ):
+        assert marker in balancing_worker
+    start_transaction = balancing_worker.split(
+        "# Only the worker creates a monotonic cycle", 1
+    )[1].split("default:\n          # Routine reconcile", 1)[0]
+    assert "action: timer.cancel" not in start_transaction
+
+    # Mode-aware power uses one 400 W aggregate constant, exact topology,
+    # downward 0.1% quantization and no post-cap minimum.
+    assert source.count("BALANCING_SLOW_TARGET_KW = 0.4") == 1
+    power_block = source.split(
+        'name: "Hoymiles Battery Balancing BMS Safe Charge Power"', 1
+    )[1].split(
+        'name: "Hoymiles Battery Balancing Next Run"', 1
+    )[0]
+    for marker in (
+        "self_use_percent",
+        "grid_charge_percent",
+        "round(0, 'floor')",
+        "self_use_semantics: direct_battery_charge_cap",
+        "grid_charge_semantics: common_ac_budget_including_load",
+        "(machine_count | int(-1)) == 1",
+        "(machine_count | int(-1)) >= 2",
+        "(machine_count | int(-1)) <= 10",
+    ):
+        assert marker in power_block, f"Balancing power contract lacks {marker}"
+    assert "[2 + home_power" not in power_block
+    assert "[[desired_budget" not in power_block
+    assert "| max | round(1)" not in power_block
+
+    # Readiness exposes deterministic hard/soft provenance rather than treating
+    # the combined binary sensor as an unconditional stop.
+    readiness = source.split(
+        'name: "Hoymiles Battery Balancing Control Data Ready"', 1
+    )[1].split('name: "Hoymiles RCE Planned Export Slot"', 1)[0]
+    for marker in (
+        "failure_class:",
+        "reason_code:",
+        "soc_age >= -5 and soc_age <= 120",
+        "load_age >= -5 and load_age <= 120",
+        "current_age >= -5 and current_age <= 300",
+        "voltage_age >= -5 and voltage_age <= 300",
+        "topology_age >= -5 and topology_age <= 180",
+        "bms_fault",
+        "inverter_fault",
+        "invalid_topology",
+        "data_stale",
+    ):
+        assert marker in readiness, f"Balancing readiness lacks {marker}"
+
+    # The accepted soft-gap deadline/generation is durable, restart-rearmed and
+    # backward-clock safe. The guard only emits a generation-bound event; the
+    # short controller classifies the single abort.
+    soft_guard = balancing_scripts.split(
+        "hoymiles_battery_balancing_soft_gap_guard:", 1
+    )[1].split("hoymiles_apply_battery_balancing_target:", 1)[0]
+    for marker in (
+        "mode: restart",
+        "guarded_start_ms",
+        "guarded_deadline_ms",
+        "guarded_start_ms | int(-1) + 60000",
+        "remaining_seconds",
+        "hoymiles_battery_balancing_soft_gap_deadline",
+        "gap_generation",
+    ):
+        assert marker in soft_guard, f"Balancing soft-gap guard lacks {marker}"
+    for marker in (
+        "mode: queued",
+        "timing_state == 'GAP'",
+        "gap_generation",
+        "gap_start_epoch_ms",
+        "gap_deadline_epoch_ms",
+        "new_gap_deadline_ms",
+        "{{ (now_epoch_ms | int(0)) + 60000 }}",
+        "clock_anomaly",
+        "data_stale_timeout",
+        "script.turn_on",
+        "hoymiles_battery_balancing_soft_gap_guard",
+    ):
+        assert marker in balancing_control, (
+            f"Restart-safe balancing soft-gap controller lacks {marker}"
+        )
+    assert balancing_control.count("timing_state == 'NONE'") == 2
+    assert balancing_control.count(
+        "script.hoymiles_battery_balancing_soft_gap_guard"
+    ) == 2
+
+    # A missed watchdog event is recovered from durable transaction state.
+    for marker in (
+        "timer.hoymiles_battery_balancing_watchdog",
+        'state: "idle"',
+        "transaction_state in [",
+        "script.hoymiles_battery_balancing_request_abort",
+        'reason_code: "watchdog_timeout"',
+    ):
+        assert marker in balancing_control, (
+            f"Balancing watchdog recovery lacks {marker}"
+        )
+
+    # Slow remains latched from 95%; HOLD_ARMING and its absolute deadline are
+    # durable before timer.start, then one acknowledged timer becomes HOLDING.
+    for marker in (
+        ">= 95",
+        ">= 99.9",
+        "entry_state in ['SLOW', 'HOLD_ARMING', 'HOLDING']",
+        "HOLD_ARMING",
+        "HOLDING",
+        "hold_generation",
+        "hold_deadline_epoch_ms",
+    ):
+        assert marker in balancing_worker
+    hold_reset = balancing_worker.split(
+        "# A drop below 99.9%", 1
+    )[1].split("# Startup and periodic hold reconciliation", 1)[0]
+    assert "< 99.9" in hold_reset
+    assert "action: timer.cancel" in hold_reset
+    assert 'transaction_state: "SLOW"' in hold_reset
+    hold_completion = balancing_worker.split(
+        "# Startup and periodic hold reconciliation", 1
+    )[1].split("# Timer/deadline completion", 1)[0]
+    for marker in (
+        "hold_timing_cycle == entry_cycle",
+        "hold_generation",
+        "hold_deadline_ms",
+        "timer.hoymiles_battery_balancing_hold",
+        "duration: >-",
+        'timing_state: "HOLDING"',
+        'transaction_state: "HOLDING"',
+    ):
+        assert marker in hold_completion, (
+            f"Balancing hold restart reconciliation lacks {marker}"
+        )
+    apply_target = balancing_worker.split("# Routine reconcile:", 1)[1]
+    hold_arm = apply_target.split("# HOLD_ARMING and absolute deadline", 1)[1]
+    hold_arm_start = apply_target.index("# HOLD_ARMING and absolute deadline")
+    timer_start = hold_arm_start + hold_arm.index("action: timer.start")
+    final_ack = apply_target.index("final_transaction_ack")
+    assert final_ack < timer_start
+    hold_arming = hold_arm_start + hold_arm.index('timing_state: "HOLD_ARMING"')
+    holding = hold_arm_start + hold_arm.index('timing_state: "HOLDING"')
+    assert hold_arming < timer_start < holding
+
+    # Every target is re-read at its physical boundary; no positive fallback
+    # or direct writable entity path exists.
+    for marker in (
+        "pre_target",
+        "final_target",
+        "corrected_target",
+        "committed_target",
+        "is_number(pre_target)",
+        "is_number(final_target)",
+        "is_number(committed_target)",
+    ):
+        assert marker in apply_target
+    balancing_runtime = balancing_scripts + balancing_control
+    for forbidden in (
+        "| float(20)",
+        "| float(10)",
+        "| float(1)",
+        "modbus.write_register",
+        "modbus.write_registers",
+        "number.hoymiles_hit_",
+    ):
+        assert forbidden not in balancing_runtime, (
+            f"Balancing runtime contains unsafe/bypass marker {forbidden}"
+        )
+    for action in (
+        "script.hoymiles_verified_set_ems_maximum_charge_power",
+        "script.hoymiles_verified_set_ems_force_charge_soc",
+        "script.hoymiles_verified_set_ems_mode",
+    ):
+        assert action in apply_target
+        assert action in balancing_worker
+
+    # Restore exact b2 snapshot values, retain Off-Grid, and release only after
+    # a final live ACK/generation recheck. Notification enqueue follows physical
+    # closeout and never calls the phone provider here.
+    restore_path = balancing_worker.split(
+        "# Restoration or provisional-owner release always wins", 1
+    )[1].split("# Only the worker creates a monotonic cycle", 1)[0]
+    for marker in (
+        "trusted_snapshot",
+        "snapshot_valid",
+        "snapshot_cycle_id",
+        "saved_mode",
+        "saved_4303",
+        "saved_4304",
+        "off_grid_owner",
+        "binary_sensor.hoymiles_battery_balancing_restore_authorized",
+        "final_restore_ack",
+        "release_abort_generation",
         "sensor.hoymiles_hit_ems_maximum_charge_power_readback",
         "sensor.hoymiles_hit_ems_force_charge_soc_readback",
     ):
-        assert marker in balancing_stop, f"Balancing restore lacks {marker}"
-    release = balancing_stop.rsplit("input_boolean.turn_off", 1)[1]
-    assert "input_boolean.hoymiles_battery_balancing_active" in release
-    balancing_control = source.split(
-        "- id: hoymiles_battery_balancing_control", 1
-    )[1].split("id: hoymiles_rce", 1)[0]
-    assert 'state: "handover"' in balancing_control
-    assert "stopping_complete" in balancing_control
-    assert "stopping_handover" in balancing_control
-    assert "daylight PV phase has a hard Self-Use invariant" in balancing_control
-    handover = balancing_control.split('state: "handover"', 1)[1].split(
-        "daylight PV phase has a hard Self-Use invariant", 1
-    )[0]
-    assert "input_boolean.hoymiles_rcm_export_control_active" in handover, (
-        "Balancing periodic handover can race an RCEm export restore"
+        assert marker in restore_path, f"Balancing restore lacks {marker}"
+    restore_ack = restore_path.index("final_restore_ack")
+    release = restore_path.rindex("action: input_boolean.turn_off")
+    terminal_push = restore_path.rindex(
+        "script.hoymiles_notify_battery_balancing_lifecycle"
     )
-    assert handover.index(
-        "input_number.hoymiles_battery_balancing_saved_charge_power"
-    ) < handover.index('value: "pv"')
-    assert handover.index(
-        "input_number.hoymiles_battery_balancing_saved_force_charge_soc"
-    ) < handover.index('value: "pv"')
-    for snapshot_block in (balancing_start, handover):
-        transition = snapshot_block.rsplit('value: "pv"', 1)[0]
-        assert "is_number(states(\n" in transition
-        assert "sensor.hoymiles_hit_ems_maximum_charge_power_readback" in transition
-        assert "sensor.hoymiles_hit_ems_force_charge_soc_readback" in transition
-        snapshot_tail = transition.rsplit(
-            "input_number.hoymiles_battery_balancing_saved_charge_power",
-            1,
-        )[-1]
-        assert "| float(50)" not in snapshot_tail
-        assert "| float(100)" not in snapshot_tail
+    assert restore_ack < release < terminal_push
+
+    # Lifecycle messages become durable stable-ID outbox records. Only the
+    # independent dispatcher calls the phone, PENDING before service and
+    # DELIVERED afterward. STARTED remains post-ACK.
+    notify_script = source.split(
+        "  hoymiles_notify_battery_balancing_lifecycle:", 1
+    )[1].split("hoymiles_battery_balancing_update_outbox_delivery:", 1)[0]
     for marker in (
-        'name: "Hoymiles Battery Balancing Control Data Ready"',
-        'name: "Hoymiles Battery Balancing BMS Safe Charge Power"',
-        "binary_sensor.hoymiles_battery_balancing_control_data_ready",
-        "soc_age >= -5 and soc_age <= 120",
-        "current_age >= -5 and current_age <= 300",
-        "voltage_age >= -5 and voltage_age <= 300",
-        "sensor.hoymiles_battery_balancing_bms_safe_charge_power",
+        "event_id",
+        "stable_tag",
+        "event_already_present",
+        'slot_1_delivery_state: "PENDING"',
+        'slot_2_delivery_state: "PENDING"',
     ):
-        assert marker in source, f"Balancing freshness/cap contract lacks {marker}"
-    assert "and (soc.state | float(-1)) >= 0" in source
-    assert "and (soc.state | float(101)) <= 100" in source
-    balancing_control = source.split(
-        "- id: hoymiles_battery_balancing_control", 1
-    )[1].split("id: hoymiles_rce", 1)[0]
-    hold_completion = balancing_control.split("id: hold_finished", 1)[1].split(
-        "# Wy", 1
-    )[0]
-    restart_completion = balancing_control.split("# Po restarcie HA", 1)[1].split(
-        "# Cykl", 1
-    )[0]
-    for completion in (hold_completion, restart_completion):
-        assert "sensor.hoymiles_hit_overview_battery_soc" in completion
-        assert "| float(-1)) >= 99.9" in completion
-        assert "| float(101)) <= 100" in completion
-    hold_reset = balancing_control.split(
-        "Falling below full SOC invalidates the entire accumulated hold", 1
-    )[1].split("id: hold_finished", 1)[0]
-    assert "| float(0)) < 99.9" in hold_reset
-    assert "action: timer.cancel" in hold_reset
-    assert "timer.hoymiles_battery_balancing_hold" in hold_reset
-    assert 'value: "slow"' in hold_reset
-    hold_reset_position = balancing_control.index(
-        "Falling below full SOC invalidates the entire accumulated hold"
-    )
-    assert hold_reset_position < balancing_control.index(
-        "id: hold_finished", hold_reset_position
-    )
-    assert "and is_number(soc) and (soc | float(0)) >= 99.9" in balancing_stop
-    assert balancing_start.index(
-        "binary_sensor.hoymiles_battery_balancing_control_data_ready"
-    ) < balancing_start.index("action: input_boolean.turn_on")
-    data_loss = balancing_control.index(
-        "Any stale SOC, BMS limit, LOAD or writable-register readback"
-    )
-    automatic_start = balancing_control.index(
-        "Cykl należny w danym dniu rozpoczyna się dopiero po wschodzie"
-    )
-    full_hold = balancing_control.index("Pełny magazyn:")
-    assert data_loss < automatic_start < full_hold
-    hold_block = balancing_control[full_hold:].split(
-        "Po zachodzie PV nie odbuduje już magazynu", 1
-    )[0]
-    assert hold_block.index('option: "grid_charge"') < hold_block.index(
-        '- delay: "00:00:05"'
-    ) < hold_block.index("wait_template") < hold_block.index(
-        "action: timer.start"
-    )
-    assert "continue_on_timeout: false" in hold_block
+        assert marker in notify_script
+    assert "notify.send_message" not in notify_script
+    dispatcher = balancing_scripts.split(
+        "hoymiles_battery_balancing_notification_dispatcher:", 1
+    )[1].split("hoymiles_battery_balancing_request_abort:", 1)[0]
+    pending = dispatcher.rindex('next_delivery_state: "PENDING"')
+    provider = dispatcher.index("action: notify.send_message", pending)
+    delivered = dispatcher.index('next_delivery_state: "DELIVERED"', provider)
+    assert pending < provider < delivered
+    assert "tag: \"{{ selected_tag }}\"" in dispatcher
+    assert not any(action in dispatcher for action in (
+        "script.hoymiles_verified_set_ems_maximum_charge_power",
+        "script.hoymiles_verified_set_ems_force_charge_soc",
+        "script.hoymiles_verified_set_ems_mode",
+        "input_boolean.turn_off",
+    ))
+    assert 'event: "started"' in apply_target
+    assert "notify.send_message" not in balancing_control
 
-    # Every paired balancing register update blocks after the first verified
-    # helper ACK. A late code3/readiness/owner transition must be observed
-    # before the second 4304/4306 write, including the sunset branch.
-    balancing_abort = (
-        "Wyrównywanie przerwane przed kolejnym zapisem operacyjnym"
-    )
-    abort_positions = []
-    cursor = 0
-    while True:
-        position = balancing_control.find(balancing_abort, cursor)
-        if position < 0:
-            break
-        abort_positions.append(position)
-        cursor = position + len(balancing_abort)
-    assert len(abort_positions) == 5
-    for abort_position in abort_positions:
-        guard_window = balancing_control[max(0, abort_position - 5500) : abort_position]
-        owner_guard = guard_window.rfind(
-            "input_boolean.hoymiles_battery_balancing_active"
-        )
-        policy_guard = guard_window.rfind(
-            "input_boolean.hoymiles_battery_balancing_enabled"
-        )
-        conflict_guard = guard_window.rfind(
-            "binary_sensor.hoymiles_ems_control_conflict"
-        )
-        readiness_guard = guard_window.rfind(
-            "binary_sensor.hoymiles_battery_balancing_control_data_ready"
-        )
-        mode_guard = guard_window.rfind(
-            "not in ['off_grid', 'unknown', 'unavailable'"
-        )
-        guarded_write = max(
-            guard_window.rfind(
-                "script.hoymiles_verified_set_ems_force_charge_soc"
-            ),
-            guard_window.rfind(
-                "script.hoymiles_verified_set_ems_maximum_charge_power"
-            ),
-        )
-        assert 0 <= owner_guard < guarded_write
-        assert 0 <= policy_guard < guarded_write
-        assert 0 <= conflict_guard < guarded_write
-        assert 0 <= readiness_guard < guarded_write
-        assert 0 <= mode_guard < guarded_write
-        assert "script.hoymiles_stop_battery_balancing" in balancing_control[
-            guarded_write:abort_position
-        ]
-
-    # The second verified register helper has its own ACK wait. Revalidate the
-    # same full authorization a second time immediately before each possible
-    # Grid Charge mode command; mode:single drops toggle/conflict triggers.
-    balancing_mode_abort = (
-        "Wyrównywanie przerwane przed zmianą trybu Grid Charge"
-    )
-    mode_abort_positions = []
-    cursor = 0
-    while True:
-        position = balancing_control.find(balancing_mode_abort, cursor)
-        if position < 0:
-            break
-        mode_abort_positions.append(position)
-        cursor = position + len(balancing_mode_abort)
-    assert len(mode_abort_positions) == 5
-    for abort_position in mode_abort_positions:
-        guard_window = balancing_control[max(0, abort_position - 5000) : abort_position]
-        mode_write = guard_window.rfind("script.hoymiles_verified_set_ems_mode")
-        assert mode_write >= 0
-        for marker in (
-            "input_boolean.hoymiles_battery_balancing_active",
-            "input_boolean.hoymiles_battery_balancing_enabled",
-            "binary_sensor.hoymiles_ems_control_conflict",
-            "binary_sensor.hoymiles_battery_balancing_control_data_ready",
-            "not in ['off_grid', 'unknown', 'unavailable'",
-        ):
-            assert 0 <= guard_window.rfind(marker) < mode_write
-        assert "script.hoymiles_stop_battery_balancing" in balancing_control[
-            mode_write:abort_position
-        ]
-
-    # A verified mode call has its own ACK wait. Each of the five branches must
-    # therefore re-check authorization, expected phase and exact readbacks after
-    # the call returns, before accepting the new phase/timer state.
-    post_mode_abort = "Balancing authorization lost after"
-    post_mode_positions = []
-    cursor = 0
-    while True:
-        position = balancing_control.find(post_mode_abort, cursor)
-        if position < 0:
-            break
-        post_mode_positions.append(position)
-        cursor = position + len(post_mode_abort)
-    assert len(post_mode_positions) == 5
-    for abort_position in post_mode_positions:
-        guard_window = balancing_control[max(0, abort_position - 7500) : abort_position]
-        mode_write = guard_window.rfind("script.hoymiles_verified_set_ems_mode")
-        assert mode_write >= 0
-        post_ack_guard = guard_window[mode_write:]
-        for marker in (
-            "input_boolean.hoymiles_battery_balancing_active",
-            "input_boolean.hoymiles_battery_balancing_enabled",
-            "binary_sensor.hoymiles_ems_control_conflict",
-            "binary_sensor.hoymiles_battery_balancing_control_data_ready",
-            "sensor.hoymiles_ems_hardware_mode",
-            'state: "grid_charge"',
-            "input_text.hoymiles_battery_balancing_phase",
-            "sensor.hoymiles_hit_ems_maximum_charge_power_readback",
-            "sensor.hoymiles_hit_ems_force_charge_soc_readback",
-            "script.hoymiles_stop_battery_balancing",
-        ):
-            assert marker in post_ack_guard, (
-                f"Balancing post-mode ACK guard lacks {marker}"
-            )
-    assert ">= 99.9" in balancing_control.split(
-        "full-SOC", 1
-    )[1].split("Balancing authorization lost after Grid Charge ACK", 1)[0]
-    holding_post_guard = balancing_control.split(
-        "Balancing authorization lost after holding mode ACK", 1
-    )[0].rsplit("- choose:", 1)[1]
-    assert ">= 99.9" in holding_post_guard
-
-    # Literal marker counts previously missed a slow-phase guard accidentally
-    # nested under the enabled=off branch. When PyYAML is available, prove the
-    # post-ACK guard is a later sibling inside the actual slow branch.
+    # Parser-level shape protects against valid block scalars swallowing an
+    # action and proves all balancing writes use the three shared helpers.
     if yaml is not None:
-        package = yaml.safe_load(source)
-        balancing_automation = next(
-            item
-            for item in package["automation"]
-            if item.get("id") == "hoymiles_battery_balancing_control"
-        )
-        top_choose = next(
-            item["choose"]
-            for item in balancing_automation["actions"]
-            if isinstance(item, dict) and "choose" in item
-        )
-
-        def nested_contains(value, needle: str) -> bool:
-            if isinstance(value, str):
-                return needle in value
+        def nested_dicts(value):
             if isinstance(value, dict):
-                return any(nested_contains(item, needle) for item in value.values())
-            if isinstance(value, list):
-                return any(nested_contains(item, needle) for item in value)
-            return False
+                yield value
+                for child in value.values():
+                    yield from nested_dicts(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from nested_dicts(child)
 
-        def has_state_condition(branch, entity_id: str, state: str) -> bool:
-            return any(
-                condition.get("entity_id") == entity_id
-                and condition.get("state") == state
-                for condition in branch.get("conditions", [])
-                if isinstance(condition, dict)
-            )
-
-        disabled_branch = next(
-            branch
-            for branch in top_choose
-            if has_state_condition(
-                branch,
-                "input_boolean.hoymiles_battery_balancing_enabled",
-                "off",
-            )
-        )
-        assert not nested_contains(
-            disabled_branch,
-            "Balancing authorization lost after slow phase mode ACK",
-        ), "Slow post-mode guard is still nested in the enabled=off branch"
-
-        slow_branch = next(
-            branch
-            for branch in top_choose
-            if has_state_condition(
-                branch,
-                "input_text.hoymiles_battery_balancing_phase",
-                "slow",
-            )
-            and nested_contains(
-                branch,
-                "script.hoymiles_verified_set_ems_mode",
-            )
-        )
-        slow_sequence = slow_branch["sequence"]
-        slow_mode_index = next(
-            index
-            for index, item in enumerate(slow_sequence)
-            if nested_contains(item, "script.hoymiles_verified_set_ems_mode")
-        )
-        slow_post_index = next(
-            index
-            for index, item in enumerate(slow_sequence)
-            if nested_contains(
-                item,
-                "Balancing authorization lost after slow phase mode ACK",
-            )
-        )
-        assert slow_mode_index < slow_post_index
-        slow_post_branch = slow_sequence[slow_post_index]["choose"][0]
-        for entity_id, state in (
-            ("input_boolean.hoymiles_battery_balancing_active", "on"),
-            ("input_boolean.hoymiles_battery_balancing_enabled", "on"),
-            ("binary_sensor.hoymiles_ems_control_conflict", "off"),
-            (
-                "binary_sensor.hoymiles_battery_balancing_control_data_ready",
-                "on",
-            ),
-            ("sensor.hoymiles_ems_hardware_mode", "grid_charge"),
-            ("input_text.hoymiles_battery_balancing_phase", "slow"),
-        ):
-            assert has_state_condition(slow_post_branch, entity_id, state)
-        assert nested_contains(
-            slow_post_branch,
-            "sensor.hoymiles_hit_ems_maximum_charge_power_readback",
-        )
-        assert nested_contains(
-            slow_post_branch,
-            "sensor.hoymiles_hit_ems_force_charge_soc_readback",
-        )
+        package = yaml.safe_load(source)
+        scripts = package["script"]
+        physical_by_script = {
+            script_name: {
+                item.get("action")
+                for item in nested_dicts(script_body)
+                if isinstance(item.get("action"), str)
+                and item.get("action") in {
+                    "script.hoymiles_verified_set_ems_maximum_charge_power",
+                    "script.hoymiles_verified_set_ems_force_charge_soc",
+                    "script.hoymiles_verified_set_ems_mode",
+                }
+            }
+            for script_name, script_body in scripts.items()
+            if "battery_balancing" in script_name
+        }
+        assert physical_by_script.pop(
+            "hoymiles_battery_balancing_transaction_worker"
+        ) == {
+            "script.hoymiles_verified_set_ems_maximum_charge_power",
+            "script.hoymiles_verified_set_ems_force_charge_soc",
+            "script.hoymiles_verified_set_ems_mode",
+        }
+        assert all(not actions for actions in physical_by_script.values())
 
     # Model the dropped-trigger interleaving of a mode:single automation: the
     # first ACK returns after the inverter has moved to code3. The follow-up
@@ -1232,28 +1248,24 @@ def assert_manual_cycle_finalization_contracts() -> None:
     assert "timer.hoymiles_charge\n        state: \"idle\"" in explicit_stop
     assert "continue_on_timeout: false" in explicit_stop
 
-    # The balancing handover cancels timers while its own owner blocks normal
-    # finish automations. It must close manual owners itself, but only after
-    # exact Self-Use and both idle timer readbacks.
-    balancing = scheduler.split(
-        "hoymiles_start_battery_balancing:", 1
-    )[1].split("hoymiles_stop_battery_balancing:", 1)[0]
-    handover_clear = balancing.split(
-        "The balancing owner intentionally blocks the normal manual finalizers",
-        1,
-    )[1]
+    # Balancing now preserves an already active manual owner/timer by refusing
+    # to start over it. No timer is cancelled and reconstructed from a guess.
+    balancing_worker = scheduler.split(
+        "hoymiles_battery_balancing_transaction_worker:", 1
+    )[1].split("\nautomation:", 1)[0]
+    balancing = balancing_worker.split(
+        "# Only the worker creates a monotonic cycle", 1
+    )[1].split("default:\n          # Routine reconcile", 1)[0]
     for marker in (
-        'state: "self_use"',
         "timer.hoymiles_discharge",
         "timer.hoymiles_charge",
-        'state: "idle"',
+        "'idle'",
         "input_boolean.hoymiles_discharge_cycle_active",
         "input_boolean.hoymiles_charge_cycle_active",
     ):
-        assert marker in handover_clear
-    assert handover_clear.index('state: "self_use"') < handover_clear.index(
-        "action: input_boolean.turn_off"
-    )
+        assert marker in balancing
+    assert "action: timer.cancel" not in balancing
+    assert "input_boolean.turn_off" not in balancing
 
     finish_specs = (
         (
@@ -5305,20 +5317,58 @@ def assert_physical_hardware_readback_contracts() -> None:
     assert "rollback_preserve_off_grid" in rce_rollback
     assert "'sensor.hoymiles_ems_hardware_mode', 'off_grid'" in rce_rollback
 
-    balancing_stop = scheduler.split(
+    balancing_stop_wrapper = scheduler.split(
         "hoymiles_stop_battery_balancing:", 1
-    )[1].split("automation:", 1)[0]
-    assert "stopping_preserve_off_grid" in balancing_stop
-    balancing_mode_write = balancing_stop.index('option: "self_use"')
-    assert balancing_stop.rindex(
-        "'sensor.hoymiles_ems_hardware_mode', 'off_grid'",
-        0,
-        balancing_mode_write,
-    ) < balancing_mode_write
-    assert (
-        "or is_state('sensor.hoymiles_ems_hardware_mode', 'off_grid')"
-        in balancing_stop
+    )[1].split("hoymiles_battery_balancing_transaction_worker:", 1)[0]
+    assert "mode: queued" in balancing_stop_wrapper
+    assert "script.hoymiles_battery_balancing_request_abort" in balancing_stop_wrapper
+    for forbidden in (
+        "script.hoymiles_verified_set_ems_maximum_charge_power",
+        "script.hoymiles_verified_set_ems_force_charge_soc",
+        "script.hoymiles_verified_set_ems_mode",
+        "script.hoymiles_notify_battery_balancing_lifecycle",
+    ):
+        assert forbidden not in balancing_stop_wrapper
+
+    balancing_worker = scheduler.split(
+        "hoymiles_battery_balancing_transaction_worker:", 1
+    )[1].split("\nautomation:", 1)[0]
+    balancing_restore = balancing_worker.split(
+        "# Restoration or provisional-owner release always wins", 1
+    )[1].split("# Only the worker creates a monotonic cycle", 1)[0]
+    for marker in (
+        "trusted_snapshot",
+        "saved_mode",
+        "saved_4303",
+        "saved_4304",
+        "off_grid_owner",
+        "binary_sensor.hoymiles_battery_balancing_restore_authorized",
+        "final_restore_ack",
+        "release_abort_generation",
+    ):
+        assert marker in balancing_restore
+    charge_restore = balancing_restore.index(
+        "action: script.hoymiles_verified_set_ems_maximum_charge_power"
     )
+    soc_restore = balancing_restore.index(
+        "action: script.hoymiles_verified_set_ems_force_charge_soc"
+    )
+    mode_restore = balancing_restore.index(
+        "action: script.hoymiles_verified_set_ems_mode"
+    )
+    assert charge_restore < soc_restore < mode_restore
+    assert balancing_restore.index("final_restore_ack:") > mode_restore
+    final_release = balancing_restore.split(
+        "# This is the final live boundary", 1
+    )[1].split("                    default:", 1)[0]
+    owner_release = final_release.index("action: input_boolean.turn_off")
+    terminal_record = final_release.index('transaction_state: "NOTIFICATION_PENDING"')
+    terminal_enqueue = final_release.index(
+        "script.hoymiles_notify_battery_balancing_lifecycle"
+    )
+    assert owner_release < terminal_record < terminal_enqueue
+    assert "action: notify." not in balancing_restore
+    assert "notify.mobile_app_" not in balancing_restore
 
     rcm_main = scheduler.split(
         "id: hoymiles_rcm_voltage_charge_control", 1
@@ -5378,11 +5428,17 @@ def assert_physical_hardware_readback_contracts() -> None:
     )[1].split("entity_id: input_boolean.hoymiles_rce_discharge_active", 1)[0]
     assert "ems_maximum_discharge_power_readback" in rce_snapshot
     assert "ems_force_discharge_soc_readback" in rce_snapshot
-    balancing_snapshot = scheduler.split("hoymiles_start_battery_balancing:", 1)[1].split(
-        "hoymiles_stop_battery_balancing:", 1
-    )[0]
+    balancing_snapshot = balancing_worker.split(
+        "# Only the worker creates a monotonic cycle", 1
+    )[1].split("default:\n          # Routine reconcile", 1)[0]
     assert "ems_maximum_charge_power_readback" in balancing_snapshot
     assert "ems_force_charge_soc_readback" in balancing_snapshot
+    assert "captured_ems_generation" in balancing_snapshot
+    assert "captured_topology_generation" in balancing_snapshot
+    owner_acquired = balancing_snapshot.index('transaction_state: "OWNER_ACQUIRED"')
+    snapshot_capture = balancing_snapshot.index("captured_mode:")
+    snapshot_valid = balancing_snapshot.index('transaction_state: "SNAPSHOT_VALID"')
+    assert owner_acquired < snapshot_capture < snapshot_valid
 
     saved_gcf = scheduler.split("hoymiles_rcm_saved_export_limit:", 1)[1].split(
         "hoymiles_rcm_saved_max_discharge_power:", 1
@@ -5413,18 +5469,42 @@ def assert_physical_hardware_readback_contracts() -> None:
     # that balancing restores both owned 4304 and 4303 registers as actions.
     if yaml is not None:
         package = yaml.safe_load(scheduler)
-        stop_sequence = package["script"]["hoymiles_stop_battery_balancing"][
+        worker_sequence = package["script"][
+            "hoymiles_battery_balancing_transaction_worker"
+        ][
             "sequence"
         ]
-        restore_actions = {
-            action.get("action")
-            for item in stop_sequence
-            if isinstance(item, dict) and "then" in item
-            for action in item.get("then", [])
-            if isinstance(action, dict)
+        def nested_dicts(value: object):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    yield from nested_dicts(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from nested_dicts(child)
+
+        worker_actions = {
+            item.get("action")
+            for item in nested_dicts(worker_sequence)
+            if isinstance(item.get("action"), str)
         }
-        assert "script.hoymiles_verified_set_ems_maximum_charge_power" in restore_actions
-        assert "script.hoymiles_verified_set_ems_force_charge_soc" in restore_actions
+        physical_helpers = {
+            "script.hoymiles_verified_set_ems_maximum_charge_power",
+            "script.hoymiles_verified_set_ems_force_charge_soc",
+            "script.hoymiles_verified_set_ems_mode",
+        }
+        assert physical_helpers <= worker_actions
+        for script_name, script_body in package["script"].items():
+            if (
+                "battery_balancing" in script_name
+                and script_name != "hoymiles_battery_balancing_transaction_worker"
+            ):
+                other_actions = {
+                    item.get("action")
+                    for item in nested_dicts(script_body)
+                    if isinstance(item.get("action"), str)
+                }
+                assert not physical_helpers.intersection(other_actions), script_name
 
 
 def assert_human_control_status_contracts() -> None:

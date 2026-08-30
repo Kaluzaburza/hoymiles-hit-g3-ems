@@ -1981,15 +1981,20 @@ views:
         content: |-
           ## Battery balancing
           A periodic service cycle for LiFePO4 batteries. On the scheduled day it
-          first uses PV production and tops up the battery from the grid after
-          sunset to 100%. From 99% it limits actual battery charging power
-          to about 2 kW. The configured balancing duration starts only after
-          reaching 100% SOC.
+          first uses PV production and the normal BMS limit to 95% SOC.
+          From the first valid reading at or above 95%, it maintains slow
+          charging at approximately 0.4 kW net for the complete battery. After sunset it uses
+          verified Grid Charge and adds household load exactly once.
+          The configured balancing hold starts only after physical
+          acknowledgement of the mode and settings at 99.9% SOC.
 
           During the cycle, RCE, tariff charging, and manual EMS schedules are
-          suspended. Their settings are preserved and resume operation
-          after completion. Turning the switch off aborts the cycle and restores
-          Self-Use. Follow the battery manufacturer's recommendations.
+          blocked by existing EMS ownership; their state remains
+          unchanged. A short Self-Use freshness gap only pauses writes,
+          while safety failures stop the cycle immediately. Completion or
+          disable restores the exact prior settings and EMS mode;
+          physical Off-Grid always has priority. Use this function according to
+          the battery manufacturer's recommendations.
       - type: custom:hoymiles-zebra-entities-card
         title: Battery balancing — settings and status
         show_header_toggle: false

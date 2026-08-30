@@ -409,15 +409,66 @@ napięciowych kodeksu sieciowego ani operatora systemu dystrybucyjnego.
 
 ### Wyrównywanie baterii LiFePO4
 
-Opcjonalny cykl serwisowy jest uruchamiany z częstotliwością wybraną przez użytkownika.
-Po wschodzie słońca pozostawia normalny tryb Self-Use, aby w pierwszej kolejności
-wykorzystać PV. Po zachodzie może uzupełnić brakującą energię z sieci. Między
-99% a 100% SOC dąży do uzyskania około 2 kW mocy ładowania baterii, uwzględniając
-zużycie domu korzystające ze wspólnego limitu Grid Charge. Czas podtrzymania
-zaczyna odmierzać dopiero po potwierdzeniu pełnego SOC i liczy go tylko przy SOC
-co najmniej `99,9%`; niższy odczyt anuluje licznik i wymaga nowego pełnego
-podtrzymania. Po zakończeniu albo anulowaniu cyklu przywraca wcześniejsze
-ustawienia ładowania i tryb EMS.
+Opcjonalny cykl serwisowy jest uruchamiany z częstotliwością wybraną przez
+użytkownika. Po wschodzie słońca normalne, bezpieczne dla BMS ładowanie w
+Self-Use wykorzystuje najpierw PV do 95% SOC. Pierwszy prawidłowy odczyt co
+najmniej 95% zatrzaskuje wolny etap do końca cyklu, z celem nie większym niż
+około 0,4 kW sumarycznej mocy netto ładowania baterii. Self-Use używa
+bezpośredniego limitu baterii, a po zachodzie zweryfikowany Grid Charge dodaje
+zużycie domu dokładnie raz do tego samego celu 0,4 kW. Czas podtrzymania zaczyna
+się dopiero po potwierdzeniu wymaganych odczytów trybu i rejestrów przy `99,9%`
+SOC. Niższy odczyt anuluje licznik i wymaga nowego nieprzerwanego podtrzymania,
+bez powrotu do ładowania pełną mocą. Krótkie luki wyłącznie w świeżości danych
+w Self-Use wstrzymują zapisy najwyżej przez 60 sekund; błędy bezpieczeństwa są
+przechwytywane jako trwałe żądanie hard-stop.
+Dowód hard-stop jest zamrażany w chwili przyjęcia wyzwalacza, więc krótkie
+przejście błąd/powrót nie jest później reinterpretowane z bieżącego stanu.
+Niezależne, ograniczone kolejki FIFO dla każdej klasy priorytetu hard-stop
+sprawiają, że seria niższego priorytetu nie zajmuje przyjęcia późniejszej
+przyczyny wyższej; trwałe scalanie zachowuje pierwszy dokładny powód przy
+równym priorytecie.
+Już uruchomionego wywołania zweryfikowanego helpera nie można anulować; trwałe
+żądanie blokuje wszystkie kolejne zapisy inne
+niż odtwarzanie, które zaczyna się na pierwszej bezpiecznej granicy
+serializowanego workera. Przed pierwszym zapisem fizycznym obie generacje FC03
+muszą być dokładnie równe — nie tylko większe — generacjom zaufanej migawki.
+Bezpośrednio przed `HOLD_ARMING` SOC jest odczytywany ponownie i nadal musi być
+liczbowy, skończony, świeży oraz wynosić co najmniej 99,9%; granica zapisu
+terminu powtarza tę kontrolę i czyści nieważną próbę uzbrojenia bez uruchamiania
+timera. Końcowy commit fazy stabilnej ponownie odczytuje bieżący stan słońca,
+potwierdzony tryb EMS, cykl, generację właściciela i zatrzask hard-stop;
+rozbieżność dopuszcza najwyżej jedną zweryfikowaną korektę trybu, a druga zmiana
+słońca kończy się fail-closed. Trwały rekord pozostaje surowym `APPLYING` z
+warunkowym tokenem fazy/trybu, a parser kanoniczny pokazuje `OPERATIONAL`,
+`SLOW` lub fazę podtrzymania tylko tak długo, jak bieżące słońce, tryb,
+właściciel, cykl, timing i brak abortu nadal są zgodne. Zwykłe etapy wewnętrzne
+nie generują ogólnych powiadomień push. Zaufana migawka
+powiązana z bieżącym cyklem jest odtwarzana
+wyłącznie z pasującymi fizycznymi ACK; fizyczny Off-Grid ma pierwszeństwo.
+Aktywny stary albo uszkodzony cykl bez tej proweniencji przechodzi do
+`RECOVERY_REQUIRED`: nie wykonuje zgadywanego odtworzenia i nie zwalnia
+automatycznie istniejącego właściciela balansowania. Fizyczny fakt
+`operational_started` jest utrwalany niezależnie od wolnego miejsca w outboxie,
+więc późniejsze przerwanie pozostaje ABORTED, nawet jeśli STARTED musiało czekać.
+Zdarzenia terminalne telefonu trafiają do trwałej kolejki poza fizycznym
+zamknięciem. Każda próba dostawcy otrzymuje trwałą dzierżawę na 15 sekund;
+wygaśnięcie umożliwia ograniczone ponowienie, restart odzyskuje porzuconą
+dzierżawę, a spóźnione zakończenie nie może zmienić nowszej próby. Ponowienia
+używają tego samego stabilnego tagu, który może zastąpić/zdeduplikować widoczne
+powiadomienie, jeśli odbiorca obsługuje tagi; dostarczenie przez dowolnego
+zewnętrznego dostawcę nie jest matematycznie exactly-once. Zmiany zweryfikowano
+offline; przed wydaniem nadal wymagają akceptacji terenowej dokładnej wersji.
+
+Jeżeli widoczny jest stan `RECOVERY_REQUIRED`, pozostaw balansowanie wyłączone i
+nie czyść jego helperów aktywności/lifecycle. Zapisz powód transakcji,
+identyfikator cyklu, bieżący fizyczny tryb oraz odczyty 4303/4304, a następnie
+wyeksportuj pakiet wsparcia. Wykwalifikowany operator musi ustalić właściwe
+nastawy z dokumentacji uruchomienia albo sterowania producenta — nie z
+niezaufanego starego rekordu — i potwierdzić świeże odczyty fizyczne. Dopiero po
+zatrzymaniu timerów i zweryfikowanych skryptów zapisu oraz przeglądzie tych
+dowodów opiekun może zwolnić zachowanego właściciela/zresetować wewnętrzny
+lifecycle i rozpocząć nowy cykl. Do tego czasu fail-closed zachowuje własność;
+ta wersja celowo nie migruje automatycznie nieweryfikowalnego aktywnego cyklu.
 
 ## Instalacje z falownikami połączonymi równolegle
 

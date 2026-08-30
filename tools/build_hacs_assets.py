@@ -494,73 +494,16 @@ ENGLISH_REPLACEMENTS = {
         "Battery balancing — settings and status"
     ),
     "Wyrównywanie magazynu": "Battery balancing",
-    "Ładowanie z PV — oczekiwanie na zachód słońca": (
-        "Charging from PV — waiting for sunset"
-    ),
-    "Dobijanie z sieci do 99% SOC": "Grid top-up to 99% SOC",
-    "Wolne ładowanie 2 kW od 99% do 100% SOC": (
-        "Slow 2 kW charging from 99% to 100% SOC"
-    ),
-    "Wyrównywanie ogniw przy 100% SOC": "Cell balancing at 100% SOC",
     "Aktywny cykl serwisowy": "Service cycle active",
     "Oczekiwanie na najbliższy okres produkcji PV": (
         "Waiting for the next PV production period"
     ),
     "Zaplanowane": "Scheduled",
-    "Procent wspólnego limitu Grid Charge zapewniający około 2 kW dla": (
-        "Shared Grid Charge limit percentage providing about 2 kW for the"
-    ),
-    "baterii po odjęciu bieżącego obciążenia domu.": (
-        "battery after subtracting the current home load."
-    ),
-    "Zawiesza wszystkie pozostałe plany EMS, pozostawia falownik w Self-Use": (
-        "Suspends all other EMS plans and keeps the inverter in Self-Use"
-    ),
-    "podczas produkcji PV i przygotowuje bezpieczny cykl ładowania do 100%.": (
-        "during PV production while preparing a safe charge cycle to 100%."
-    ),
-    "Wraca do Self-Use, odtwarza ustawienia ładowania i zwalnia blokadę": (
-        "Returns to Self-Use, restores charge settings, and releases the lock"
-    ),
-    "pozostałych planów EMS. Zakończony poprawnie cykl zapisuje swoją datę.": (
-        "on other EMS plans. A successfully completed cycle stores its date."
-    ),
-    "Czy cykl osiągnął 100% SOC i zakończył czas wyrównywania": (
-        "Whether the cycle reached 100% SOC and completed its balancing time"
-    ),
-    "Uruchamia cykl co zadaną liczbę dni. Najpierw wykorzystuje PV w Self-Use,": (
-        "Runs the cycle at the configured day interval. It first uses PV in Self-Use,"
-    ),
-    "po zachodzie doładowuje magazyn z sieci, od 99% ogranicza ładowanie": (
-        "tops up the battery from the grid after sunset, and from 99% limits"
-    ),
-    "baterii do około 2 kW i odmierza czas wyrównywania dopiero przy 100% SOC.": (
-        "battery charging to about 2 kW; balancing time starts only at 100% SOC."
-    ),
     "Okresowy cykl serwisowy dla magazynów LiFePO4. W dniu wykonania": (
         "A periodic service cycle for LiFePO4 batteries. On the scheduled day it"
     ),
-    "najpierw wykorzystuje produkcję PV, po zachodzie doładowuje magazyn": (
-        "first uses PV production and tops up the battery from the grid after"
-    ),
-    "z sieci do 100%, a od 99% ogranicza rzeczywistą moc ładowania baterii": (
-        "sunset to 100%. From 99% it limits actual battery charging power"
-    ),
-    "do około 2 kW. Zadany czas wyrównywania jest liczony dopiero od": (
-        "to about 2 kW. The configured balancing duration starts only after"
-    ),
-    "osiągnięcia 100% SOC.": "reaching 100% SOC.",
     "Podczas cyklu RCE, ładowanie taryfowe i ręczne harmonogramy EMS są": (
         "During the cycle, RCE, tariff charging, and manual EMS schedules are"
-    ),
-    "zawieszone. Ich ustawienia pozostają zapamiętane i wracają do pracy": (
-        "suspended. Their settings are preserved and resume operation"
-    ),
-    "po zakończeniu. Wyłączenie przełącznika przerywa cykl i przywraca": (
-        "after completion. Turning the switch off aborts the cycle and restores"
-    ),
-    "Self-Use. Funkcji używaj zgodnie z zaleceniami producenta baterii.": (
-        "Self-Use. Follow the battery manufacturer's recommendations."
     ),
     "Włącz automatyczne wyrównywanie": "Enable automatic balancing",
     "Wykonuj co określoną liczbę dni": "Run every specified number of days",
@@ -2713,6 +2656,427 @@ ENGLISH_REPLACEMENTS.update(
     }
 )
 
+# v1.5.8 keeps the battery-balancing package bilingual while preserving the
+# localized physical text-state values used by each managed scheduler variant.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "Wyrównywanie magazynu — stan transakcji (zgodność)": (
+            "Battery balancing — transaction state (compatibility)"
+        ),
+        "Wyrównywanie magazynu — transakcyjny stan cyklu b2": (
+            "Battery balancing — transactional b2 cycle state"
+        ),
+        "Wyrównywanie magazynu — terminy i generacje transakcji": (
+            "Battery balancing — transaction deadlines and generations"
+        ),
+        "Wyrównywanie magazynu — trwałe żądanie bezpiecznego przerwania": (
+            "Battery balancing — durable safe-abort request"
+        ),
+        "Wyrównywanie magazynu — trwała kolejka powiadomień": (
+            "Battery balancing — durable notification outbox"
+        ),
+        "Wyrównywanie magazynu — trwały licznik transakcji": (
+            "Battery balancing — durable transaction counter"
+        ),
+        "Wyrównywanie magazynu — zapisz kanoniczny rekord b2": (
+            "Battery balancing — write canonical b2 record"
+        ),
+        "Wyrównywanie magazynu — zapisz kanoniczne terminy t1": (
+            "Battery balancing — write canonical t1 deadlines"
+        ),
+        "Wyrównywanie magazynu — zapisz kanoniczne żądanie a1": (
+            "Battery balancing — write canonical a1 request"
+        ),
+        "Wyrównywanie magazynu — zapisz kanoniczną kolejkę o1": (
+            "Battery balancing — write canonical o1 outbox"
+        ),
+        "Wyrównywanie magazynu — zapisz zdarzenie do trwałej kolejki": (
+            "Battery balancing — enqueue durable event"
+        ),
+        "Wyrównywanie magazynu — aktualizuj dostarczenie kolejki": (
+            "Battery balancing — update outbox delivery"
+        ),
+        "Wyrównywanie magazynu — niezależny dispatcher powiadomień": (
+            "Battery balancing — independent notification dispatcher"
+        ),
+        "Wyrównywanie magazynu — trwale przechwyć hard-stop": (
+            "Battery balancing — durably capture hard stop"
+        ),
+        "Wyrównywanie magazynu — zgodny wrapper przerwania": (
+            "Battery balancing — compatibility abort wrapper"
+        ),
+        "Wyrównywanie magazynu — trwały strażnik miękkiej luki": (
+            "Battery balancing — durable soft-gap guard"
+        ),
+        "Wyrównywanie magazynu — strażnik generacji utrzymania": (
+            "Battery balancing — hold-generation guard"
+        ),
+        "Wyrównywanie magazynu — wejdź w ręczne odzyskanie": (
+            "Battery balancing — enter manual recovery"
+        ),
+        "Wyrównywanie magazynu — inicjalizuj bezczynne rekordy": (
+            "Battery balancing — initialize idle records"
+        ),
+        "Wyrównywanie magazynu — przejście rekordu b2": (
+            "Battery balancing — b2 record transition"
+        ),
+        "Wyrównywanie magazynu — zleć uzgodnienie celu": (
+            "Battery balancing — request target reconciliation"
+        ),
+        "Wyrównywanie magazynu — zleć bezpieczny start": (
+            "Battery balancing — request safe start"
+        ),
+        "Wyrównywanie magazynu — zleć bezpieczne odtworzenie": (
+            "Battery balancing — request safe restoration"
+        ),
+        "Wyrównywanie magazynu — serializowany worker fizyczny": (
+            "Battery balancing — serialized physical worker"
+        ),
+        "Wyrównywanie magazynu — niezależne przechwycenie hard-stop": (
+            "Battery balancing — independent hard-stop capture"
+        ),
+        "Wyrównywanie magazynu — krótki kontroler transakcji": (
+            "Battery balancing — short transaction controller"
+        ),
+        "Wyrównywanie magazynu — dostarcz trwałe powiadomienia": (
+            "Battery balancing — deliver durable notifications"
+        ),
+        "Wyrównywanie magazynu — trwały stan cyklu": (
+            "Battery balancing — durable cycle state"
+        ),
+        "Wyrównywanie magazynu — powiadomienie cyklu": (
+            "Battery balancing — lifecycle notification"
+        ),
+        "Wyrównywanie magazynu — przerwij lub wstrzymaj zapis": (
+            "Battery balancing — abort or pause the write"
+        ),
+        "Wyrównywanie magazynu — limit miękkiej luki danych": (
+            "Battery balancing — soft data-gap limit"
+        ),
+        "Wyrównywanie magazynu — zastosuj zweryfikowany cel": (
+            "Battery balancing — apply verified target"
+        ),
+        "Wymagane ręczne odzyskanie — brak zaufanej migawki": (
+            "Manual recovery required — no trusted snapshot"
+        ),
+        "Błąd odtwarzania — własność pozostaje zablokowana": (
+            "Restoration failed — ownership remains locked"
+        ),
+        "Wymagane ręczne odzyskanie — nieprawidłowy stan transakcji": (
+            "Manual recovery required — invalid transaction state"
+        ),
+        "Stosowanie transakcyjnego celu ładowania": (
+            "Applying transactional charging target"
+        ),
+        "Uzbrajanie czasu wyrównywania przy 100% SOC": (
+            "Arming balancing hold at 100% SOC"
+        ),
+        "Przyjęto żądanie bezpiecznego przerwania": (
+            "Safe-abort request accepted"
+        ),
+        "Jedyny serializer cyklu. Odrzuca niekanoniczne pola i każdą wartość": (
+            "The sole cycle serializer. It rejects non-canonical fields and every value"
+        ),
+        "dłuższą niż 255 znaków przed wywołaniem usługi input_text.": (
+            "longer than 255 characters before calling the input_text service."
+        ),
+        "Jedyny serializer terminu miękkiej luki i dwufazowego utrzymania.": (
+            "The sole serializer for the soft gap and two-phase hold deadlines."
+        ),
+        "Jedyny serializer trwałego żądania hard-stop.": (
+            "The sole serializer for the durable hard-stop request."
+        ),
+        "Jedyny serializer dwóch trwałych zdarzeń telefonu; zawsze sprawdza": (
+            "The sole serializer for two durable phone events; it always checks"
+        ),
+        "granicę 255 znaków przed usługą helpera.": (
+            "the 255-character boundary before calling the helper service."
+        ),
+        "Tworzy najwyżej jeden rekord danego rodzaju dla cyklu. Nie wywołuje": (
+            "Creates at most one event of each kind per cycle. It does not call"
+        ),
+        "usługi telefonu i nie należy do fizycznej ścieżki odtwarzania.": (
+            "the phone service and is not part of the physical restore path."
+        ),
+        "Zmienia tylko stan dokładnie wskazanego zdarzenia.": (
+            "Changes only the exactly selected event state."
+        ),
+        "Dostarcza PENDING poza transakcją fizyczną. Próba jest zapisana przed": (
+            "Delivers PENDING outside the physical transaction. The attempt is stored before"
+        ),
+        "usługą telefonu; niejednoznaczny retry używa tego samego tagu.": (
+            "the phone service; an ambiguous retry uses the same tag."
+        ),
+        "Krótka niezależna ścieżka bez zapisu Modbus. Zachowuje pierwszy powód": (
+            "A short independent path without a Modbus write. It retains the first reason"
+        ),
+        "o najwyższym priorytecie i uruchamia jeden serializowany worker fizyczny.": (
+            "at the highest priority and starts one serialized physical worker."
+        ),
+        "Zgodność starszych wywołań. Miękka luka jest obsługiwana przez trwały": (
+            "Compatibility for older calls. The soft gap is handled by a durable"
+        ),
+        "termin t1; każdy powód przekazany tutaj staje się trwałym hard-stop.": (
+            "t1 deadline; every reason passed here becomes a durable hard stop."
+        ),
+        "Czeka wyłącznie do absolutnego terminu t1. Po restarcie kontroler uruchamia": (
+            "Waits only until the absolute t1 deadline. After restart the controller starts"
+        ),
+        "pozostały czas; starsza generacja nie może przerwać nowszego cyklu.": (
+            "the remaining time; an older generation cannot abort a newer cycle."
+        ),
+        "Emituje zdarzenie związane z cyklem, generacją i absolutnym terminem.": (
+            "Emits an event tied to the cycle, generation and absolute deadline."
+        ),
+        "Zwykłe timer.finished nie przyznaje uprawnienia do zakończenia cyklu.": (
+            "A plain timer.finished event grants no authority to complete the cycle."
+        ),
+        "Fail-closed dla aktywnego niezweryfikowanego stanu. Nie odtwarza": (
+            "Fail-closed for active unverified state. It does not restore"
+        ),
+        "rejestrów, nie zgaduje trybu i nie zwalnia istniejącego właściciela.": (
+            "registers, guess a mode, or release the existing owner."
+        ),
+        "Tworzy kanoniczne rekordy wyłącznie dla udowodnionej świeżej,": (
+            "Creates canonical records only for a proven fresh,"
+        ),
+        "nieaktywnej instalacji; nie wykonuje żadnej czynności fizycznej.": (
+            "inactive installation; it performs no physical action."
+        ),
+        "Łączy niezmienione pola poprawnego rekordu z jawnymi nadpisaniami i": (
+            "Combines unchanged valid-record fields with explicit overrides and"
+        ),
+        "deleguje zapis do jedynego kanonicznego serializera.": (
+            "delegates the write to the sole canonical serializer."
+        ),
+        "Wrapper zgodności. Nie zawiera fizycznego zapisu; zleca pracę jedynemu": (
+            "Compatibility wrapper. It contains no physical write and delegates work to the sole"
+        ),
+        "serializowanemu workerowi transakcji.": (
+            "serialized transaction worker."
+        ),
+        "Wrapper zgodności. Monotoniczną tożsamość, własność i migawkę tworzy": (
+            "Compatibility wrapper. The monotonic identity, ownership and snapshot are created"
+        ),
+        "wyłącznie serializowany worker.": (
+            "only by the serialized worker."
+        ),
+        "Wrapper zgodności. Najpierw trwale zapisuje powód, a odtworzenie wykonuje": (
+            "Compatibility wrapper. It first stores the reason durably; restoration is performed by"
+        ),
+        "Jedyna transakcja fizyczna wyrównywania. Przed i po każdym oczekiwanym": (
+            "The sole physical balancing transaction. Before and after every awaited"
+        ),
+        "helperze sprawdza właściciela, zaufaną migawkę i trwały hard-stop.": (
+            "helper it checks ownership, the trusted snapshot and the durable hard stop."
+        ),
+        "Krótka kolejka niezależna od workera fizycznego. Trwale zapisuje": (
+            "A short queue independent of the physical worker. It durably stores"
+        ),
+        "najwyższy precyzyjny powód i nie wykonuje żadnego zapisu Modbus.": (
+            "the highest precise reason and performs no Modbus write."
+        ),
+        "Reaguje krótko i nie zawiera helperów fizycznych. Odtwarza strażniki": (
+            "It reacts briefly and contains no physical helpers. It restores"
+        ),
+        "terminów po restarcie i zleca pracę jedynemu workerowi szeregowemu.": (
+            "deadline guards after restart and delegates work to the sole queued worker."
+        ),
+        "Oddzielny dispatcher telefonu. Błąd, restart lub zawieszenie dostawcy": (
+            "A separate phone dispatcher. Provider failure, restart or hang"
+        ),
+        "nie blokuje odtworzenia, właściciela ani timera transakcji.": (
+            "does not block restoration, ownership or transaction timers."
+        ),
+        "wykryto niemożliwy skok zegara": "an impossible clock jump was detected",
+        "stan fizyczny zmienił się przed pierwszym zapisem": (
+            "physical state changed before the first write"
+        ),
+        "rekord transakcji jest nieprawidłowy": "the transaction record is invalid",
+        "starszy cykl nie ma zaufanej migawki": (
+            "the legacy cycle has no trusted snapshot"
+        ),
+        "odtwarzanie nie uzyskało potwierdzenia": (
+            "restoration did not receive acknowledgement"
+        ),
+        "transakcja fizyczna nie powiodła się": "the physical transaction failed",
+        "Przygotowanie cyklu wyrównywania": "Preparing the balancing cycle",
+        "Ładowanie z PV do 95% SOC": "Charging from PV to 95% SOC",
+        "Ładowanie z sieci do 95% SOC": "Charging from the grid to 95% SOC",
+        "Wolne ładowanie ok. 0,4 kW od 95% do 100% SOC": (
+            "Slow charging at approximately 0.4 kW from 95% to 100% SOC"
+        ),
+        "Wyrównywanie ogniw przy 100% SOC": "Balancing cells at 100% SOC",
+        "Bezpieczne kończenie cyklu wyrównywania": (
+            "Safely completing the balancing cycle"
+        ),
+        "Bezpieczne przerywanie cyklu wyrównywania": (
+            "Safely aborting the balancing cycle"
+        ),
+        "Bezpieczne kończenie przygotowania cyklu": (
+            "Safely ending balancing-cycle preparation"
+        ),
+        "Nieznany etap cyklu wyrównywania": "Unknown balancing-cycle phase",
+        "Limit BMS dla jednego pola EMS 4304. W Self-Use ogranicza moc": (
+            "BMS limit for the single EMS 4304 field. In Self-Use it limits"
+        ),
+        "ładowania baterii, a w Grid Charge obejmuje LOAD i moc baterii.": (
+            "battery charging; in Grid Charge it covers LOAD and battery power."
+        ),
+        "Jeden wspólny limit EMS 4304 dla około 0,4 kW netto w baterii:": (
+            "One shared EMS 4304 limit for approximately 0.4 kW net into the battery:"
+        ),
+        "bez LOAD w Self-Use i z LOAD dodanym dokładnie raz w Grid Charge.": (
+            "without LOAD in Self-Use and with LOAD added exactly once in Grid Charge."
+        ),
+        "Wysyła najwyżej jedno STARTED i jedno zdarzenie końcowe na trwałą": (
+            "Sends at most one STARTED and one terminal event for a durable"
+        ),
+        "tożsamość cyklu. Błąd usługi notify nie wpływa na fizyczny cykl.": (
+            "cycle identity. A notify-service error does not affect the physical cycle."
+        ),
+        "Miękka luka danych w Self-Use tylko wstrzymuje bieżący zapis. Każdy twardy": (
+            "A soft Self-Use data gap only pauses the current write. Every hard"
+        ),
+        "błąd i każda luka w Grid Charge uruchamiają bezpieczne zakończenie.": (
+            "failure and every Grid Charge gap starts safe closeout."
+        ),
+        "Jednorazowo odmierza 60 s od pierwszego braku świeżości. Kolejne zdarzenia": (
+            "Measures 60 s once from the first freshness loss. Subsequent events"
+        ),
+        "nie restartują terminu; powrót danych zeruje znacznik w kontrolerze.": (
+            "do not restart the deadline; returning data clears the controller marker."
+        ),
+        "Wspólna ścieżka zapisów dla PV, sieci, fazy wolnej i utrzymania.": (
+            "Shared write path for PV, grid, slow, and holding phases."
+        ),
+        "Korzysta wyłącznie z istniejących helperów pełnego bloku EMS 4300–4306.": (
+            "Uses only the existing verified full EMS 4300–4306 block helpers."
+        ),
+        "Przejmuje wolny EMS, zapisuje dokładny tryb i nastawy, a STARTED wysyła": (
+            "Claims an idle EMS, saves the exact mode and settings, and sends STARTED"
+        ),
+        "dopiero po potwierdzonym wejściu w fazę PV, sieciową albo wolną.": (
+            "only after acknowledged entry into the PV, grid, or slow phase."
+        ),
+        "Odtwarza dokładnie zapisany tryb, limit mocy i cel SOC. Off-Grid zawsze": (
+            "Restores the exact saved mode, power limit, and SOC target. Off-Grid always"
+        ),
+        "zachowuje fizyczną własność. Błąd zgłasza raz przed odtwarzaniem, a": (
+            "retains physical ownership. A failure is reported once before restore, and"
+        ),
+        "poprawne zakończenie dopiero po closeout.": (
+            "successful completion only after closeout."
+        ),
+        "Ładuje normalnie do 95% SOC, następnie utrzymuje około 0,4 kW netto": (
+            "Charges normally to 95% SOC, then maintains approximately 0.4 kW net"
+        ),
+        "w baterii. Pełny czas wyrównywania zaczyna dopiero od 99,9% po ACK.": (
+            "into the battery. The full balancing hold starts only at 99.9% after ACK."
+        ),
+        "Wysyła stabilne zmiany EMS, ale nie powiela oczekiwanych przejść": (
+            "Sends stable EMS changes without duplicating expected transitions of an"
+        ),
+        "aktywnego lub bezpiecznie zamkniętego cyklu wyrównywania.": (
+            "active or safely closed balancing cycle."
+        ),
+        "Wysyła stabilne zmiany EMS. Zamknięte allowlisty pomijają wyłącznie": (
+            "Sends stable EMS changes. Closed allowlists suppress only"
+        ),
+        "oczekiwane lub dokładnie pokryte zdarzeniem transakcji wyrównywania.": (
+            "expected changes or changes exactly covered by a balancing transaction event."
+        ),
+        "Krytyczne zdarzenie aktywnego wyrównywania zgłoszono jednym": (
+            "The active balancing critical event was reported by one"
+        ),
+        "powiadomieniem cyklu; ogólne powiadomienie jest pominięte": (
+            "cycle notification; the generic notification is skipped"
+        ),
+        "Oczekiwana zmiana wyrównywania albo błąd już zgłoszony przez": (
+            "Expected balancing change or a fault already reported by the"
+        ),
+        "pojedyncze powiadomienie końcowe; sygnatura nie jest zmieniana": (
+            "single terminal notification; the fingerprint is not changed"
+        ),
+        "Oczekiwana albo dokładnie pokryta zmiana wyrównywania;": (
+            "Expected or exactly covered balancing change;"
+        ),
+        "ogólna sygnatura pozostaje niezmieniona": (
+            "the generic fingerprint remains unchanged"
+        ),
+        "Stabilny kod przyczyny zakończenia": "Stable terminal reason code",
+        "cykl zakończony poprawnie": "cycle completed successfully",
+        "użytkownik wyłączył wyrównywanie": "the user disabled balancing",
+        "wykryto fizyczny tryb Off-Grid": "physical Off-Grid mode was detected",
+        "bezpieczny limit BMS jest niewykonalny": "the safe BMS limit is not writable",
+        "dane BMS są nieprawidłowe": "BMS data is invalid",
+        "dane obciążenia domu są nieprawidłowe": "house-load data is invalid",
+        "BMS zgłosił błąd": "the BMS reported a fault",
+        "falownik zgłosił awarię": "the inverter reported a fault",
+        "topologia falowników jest nieprawidłowa": "inverter topology is invalid",
+        "wykryto konflikt sterowania": "a control conflict was detected",
+        "utracono własność sterowania": "control ownership was lost",
+        "przerwa świeżości danych przekroczyła 60 s": (
+            "the data-freshness gap exceeded 60 s"
+        ),
+        "utracono wiarygodną komunikację": "reliable communication was lost",
+        "brak potwierdzenia limitu mocy": "the power limit was not acknowledged",
+        "brak potwierdzenia celu SOC": "the SOC target was not acknowledged",
+        "brak potwierdzenia trybu EMS": "the EMS mode was not acknowledged",
+        "przekroczono limit czasu cyklu": "the cycle watchdog expired",
+        "odtworzony niepełny cykl zakończono bezpiecznie": (
+            "the restored incomplete cycle was closed safely"
+        ),
+        "nieznany błąd wewnętrzny": "unknown internal error",
+        "nieznany kod przyczyny": "unknown reason code",
+        "niedostępny": "unavailable",
+        "Hoymiles — wyrównywanie baterii": "Hoymiles — battery balancing",
+        "Przyczyna:": "Reason:",
+        "Końcowy SOC:": "Final SOC:",
+        "Etap:": "Phase:",
+        "Cykl:": "Cycle:",
+        "Test sieci": "Grid test",
+        "Awaria": "Fault",
+        "Praca wyspowa": "Off-grid operation",
+        "najpierw wykorzystuje produkcję PV i normalny limit BMS do 95% SOC.": (
+            "first uses PV production and the normal BMS limit to 95% SOC."
+        ),
+        "Od pierwszego prawidłowego odczytu co najmniej 95% utrzymuje wolne": (
+            "From the first valid reading at or above 95%, it maintains slow"
+        ),
+        "ładowanie około 0,4 kW netto dla całego magazynu. Po zachodzie używa": (
+            "charging at approximately 0.4 kW net for the complete battery. After sunset it uses"
+        ),
+        "zweryfikowanego Grid Charge i dodaje zużycie domu dokładnie raz.": (
+            "verified Grid Charge and adds household load exactly once."
+        ),
+        "Zadany czas wyrównywania zaczyna liczyć dopiero po fizycznym": (
+            "The configured balancing hold starts only after physical"
+        ),
+        "potwierdzeniu trybu i nastaw przy 99,9% SOC.": (
+            "acknowledgement of the mode and settings at 99.9% SOC."
+        ),
+        "zablokowane przez istniejącą własność EMS; ich stan pozostaje": (
+            "blocked by existing EMS ownership; their state remains"
+        ),
+        "niezmieniony. Krótka luka świeżości w Self-Use tylko wstrzymuje zapis,": (
+            "unchanged. A short Self-Use freshness gap only pauses writes,"
+        ),
+        "a błędy bezpieczeństwa zatrzymują cykl natychmiast. Zakończenie albo": (
+            "while safety failures stop the cycle immediately. Completion or"
+        ),
+        "wyłączenie przywraca dokładne wcześniejsze nastawy i tryb EMS;": (
+            "disable restores the exact prior settings and EMS mode;"
+        ),
+        "fizyczny Off-Grid zawsze ma pierwszeństwo. Funkcji używaj zgodnie z": (
+            "physical Off-Grid always has priority. Use this function according to"
+        ),
+        "zaleceniami producenta baterii.": (
+            "the battery manufacturer's recommendations."
+        ),
+    }
+)
+
 
 @dataclass
 class Entity:
@@ -3210,6 +3574,52 @@ def canonicalize_proxy_select_options(text: str) -> str:
     )
 
 
+def render_managed_assets(catalog: list[dict]) -> dict[Path, str]:
+    """Render every managed dashboard/scheduler text asset in memory."""
+    dashboard = transform_entity_ids(
+        (ROOT / "dashboard_hoymiles.yaml").read_text(encoding="utf-8"),
+        catalog,
+    )
+    package = transform_entity_ids(
+        (ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml").read_text(
+            encoding="utf-8"
+        ),
+        catalog,
+    )
+    rendered = {
+        RESOURCES / "dashboard_hoymiles_pl.yaml": add_dashboard_entity_names(
+            dashboard, catalog, "pl"
+        ),
+        RESOURCES / "dashboard_hoymiles_en.yaml": translate_asset_to_english(
+            add_dashboard_entity_names(dashboard, catalog, "en")
+        ),
+        RESOURCES
+        / "home_assistant"
+        / "pl"
+        / "hoymiles_ems_scheduler.yaml": canonicalize_proxy_select_options(package),
+        RESOURCES
+        / "home_assistant"
+        / "en"
+        / "hoymiles_ems_scheduler.yaml": translate_asset_to_english(package),
+    }
+    for language in ("pl", "en"):
+        dashboard_yaml = rendered[
+            RESOURCES / f"dashboard_hoymiles_{language}.yaml"
+        ]
+        dashboard_data = yaml.safe_load(dashboard_yaml)
+        if (
+            not isinstance(dashboard_data, dict)
+            or not isinstance(dashboard_data.get("views"), list)
+        ):
+            raise ValueError(
+                f"Generated {language} dashboard has no top-level views list"
+            )
+        rendered[
+            RESOURCES / "www" / f"dashboard_hoymiles_{language}.json"
+        ] = json.dumps(dashboard_data, ensure_ascii=False, indent=2) + "\n"
+    return rendered
+
+
 def build() -> None:
     """Generate catalog/translations and copy public assets."""
     entities: list[Entity] = []
@@ -3329,57 +3739,9 @@ def build() -> None:
         encoding="utf-8",
     )
 
-    dashboard = transform_entity_ids(
-        (ROOT / "dashboard_hoymiles.yaml").read_text(encoding="utf-8"),
-        catalog,
-    )
-    package = transform_entity_ids(
-        (ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml").read_text(
-            encoding="utf-8"
-        ),
-        catalog,
-    )
-
-    localized_assets = {
-        RESOURCES / "dashboard_hoymiles_pl.yaml": add_dashboard_entity_names(
-            dashboard, catalog, "pl"
-        ),
-        RESOURCES / "dashboard_hoymiles_en.yaml": translate_asset_to_english(
-            add_dashboard_entity_names(dashboard, catalog, "en")
-        ),
-        RESOURCES
-        / "home_assistant"
-        / "pl"
-        / "hoymiles_ems_scheduler.yaml": canonicalize_proxy_select_options(package),
-        RESOURCES
-        / "home_assistant"
-        / "en"
-        / "hoymiles_ems_scheduler.yaml": translate_asset_to_english(package),
-    }
-    for destination, content in localized_assets.items():
+    for destination, content in render_managed_assets(catalog).items():
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(content, encoding="utf-8")
-
-    for language in ("pl", "en"):
-        dashboard_yaml = (
-            RESOURCES / f"dashboard_hoymiles_{language}.yaml"
-        ).read_text(encoding="utf-8")
-        dashboard_data = yaml.safe_load(dashboard_yaml)
-        if (
-            not isinstance(dashboard_data, dict)
-            or not isinstance(dashboard_data.get("views"), list)
-        ):
-            raise ValueError(
-                f"Generated {language} dashboard has no top-level views list"
-            )
-        dashboard_json = (
-            RESOURCES / "www" / f"dashboard_hoymiles_{language}.json"
-        )
-        dashboard_json.parent.mkdir(parents=True, exist_ok=True)
-        dashboard_json.write_text(
-            json.dumps(dashboard_data, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
 
     for bundled_www_asset in (
         "hoymiles-dashboard-strategy.js",

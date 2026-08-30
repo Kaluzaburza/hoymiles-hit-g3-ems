@@ -387,14 +387,60 @@ distribution-system-operator voltage limits.
 ### LiFePO4 battery balancing
 
 The optional service cycle runs at an interval selected by the user. After
-sunrise, normal Self-Use operation lets PV charge the battery first. After
-sunset, the cycle can supply the missing energy from the grid. Between 99% and
-100% SOC it targets approximately 2 kW of battery charging, adjusted for the
-household demand that shares the Grid Charge limit. The hold timer begins only
-after full SOC is confirmed. The configured hold counts only while SOC remains
-at least `99.9%`; a lower reading cancels the timer and requires a new complete
-hold. Previous charge settings and EMS mode are restored when the cycle ends or
-is canceled.
+sunrise, normal BMS-safe Self-Use operation lets PV charge the battery to 95%
+SOC first. The first valid reading at or above 95% latches a slow region for the
+rest of that cycle, targeting no more than approximately 0.4 kW aggregate net
+battery charge. Self-Use applies the direct battery cap; after sunset, verified
+Grid Charge adds the current household load once to the same 0.4 kW battery
+target. The hold timer begins only after the required mode and register
+readbacks are acknowledged at `99.9%` SOC. A lower reading cancels the timer
+and requires a new uninterrupted hold without returning to full-power charging.
+Short freshness-only gaps in Self-Use pause writes for at most 60 seconds;
+safety failures are captured as a durable hard-stop request.
+Hard-stop evidence is frozen when its trigger is admitted, so a short
+fault/recovery transition is not reinterpreted later from the current state.
+Independent bounded FIFO admission lanes for each hard-stop priority class
+prevent a lower-priority burst from consuming the later higher-priority
+admission; the durable merge keeps the first exact reason at equal priority.
+An already running verified helper call cannot be cancelled; the durable
+request blocks every later
+non-restorative write and restoration starts at the first safe serialized
+worker boundary. Before the first physical write, both FC03 generation values
+must equal—not merely exceed—the trusted snapshot generations. Immediately
+before `HOLD_ARMING`, SOC is read again and must still be finite, fresh and at
+least 99.9%; the timing-write boundary repeats that check and clears an invalid
+arming candidate without starting the timer. The final steady-phase commit
+re-reads the current sun state, acknowledged EMS mode, cycle, owner generation
+and hard-stop latch; a mismatch permits at most one verified mode correction,
+while a second sun change fails closed. Its durable record remains raw
+`APPLYING` with a conditional phase/mode token, and the canonical parser exposes
+`OPERATIONAL`, `SLOW` or a hold phase only while the current sun, mode, owner,
+cycle, timing and no-abort guards still match. Routine internal phases do not
+produce generic phone pushes.
+A trusted snapshot tied to the current cycle is restored only after matching
+physical acknowledgements; physical Off-Grid takes priority. An active legacy
+or malformed cycle without that provenance enters `RECOVERY_REQUIRED`: it
+performs no guessed restore and does not release an existing balancing owner
+automatically. The physical `operational_started` fact is committed independently
+of free outbox capacity, so a later abort remains ABORTED even if STARTED had to
+wait. Terminal phone events use a durable outbox outside physical closeout. Each
+provider attempt receives a durable 15-second lease; expiry enables a bounded
+retry, restart recovers an abandoned lease, and a late completion cannot update
+a newer attempt. Retries reuse the same stable tag, which can replace/deduplicate
+the visible notification where the target supports tags; arbitrary external
+push delivery is not mathematically exactly-once. These changes are validated
+offline and still require exact-version field acceptance before release.
+
+If `RECOVERY_REQUIRED` is shown, keep balancing disabled and do not clear its
+active/lifecycle helpers. Save the transaction reason, cycle identifier,
+current physical mode and 4303/4304 readbacks, then export a support bundle. A
+qualified operator must establish the intended settings from commissioning
+records or the manufacturer's controls—not from the untrusted legacy record—and
+confirm fresh physical readbacks. Only after the timers and verified-write
+scripts are idle and that evidence has been reviewed may a maintainer release
+the retained owner/reset the internal lifecycle and start a new cycle. Until
+then the fail-closed owner remains reserved; this release intentionally does
+not provide transparent migration of an unverifiable active cycle.
 
 ## Parallel inverter systems
 

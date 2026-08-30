@@ -118,6 +118,41 @@ All notable changes to this project are documented in this file.
   4306. PV and LOAD remain separate in the physical balance, total
   instantaneous AC power may exceed 16 kW per inverter with PV, and charging
   power is unchanged. The 5/10/12/15 kW profiles are unchanged.
+- Battery balancing now retains normal BMS-safe charging below **95% SOC** and
+  latches an aggregate net target of approximately **0.4 kW** from the first
+  valid reading at or above 95%. The full-SOC hold still starts only at
+  **99.9%** after physical mode/4303/4304 acknowledgement. Self-Use uses the
+  direct battery cap; Grid Charge adds fresh household load exactly once.
+  Downward 0.1% quantization never overrides the BMS cap, and unavailable data
+  cannot become a positive physical command. A freshness-only Self-Use gap
+  pauses writes for at most 60 seconds without start/stop churn. Dedicated,
+  bounded FIFO lanes freeze trigger evidence and cycle identity per hard-stop
+  priority class, then merge the durable request; a lower-priority burst cannot
+  consume admission for the later higher-priority reason, and the first exact
+  reason wins at equal priority. The capture path does not wait for the fault to
+  remain active. It cannot cancel an already-running verified helper, but the
+  durable request blocks later non-restorative writes and restoration starts at
+  the first safe serialized boundary. Both snapshot generations require exact
+  equality before the first write, and SOC is freshly re-read before
+  `HOLD_ARMING` and again across its timing-write boundary. The final
+  steady-phase commit rechecks current sun, physical mode, owner generation and
+  hard-stop state; it permits at most one verified mode correction and fails
+  closed on another sun change. A guarded steady record persists raw `APPLYING`
+  plus a conditional phase/mode token, so the canonical parser exposes an
+  accepted steady phase only while all live commit guards remain true. The abort retry
+  cooldown is 15 minutes. Only a trusted current-cycle snapshot is restored,
+  with matching physical ACK and Off-Grid priority. An unverifiable active
+  legacy cycle instead remains owned in `RECOVERY_REQUIRED` for the documented
+  manual recovery procedure, with no guessed physical write. Terminal events
+  use a durable outbox and a dispatcher outside physical closeout. The physical
+  `operational_started` fact does not depend on free outbox capacity. A provider
+  attempt has a durable 15-second lease; timeout/restart enables a bounded retry,
+  late completion is inert, and the stable phone tag is reused. This
+  prevents deterministic scheduler duplicates but does not claim mathematical
+  exactly-once delivery by an arbitrary external provider. The closed status
+  allowlist still suppresses routine phase pushes. This behavior is validated
+  offline only and still requires exact-version real-inverter acceptance before
+  publication.
 - The patch changes no ESPHome/firmware source, Modbus map, full-block write
   semantics, GCF policy, tariff, RCEm, manual control, Aurora, EMS Supervisor
   or AP-1 timeline. Master FC03 remains acknowledgement of Master
@@ -165,6 +200,44 @@ All notable changes to this project are documented in this file.
   4306. PV i LOAD pozostają osobnymi składnikami bilansu, chwilowa całkowita moc
   AC z PV może przekroczyć 16 kW/falownik, a moc ładowania się nie zmienia.
   Profile 5/10/12/15 kW pozostają bez zmian.
+- Wyrównywanie baterii zachowuje teraz normalne, bezpieczne dla BMS ładowanie
+  poniżej **95% SOC** i od pierwszego prawidłowego odczytu co najmniej 95%
+  zatrzaskuje sumaryczny cel netto około **0,4 kW**. Podtrzymanie pełnego SOC
+  nadal zaczyna się dopiero przy **99,9%**, po fizycznym ACK trybu oraz rejestrów
+  4303/4304. Self-Use używa bezpośredniego limitu baterii, a Grid Charge dodaje
+  świeże zużycie domu dokładnie raz. Kwantyzacja w dół do 0,1% nigdy nie
+  przekracza limitu BMS, a niedostępne dane nie mogą stać się dodatnim poleceniem
+  fizycznym. Luka wyłącznie w świeżości danych w Self-Use wstrzymuje zapisy
+  najwyżej przez 60 sekund bez pętli start/stop. Osobne, ograniczone kolejki FIFO
+  zamrażają dowód triggera i tożsamość cyklu dla każdej klasy priorytetu
+  hard-stop, a następnie scalają trwałe żądanie; seria niższego priorytetu nie
+  zajmuje przyjęcia późniejszej przyczyny wyższej, a przy równym priorytecie
+  wygrywa pierwszy dokładny powód. Ścieżka przechwycenia nie czeka, aż stan błędu
+  pozostanie aktywny. Nie anuluje już trwającego zweryfikowanego helpera, lecz
+  trwałe żądanie blokuje późniejsze zapisy inne niż odtwarzanie, które zaczyna
+  się na pierwszej bezpiecznej granicy serializowanej. Obie generacje migawki
+  wymagają dokładnej równości przed pierwszym zapisem, a SOC jest świeżo
+  odczytywany przed `HOLD_ARMING` i ponownie na granicy zapisu jego timingu.
+  Końcowy commit fazy stabilnej ponownie sprawdza bieżące słońce, tryb fizyczny,
+  generację właściciela i hard-stop; dopuszcza najwyżej jedną zweryfikowaną
+  korektę trybu i kończy się fail-closed po kolejnej zmianie słońca. Chroniony
+  rekord fazy stabilnej utrwala surowe `APPLYING` z warunkowym tokenem
+  fazy/trybu, więc parser kanoniczny pokazuje zaakceptowaną fazę tylko wtedy,
+  gdy wszystkie bieżące guardy commitu nadal są prawdziwe. Cooldown po
+  przerwaniu wynosi 15 minut. Odtwarzana jest tylko zaufana migawka bieżącego
+  cyklu, z pasującym fizycznym ACK i pierwszeństwem Off-Grid. Nieweryfikowalny
+  aktywny stary cykl pozostaje natomiast własnością balansowania w
+  `RECOVERY_REQUIRED` do udokumentowanej procedury ręcznej, bez zgadywanego
+  zapisu fizycznego. Zdarzenia terminalne używają trwałej kolejki i dispatchera
+  poza fizycznym zamknięciem. Fizyczny fakt `operational_started` nie zależy od
+  wolnego miejsca w outboxie. Próba dostawcy ma trwałą 15-sekundową dzierżawę;
+  timeout/restart umożliwia ograniczone ponowienie, spóźnione zakończenie jest
+  bezskuteczne, a stabilny tag telefonu jest ponownie używany. Zapobiega to
+  deterministycznym duplikatom schedulera, ale nie stanowi obietnicy
+  matematycznego exactly-once u dowolnego zewnętrznego dostawcy. Zamknięta lista
+  statusów nadal usuwa zwykłe powiadomienia etapów. Zachowanie zweryfikowano
+  wyłącznie offline i przed publikacją nadal wymaga odbioru exact-version na
+  rzeczywistym falowniku.
 - Hotfix nie zmienia źródeł ESPHome/firmware, map Modbus, semantyki zapisu
   pełnego bloku, GCF, taryfy, RCEm, sterowania ręcznego, Aurora, EMS Supervisor
   ani osi AP-1. FC03 Mastera nadal potwierdza wyłącznie konfigurację Mastera;

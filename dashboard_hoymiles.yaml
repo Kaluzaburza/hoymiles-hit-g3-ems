@@ -1981,15 +1981,20 @@ views:
         content: |-
           ## Wyrównywanie magazynu
           Okresowy cykl serwisowy dla magazynów LiFePO4. W dniu wykonania
-          najpierw wykorzystuje produkcję PV, po zachodzie doładowuje magazyn
-          z sieci do 100%, a od 99% ogranicza rzeczywistą moc ładowania baterii
-          do około 2 kW. Zadany czas wyrównywania jest liczony dopiero od
-          osiągnięcia 100% SOC.
+          najpierw wykorzystuje produkcję PV i normalny limit BMS do 95% SOC.
+          Od pierwszego prawidłowego odczytu co najmniej 95% utrzymuje wolne
+          ładowanie około 0,4 kW netto dla całego magazynu. Po zachodzie używa
+          zweryfikowanego Grid Charge i dodaje zużycie domu dokładnie raz.
+          Zadany czas wyrównywania zaczyna liczyć dopiero po fizycznym
+          potwierdzeniu trybu i nastaw przy 99,9% SOC.
 
           Podczas cyklu RCE, ładowanie taryfowe i ręczne harmonogramy EMS są
-          zawieszone. Ich ustawienia pozostają zapamiętane i wracają do pracy
-          po zakończeniu. Wyłączenie przełącznika przerywa cykl i przywraca
-          Self-Use. Funkcji używaj zgodnie z zaleceniami producenta baterii.
+          zablokowane przez istniejącą własność EMS; ich stan pozostaje
+          niezmieniony. Krótka luka świeżości w Self-Use tylko wstrzymuje zapis,
+          a błędy bezpieczeństwa zatrzymują cykl natychmiast. Zakończenie albo
+          wyłączenie przywraca dokładne wcześniejsze nastawy i tryb EMS;
+          fizyczny Off-Grid zawsze ma pierwszeństwo. Funkcji używaj zgodnie z
+          zaleceniami producenta baterii.
       - type: custom:hoymiles-zebra-entities-card
         title: Wyrównywanie magazynu — ustawienia i stan
         show_header_toggle: false

@@ -55,6 +55,8 @@ jobs:
           python tools/test_rcm_optimizer.py
       - name: Test cross-system automation matrix
         run: python tools/test_automation_matrix.py
+      - name: Test battery-balancing lifecycle and mutation contract
+        run: python tools/test_battery_balancing_contract.py
       - name: Test diagnostic privacy filters
         run: python tools/test_diagnostics.py
       - name: Test 100-package diagnostic analyzer
@@ -78,6 +80,20 @@ jobs:
         run: python tools/test_automation_matrix.py --exhaustive
       - name: Test RCE custom card
         run: node tools/validate_rce_card.js
+
+  battery-balancing-ha-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install exact isolated Home Assistant runtime
+        run: >-
+          python -m pip install --disable-pip-version-check
+          "PyYAML==6.0.2" "homeassistant==2026.8.2"
+      - name: Test exact battery-balancing transaction runtime
+        run: python tools/test_battery_balancing_ha_runtime.py
 
   firmware-compile:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')

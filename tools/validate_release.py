@@ -15,6 +15,8 @@ import tempfile
 import types
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT_ROOT = ROOT / "custom_components"
@@ -28,6 +30,145 @@ EXPECTED_DESCRIPTION = (
 )
 LEGACY_REPOSITORY_SLUG = "Hoymiles_HIT_xxL_G3_ModBus"
 
+# Updated only after the focused production-derived test is reviewed together
+# with the scheduler candidate. Both hashes normalize line endings.
+EXPECTED_BALANCING_TEST_SHA256 = "9b2eac1ad6bb08b1781a58037c063105aeb22e9d2d0978f42b9792b7be264eaa"
+EXPECTED_BALANCING_TEST_AST_SHA256 = "45eab98c875249f68c761b5768002fedb1e4233bb386c652d6cb5223e6fdf1e1"
+EXPECTED_BALANCING_RUNTIME_SHA256 = "54b92b20edfad6d8e6f7c2a7fda8767115b53dc94c2d1b1bd73794e9af4d3161"
+EXPECTED_BALANCING_RUNTIME_AST_SHA256 = "255c3cc06b54df6a932545365dc722ec14fea89074716f9edfbe02196580ddaf"
+EXPECTED_BALANCING_SCHEDULER_SHA256 = "f8ff6ed932ae3575481f8f0b3ddf62c86130ccda7ef51246b91ff8f0a0a8e3c1"
+EXPECTED_BALANCING_SCRIPT_SEMANTIC_SHA256 = "4136f4458562c8e25f22487c002b595b0f91dcb13d61145dd07afd81f503bee3"
+EXPECTED_BALANCING_CONTROL_SEMANTIC_SHA256 = "f760c84517029cc566decbd96a1af22ac8cbe2a30cb89029f2697a99d59e2a34"
+REQUIRED_BALANCING_TEST_FUNCTIONS = {
+    "test_power_contract",
+    "test_soc_contract",
+    "test_production_lifecycle_contract",
+    "test_notification_contract",
+    "test_validator_contract",
+    "test_existing_mutations",
+    "test_transactional_mutations",
+    "test_correction_mutations",
+}
+
+REQUIRED_BALANCING_RUNTIME_FUNCTIONS = {
+    "test_all_jinja_templates_compile",
+    "test_soft_gap_exact_boundaries",
+    "test_exact_start",
+    "test_hard_stop_race_matrix",
+    "test_transient_hard_stop_capture",
+    "test_legacy_and_malformed_recovery",
+    "test_soft_gap_restart_and_clock",
+    "test_hold_restart_protocol",
+    "test_fresh_soc_before_hold",
+    "test_terminal_and_notification_outbox",
+    "test_notification_provider_timeout",
+    "test_exact_generation_drift",
+    "test_snapshot_and_sun_transactions",
+    "test_final_sun_phase_commit_races",
+    "test_operational_full_outbox",
+    "test_monotonic_cycle_identity",
+}
+
+REQUIRED_BALANCING_RUNTIME_RESULTS = {
+    "templates": "test_all_jinja_templates_compile",
+    "gap_boundaries": "test_soft_gap_exact_boundaries",
+    "races": "test_hard_stop_race_matrix",
+    "transient_stops": "test_transient_hard_stop_capture",
+    "recovery": "test_legacy_and_malformed_recovery",
+    "gaps": "test_soft_gap_restart_and_clock",
+    "holds": "test_hold_restart_protocol",
+    "fresh_soc": "test_fresh_soc_before_hold",
+    "notifications": "test_terminal_and_notification_outbox",
+    "provider_timeouts": "test_notification_provider_timeout",
+    "generation_drifts": "test_exact_generation_drift",
+    "transaction_edges": "test_snapshot_and_sun_transactions",
+    "sun_commit_races": "test_final_sun_phase_commit_races",
+    "full_outbox": "test_operational_full_outbox",
+    "identities": "test_monotonic_cycle_identity",
+}
+
+EXPECTED_BALANCING_TEMPLATE_OBJECTS = {
+    "hoymiles_battery_balancing_slow_target",
+    "hoymiles_battery_balancing_bms_safe_charge_power",
+    "hoymiles_battery_balancing_slow_charge_power",
+    "hoymiles_battery_balancing_next_run",
+    "hoymiles_battery_balancing_transaction",
+    "hoymiles_battery_balancing_timing_transaction",
+    "hoymiles_battery_balancing_abort_request",
+    "hoymiles_battery_balancing_notification_outbox",
+    "hoymiles_battery_balancing_status",
+    "hoymiles_battery_balancing_apply_authorized",
+    "hoymiles_battery_balancing_restore_authorized",
+    "hoymiles_battery_balancing_due",
+    "hoymiles_battery_balancing_control_data_ready",
+    "hoymiles_ems_control_owner",
+    "hoymiles_ems_control_conflict",
+}
+EXPECTED_LIFECYCLE_RAW_READERS = {
+    "template:hoymiles_battery_balancing_transaction"
+}
+
+EXPECTED_BALANCING_OBJECTS = {
+    "input_boolean": {
+        "hoymiles_battery_balancing_active",
+        "hoymiles_battery_balancing_enabled",
+    },
+    "input_datetime": {"hoymiles_battery_balancing_last_completed"},
+    "input_text": {
+        "hoymiles_battery_balancing_abort_request",
+        "hoymiles_battery_balancing_lifecycle",
+        "hoymiles_battery_balancing_notification_outbox",
+        "hoymiles_battery_balancing_phase",
+        "hoymiles_battery_balancing_timing",
+    },
+    "input_number": {
+        "hoymiles_battery_balancing_cycle_sequence",
+        "hoymiles_battery_balancing_hold_hours",
+        "hoymiles_battery_balancing_interval_days",
+        "hoymiles_battery_balancing_saved_charge_power",
+        "hoymiles_battery_balancing_saved_force_charge_soc",
+    },
+    "timer": {
+        "hoymiles_battery_balancing_hold",
+        "hoymiles_battery_balancing_watchdog",
+    },
+    "script": {
+        "hoymiles_abort_or_pause_battery_balancing",
+        "hoymiles_apply_battery_balancing_target",
+        "hoymiles_battery_balancing_enter_recovery",
+        "hoymiles_battery_balancing_hold_guard",
+        "hoymiles_battery_balancing_initialize_records",
+        "hoymiles_battery_balancing_notification_dispatcher",
+        "hoymiles_battery_balancing_notification_provider_attempt",
+        "hoymiles_battery_balancing_notification_attempt_timeout",
+        "hoymiles_battery_balancing_recover_notification_leases",
+        "hoymiles_battery_balancing_request_abort",
+        "hoymiles_battery_balancing_soft_gap_guard",
+        "hoymiles_battery_balancing_transaction_worker",
+        "hoymiles_battery_balancing_transition",
+        "hoymiles_battery_balancing_update_outbox_delivery",
+        "hoymiles_battery_balancing_write_abort_request",
+        "hoymiles_battery_balancing_write_outbox",
+        "hoymiles_battery_balancing_write_record",
+        "hoymiles_battery_balancing_write_timing",
+        "hoymiles_notify_battery_balancing_lifecycle",
+        "hoymiles_start_battery_balancing",
+        "hoymiles_stop_battery_balancing",
+    },
+    "automation": {
+        "hoymiles_battery_balancing_control",
+        "hoymiles_battery_balancing_hard_stop_capture",
+        "hoymiles_battery_balancing_notification_delivery",
+        "hoymiles_battery_balancing_off_grid_hard_stop_capture",
+        "hoymiles_battery_balancing_p95_hard_stop_capture",
+        "hoymiles_battery_balancing_p90_hard_stop_capture",
+        "hoymiles_battery_balancing_p80_hard_stop_capture",
+        "hoymiles_battery_balancing_p75_hard_stop_capture",
+        "hoymiles_battery_balancing_p60_hard_stop_capture",
+        "hoymiles_battery_balancing_recovery_hard_stop_capture",
+    },
+}
+
 
 def require(condition: bool, message: str) -> None:
     """Raise a readable release validation error."""
@@ -39,6 +180,506 @@ def load_json(path: Path) -> dict | list:
     """Load and validate UTF-8 JSON."""
     with path.open(encoding="utf-8") as json_file:
         return json.load(json_file)
+
+
+def normalized_source_bytes(path: Path) -> bytes:
+    """Return UTF-8 source bytes under the repository LF contract."""
+    raw = path.read_bytes()
+    require(b"\r" not in raw.replace(b"\r\n", b""), f"Lone CR in {path}")
+    return raw.replace(b"\r\n", b"\n")
+
+
+def load_build_module():
+    """Load the deterministic asset generator without executing its main."""
+    path = ROOT / "tools" / "build_hacs_assets.py"
+    spec = importlib.util.spec_from_file_location("hoymiles_build_hacs_assets", path)
+    require(spec is not None and spec.loader is not None, "Cannot load asset generator")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def reviewed_ast_sha256(tree: ast.AST) -> str:
+    """Hash one explicit, version-stable AST serialization contract."""
+    serialized = ast.dump(
+        tree,
+        annotate_fields=True,
+        include_attributes=False,
+        indent=None,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def runtime_call_origin(expression: ast.expr) -> str | None:
+    """Return the direct mandatory runtime function behind await/asyncio.run."""
+    while isinstance(expression, ast.Await):
+        expression = expression.value
+    if (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Attribute)
+        and isinstance(expression.func.value, ast.Name)
+        and expression.func.value.id == "asyncio"
+        and expression.func.attr == "run"
+        and len(expression.args) == 1
+    ):
+        expression = expression.args[0]
+    if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Name):
+        return expression.func.id
+    return None
+
+
+def validate_runtime_runner(tree: ast.Module, runner_name: str) -> None:
+    """Require real calls and result origins in both supported runtime runners."""
+    runner = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == runner_name
+        ),
+        None,
+    )
+    require(runner is not None, f"Battery runtime runner is missing: {runner_name}")
+    assignments: dict[str, str | None] = {}
+    expression_calls: set[str] = set()
+    for statement in runner.body:
+        if (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+        ):
+            assignments[statement.targets[0].id] = runtime_call_origin(statement.value)
+        elif isinstance(statement, ast.Expr):
+            origin = runtime_call_origin(statement.value)
+            if origin is not None:
+                expression_calls.add(origin)
+    for result_name, function_name in REQUIRED_BALANCING_RUNTIME_RESULTS.items():
+        require(
+            assignments.get(result_name) == function_name,
+            f"Battery runtime result no longer originates from {function_name}: "
+            f"{runner_name}.{result_name}",
+        )
+        require(
+            any(
+                isinstance(node, ast.Name)
+                and isinstance(node.ctx, ast.Load)
+                and node.id == result_name
+                for node in ast.walk(runner)
+            ),
+            f"Battery runtime result is no longer reported: {runner_name}.{result_name}",
+        )
+    require(
+        "test_exact_start" in expression_calls,
+        f"Battery runtime exact-start group is disabled in {runner_name}",
+    )
+
+
+def validate_balancing_test_identity() -> None:
+    """Require exact reviewed focused and HA runtime tests and all groups."""
+    test_path = ROOT / "tools" / "test_battery_balancing_contract.py"
+    runtime_path = ROOT / "tools" / "test_battery_balancing_ha_runtime.py"
+    require(test_path.is_file(), "Focused battery-balancing test is missing")
+    require(runtime_path.is_file(), "Exact HA battery-balancing runtime test is missing")
+    source_bytes = normalized_source_bytes(test_path)
+    source = source_bytes.decode("utf-8")
+    tree = ast.parse(source, filename=str(test_path))
+    functions = {
+        item.name for item in tree.body if isinstance(item, ast.FunctionDef)
+    }
+    require(
+        REQUIRED_BALANCING_TEST_FUNCTIONS <= functions,
+        "Focused battery-balancing test group was removed or disabled",
+    )
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
+    ast_hash = reviewed_ast_sha256(tree)
+    require(
+        source_hash == EXPECTED_BALANCING_TEST_SHA256
+        and ast_hash == EXPECTED_BALANCING_TEST_AST_SHA256,
+        "Focused battery-balancing test is not the reviewed candidate AST/hash",
+    )
+
+    runtime_bytes = normalized_source_bytes(runtime_path)
+    runtime_source = runtime_bytes.decode("utf-8")
+    runtime_tree = ast.parse(runtime_source, filename=str(runtime_path))
+    runtime_functions = {
+        item.name
+        for item in runtime_tree.body
+        if isinstance(item, ast.AsyncFunctionDef)
+    }
+    require(
+        REQUIRED_BALANCING_RUNTIME_FUNCTIONS <= runtime_functions,
+        "Exact HA battery-balancing runtime group was removed or disabled",
+    )
+    validate_runtime_runner(runtime_tree, "async_main")
+    validate_runtime_runner(runtime_tree, "main")
+    require(
+        hashlib.sha256(runtime_bytes).hexdigest()
+        == EXPECTED_BALANCING_RUNTIME_SHA256
+        and reviewed_ast_sha256(runtime_tree)
+        == EXPECTED_BALANCING_RUNTIME_AST_SHA256,
+        "Exact HA battery-balancing runtime is not the reviewed AST/hash",
+    )
+
+
+def semantic_sha256(value: object) -> str:
+    """Hash a parsed YAML object without formatting or key-order dependence."""
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def collect_template_objects(package: dict) -> dict[str, dict]:
+    """Collect the exact lifecycle-critical template objects by unique ID."""
+    found: dict[str, dict] = {}
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            unique_id = value.get("unique_id")
+            if unique_id in EXPECTED_BALANCING_TEMPLATE_OBJECTS:
+                found[str(unique_id)] = value
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(package.get("template", []))
+    require(
+        set(found) == EXPECTED_BALANCING_TEMPLATE_OBJECTS,
+        "Unrecognized or missing balancing template object: "
+        f"{sorted(set(found) ^ EXPECTED_BALANCING_TEMPLATE_OBJECTS)}",
+    )
+    return found
+
+
+def iter_object_mappings(value: object):
+    """Yield every mapping nested in one parsed lifecycle object."""
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from iter_object_mappings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_object_mappings(child)
+
+
+def iter_object_strings(value: object):
+    """Yield every string nested in one parsed lifecycle object."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from iter_object_strings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_object_strings(child)
+
+
+def balancing_semantic_objects(package: dict) -> tuple[dict[str, object], dict[str, object]]:
+    """Return the frozen script and non-script lifecycle object maps."""
+    scripts = {
+        name: package.get("script", {}).get(name)
+        for name in sorted(EXPECTED_BALANCING_OBJECTS["script"])
+    }
+    automations = {
+        str(item.get("id")): item
+        for item in package.get("automation", [])
+        if item.get("id") in EXPECTED_BALANCING_OBJECTS["automation"]
+    }
+    controls: dict[str, object] = {
+        f"automation:{name}": item for name, item in automations.items()
+    }
+    for domain in ("input_boolean", "input_datetime", "input_text", "input_number", "timer"):
+        for name in sorted(EXPECTED_BALANCING_OBJECTS[domain]):
+            controls[f"{domain}:{name}"] = package.get(domain, {}).get(name)
+    for name, item in collect_template_objects(package).items():
+        controls[f"template:{name}"] = item
+    return ({f"script:{name}": item for name, item in scripts.items()}, controls)
+
+
+def lifecycle_boundary_objects(package: dict) -> dict[str, object]:
+    """Return every package object, partitioning template objects by unique_id."""
+    objects: dict[str, object] = {}
+    for domain, section in package.items():
+        if domain == "template":
+            continue
+        if isinstance(section, dict):
+            for name, item in section.items():
+                objects[f"{domain}:{name}"] = item
+            continue
+        if isinstance(section, list):
+            for index, item in enumerate(section):
+                identifier = index
+                if isinstance(item, dict):
+                    identifier = item.get("id", item.get("unique_id", index))
+                object_name = f"{domain}:{identifier}"
+                require(object_name not in objects, f"Duplicate package object: {object_name}")
+                objects[object_name] = item
+            continue
+        objects[f"package:{domain}"] = section
+
+    extracted = object()
+
+    def extract_templates(value: object, path: str) -> object:
+        if isinstance(value, dict):
+            unique_id = value.get("unique_id")
+            if unique_id is not None:
+                object_name = f"template:{unique_id}"
+                require(object_name not in objects, f"Duplicate template object: {object_name}")
+                objects[object_name] = value
+                return extracted
+            residual: dict[object, object] = {}
+            for key, child in value.items():
+                remaining = extract_templates(child, f"{path}.{key}")
+                if remaining is not extracted:
+                    residual[key] = remaining
+            return residual
+        if isinstance(value, list):
+            residual_list: list[object] = []
+            for index, child in enumerate(value):
+                remaining = extract_templates(child, f"{path}.{index}")
+                if remaining is not extracted:
+                    residual_list.append(remaining)
+            return residual_list
+        return value
+
+    for index, item in enumerate(package.get("template", [])):
+        residual = extract_templates(item, f"template.{index}")
+        if residual not in ({}, []):
+            objects[f"template-container:{index}"] = residual
+    return objects
+
+
+def validate_lifecycle_parser_boundary(objects: dict[str, object]) -> None:
+    """Permit raw lifecycle parsing only in the canonical transaction sensor."""
+    helper = "input_text.hoymiles_battery_balancing_lifecycle"
+    raw_readers: set[str] = set()
+    direct_writers: list[str] = []
+
+    def variable_assignments(value: object):
+        if isinstance(value, dict):
+            variables = value.get("variables")
+            if isinstance(variables, dict):
+                for name, expression in variables.items():
+                    yield str(name), list(iter_object_strings(expression))
+            for child in value.values():
+                yield from variable_assignments(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from variable_assignments(child)
+
+    def mentions_alias(text: str, alias: str) -> bool:
+        return re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(alias)}(?![A-Za-z0-9_])", text
+        ) is not None
+
+    def parses_alias(text: str, alias: str) -> bool:
+        token = rf"(?<![A-Za-z0-9_]){re.escape(alias)}(?![A-Za-z0-9_])"
+        return re.search(
+            token + r"\s*(?:\.\s*split\s*\(|\[\s*\d+\s*\]|\|\s*split\s*\()",
+            text,
+        ) is not None
+
+    for object_name, value in objects.items():
+        texts = list(iter_object_strings(value))
+        assignments = list(variable_assignments(value))
+        tainted = {
+            name
+            for name, expressions in assignments
+            if any(helper in expression for expression in expressions)
+        }
+        changed = True
+        while changed:
+            changed = False
+            for name, expressions in assignments:
+                if name in tainted:
+                    continue
+                if any(
+                    mentions_alias(expression, alias)
+                    for expression in expressions
+                    for alias in tainted
+                ):
+                    tainted.add(name)
+                    changed = True
+        direct_parse = any(
+            helper in text
+            and (
+                ".split(" in text
+                or re.search(r"\|\s*split\s*\(", text)
+                or re.search(r"\[\s*\d+\s*\]", text)
+            )
+            for text in texts
+        )
+        alias_parse = any(
+            parses_alias(text, alias) for text in texts for alias in tainted
+        )
+        if direct_parse or alias_parse:
+            raw_readers.add(object_name)
+        for mapping in iter_object_mappings(value):
+            service_name = mapping.get("action", mapping.get("service"))
+            if service_name != "input_text.set_value":
+                continue
+            target = mapping.get("target", {})
+            data = mapping.get("data", {})
+            entity_id = (
+                target.get("entity_id") if isinstance(target, dict) else None
+            ) or (data.get("entity_id") if isinstance(data, dict) else None)
+            entity_ids = (
+                [entity_id]
+                if isinstance(entity_id, str)
+                else entity_id
+                if isinstance(entity_id, list)
+                else []
+            )
+            if helper in entity_ids:
+                direct_writers.append(object_name)
+    require(
+        raw_readers == EXPECTED_LIFECYCLE_RAW_READERS,
+        "Lifecycle raw-reader boundary changed: "
+        f"{sorted(raw_readers ^ EXPECTED_LIFECYCLE_RAW_READERS)}",
+    )
+    require(
+        direct_writers == ["script:hoymiles_battery_balancing_write_record"],
+        "Lifecycle helper must have exactly one canonical serializer",
+    )
+
+
+def validate_balancing_scheduler_freeze(package: dict) -> None:
+    """Freeze the canonical scheduler bytes and lifecycle-critical semantics."""
+    scheduler_path = ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml"
+    require(
+        hashlib.sha256(normalized_source_bytes(scheduler_path)).hexdigest()
+        == EXPECTED_BALANCING_SCHEDULER_SHA256,
+        "Canonical EMS scheduler is not the reviewed battery-balancing candidate",
+    )
+    scripts, controls = balancing_semantic_objects(package)
+    require(
+        semantic_sha256(scripts) == EXPECTED_BALANCING_SCRIPT_SEMANTIC_SHA256,
+        "Battery-balancing script semantics are not the reviewed candidate",
+    )
+    require(
+        semantic_sha256(controls) == EXPECTED_BALANCING_CONTROL_SEMANTIC_SHA256,
+        "Battery-balancing control semantics are not the reviewed candidate",
+    )
+    validate_lifecycle_parser_boundary(lifecycle_boundary_objects(package))
+
+
+def validate_balancing_object_freeze(package: dict) -> None:
+    """Reject an unreviewed balancing helper, script, or automation."""
+    for domain in (
+        "input_boolean",
+        "input_datetime",
+        "input_text",
+        "input_number",
+        "timer",
+        "script",
+    ):
+        actual = {
+            key for key in package.get(domain, {}) if "battery_balancing" in key
+        }
+        if domain == "script":
+            actual.add("hoymiles_notify_battery_balancing_lifecycle")
+        require(
+            actual == EXPECTED_BALANCING_OBJECTS[domain],
+            f"Unrecognized or missing balancing {domain} object: "
+            f"{sorted(actual ^ EXPECTED_BALANCING_OBJECTS[domain])}",
+        )
+    automation_ids = {
+        item.get("id")
+        for item in package.get("automation", [])
+        if "battery_balancing" in str(item.get("id", ""))
+    }
+    require(
+        automation_ids == EXPECTED_BALANCING_OBJECTS["automation"],
+        "Unrecognized or missing balancing automation: "
+        f"{sorted(automation_ids ^ EXPECTED_BALANCING_OBJECTS['automation'])}",
+    )
+
+
+def validate_managed_asset_freshness(catalog: list[dict]) -> None:
+    """Compare all managed text assets with an in-memory generator pass."""
+    generator = load_build_module()
+    first = generator.render_managed_assets(catalog)
+    second = generator.render_managed_assets(catalog)
+    require(first == second, "In-memory asset generation is not deterministic")
+    for destination, expected in first.items():
+        require(destination.is_file(), f"Missing managed asset: {destination}")
+        actual = normalized_source_bytes(destination)
+        require(
+            actual == expected.encode("utf-8"),
+            "Managed asset is stale or locally mutated: "
+            f"{destination.relative_to(ROOT)}",
+        )
+    for filename in (
+        "hoymiles-dashboard-strategy.js",
+        "hoymiles-rce-chart-card.js",
+        "hoymiles-inverter.png",
+    ):
+        source = ROOT / "home_assistant" / "www" / filename
+        destination = RESOURCES / "www" / filename
+        require(
+            source.read_bytes() == destination.read_bytes(),
+            f"Managed frontend copy is stale: {filename}",
+        )
+
+
+def validate_mandatory_workflow_step(
+    workflow: dict, command: str, *, job_name: str | None = None
+) -> None:
+    """Require one exact, unconditionally executed mandatory command."""
+    jobs = workflow.get("jobs", {})
+    require(isinstance(jobs, dict), "Validation workflow jobs are not a mapping")
+    require(job_name is not None, "Mandatory release gate must freeze its exact job")
+    job = jobs.get(job_name)
+    require(isinstance(job, dict), f"Mandatory workflow job is missing: {job_name}")
+
+    def constant_disabled(value: object) -> bool:
+        if value is False:
+            return True
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value == 0
+        if not isinstance(value, str):
+            return False
+        normalized = value.strip().casefold()
+        return normalized in {"false", "0"} or re.fullmatch(
+            r"\$\{\{\s*(?:false|0)\s*\}\}", normalized
+        ) is not None
+
+    def require_unconditional(scope: dict, label: str) -> None:
+        if "if" not in scope:
+            return
+        condition = scope.get("if")
+        require(
+            not constant_disabled(condition),
+            f"Mandatory workflow {label} is statically disabled: {condition!r}",
+        )
+        # The reviewed mandatory gates currently have no conditional execution.
+        # Any future condition needs an explicit frozen allowlist change.
+        require(False, f"Mandatory workflow {label} has an unauthorized if condition")
+
+    require_unconditional(job, f"job {job_name}")
+    steps = job.get("steps", [])
+    require(isinstance(steps, list), f"Workflow job has no step list: {job_name}")
+    matching_steps = [
+        step
+        for step in steps
+        if isinstance(step, dict) and str(step.get("run", "")).strip() == command
+    ]
+    require(
+        len(matching_steps) == 1,
+        f"CI must run exactly one mandatory command in {job_name}: {command}",
+    )
+    step = matching_steps[0]
+    require_unconditional(step, f"step {job_name}/{command}")
+    require(
+        "continue-on-error" not in step or step.get("continue-on-error") is False,
+        f"Mandatory command is continue-on-error: {command}",
+    )
 
 
 def iter_mappings(value):
@@ -878,6 +1519,11 @@ def main() -> int:
     ems_package_source = (
         ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml"
     ).read_text(encoding="utf-8")
+    ems_package = yaml.safe_load(ems_package_source)
+    require(isinstance(ems_package, dict), "Canonical EMS scheduler is not a mapping")
+    validate_balancing_object_freeze(ems_package)
+    validate_balancing_scheduler_freeze(ems_package)
+    validate_balancing_test_identity()
     require(
         'EMS_PACKAGE_SENTINEL = "input_boolean.hoymiles_rce_discharge_enabled"'
         in const_source
@@ -983,6 +1629,8 @@ def main() -> int:
     )
 
     catalog = load_json(COMPONENT / "entity_catalog.json")
+    require(isinstance(catalog, list), "Generated entity catalog is not a list")
+    validate_managed_asset_freshness(catalog)
     require(isinstance(catalog, list), "Entity catalog must be a list")
     require(len(catalog) >= 250, "The generated catalog is unexpectedly small")
     identities = {
@@ -1070,6 +1718,78 @@ def main() -> int:
 
     english_package = required_assets[2].read_text(encoding="utf-8")
     polish_package = required_assets[3].read_text(encoding="utf-8")
+    balancing_power_source = ems_package_source.split(
+        "      # Single runtime source of truth for the complete parallel system.", 1
+    )[1].split(
+        "      # Canonical parser for the exact 18-field b2 lifecycle schema.", 1
+    )[0]
+    balancing_worker_source = ems_package_source.split(
+        "  hoymiles_battery_balancing_transaction_worker:", 1
+    )[1].split("\nautomation:", 1)[0]
+    canonical_balancing = balancing_power_source + balancing_worker_source
+    for marker in (
+        "BALANCING_SLOW_TARGET_KW = 0.4",
+        "hoymiles_battery_balancing_cycle_sequence:",
+        "hoymiles_battery_balancing_notification_outbox:",
+        "self_use_semantics: direct_battery_charge_cap",
+        "grid_charge_semantics: common_ac_budget_including_load",
+        "b2|{{ record_cycle }}|{{ record_persisted_state }}",
+        "conditional_commit_current",
+        "record_guard_steady_commit",
+        "hoymiles_battery_balancing_p95_hard_stop_capture",
+        "hoymiles_battery_balancing_recovery_hard_stop_capture",
+        "t1|{{ timing_cycle }}|{{ timing_gap_generation }}",
+        "a1|{{ abort_cycle }}|{{ abort_generation }}",
+        "o1|{{ slot_1_event_id }}",
+        "gap_deadline_ms",
+        "clock_anomaly",
+        "HOLD_ARMING",
+        "RECOVERY_REQUIRED",
+        "NOTIFICATION_PENDING",
+        "data_stale_timeout",
+        "queue_restore_worker",
+        "snapshot_changed_before_transaction",
+        "required_mode_after_ack",
+        "required_mode_after_power",
+        "release_abort_generation",
+        "script.hoymiles_verified_set_ems_maximum_charge_power",
+        "script.hoymiles_verified_set_ems_force_charge_soc",
+        "script.hoymiles_verified_set_ems_mode",
+    ):
+        require(marker in ems_package_source, f"Balancing contract marker missing: {marker}")
+    require(
+        ems_package_source.count("BALANCING_SLOW_TARGET_KW = 0.4") == 1
+        and "| float(20)" not in canonical_balancing
+        and "modbus.write" not in canonical_balancing
+        and "as_timestamp(now()) | int }}|pending" not in canonical_balancing,
+        "Balancing must use one 0.4 kW source and no positive/direct-write fallback",
+    )
+    for marker in (
+        "Przygotowanie cyklu wyrównywania",
+        "Ładowanie z PV do 95% SOC",
+        "Ładowanie z sieci do 95% SOC",
+        "Wolne ładowanie ok. 0,4 kW od 95% do 100% SOC",
+        "Wyrównywanie ogniw przy 100% SOC",
+    ):
+        require(marker in polish_package, f"Polish balancing label missing: {marker}")
+    for marker in (
+        "Preparing the balancing cycle",
+        "Charging from PV to 95% SOC",
+        "Charging from the grid to 95% SOC",
+        "Slow charging at approximately 0.4 kW from 95% to 100% SOC",
+        "Balancing cells at 100% SOC",
+        "Battery balancing — durable transaction counter",
+        "Battery balancing — durable notification outbox",
+        "Battery balancing — serialized physical worker",
+        "Manual recovery required — no trusted snapshot",
+        "['Standby', 'Grid test', 'On-grid operation']",
+    ):
+        require(marker in english_package, f"English balancing label missing: {marker}")
+    require(
+        "Wolne ładowanie 2 kW od 99%" not in polish_package
+        and "Slow 2 kW charging from 99%" not in english_package,
+        "Managed schedulers still describe the superseded 2 kW / 99% phase",
+    )
     require(
         "No active automation" in english_package
         and "Balancing" in english_package
@@ -1643,7 +2363,8 @@ def main() -> int:
     release_procedure = (ROOT / "RELEASING.md").read_text(encoding="utf-8")
     require(
         "GitHub Release body visible in HACS" in release_procedure
-        and "does not flash the ESP32" in release_procedure,
+        and "does not flash the ESP32" in release_procedure
+        and "python tools/test_battery_balancing_contract.py" in release_procedure,
         "Release procedure does not require complete HACS/ESP32 instructions",
     )
     readme_images = [ROOT / "docs" / "images" / "dashboard-overview.png"]
@@ -1712,6 +2433,13 @@ def main() -> int:
                 documentation_marker in documentation_text,
                 f"{language} README is missing documentation: {documentation_marker}",
             )
+    require(
+        "approximately 0.4 kW aggregate net" in normalized_readme
+        and "at `99.9%` SOC" in readme
+        and "około 0,4 kW sumarycznej mocy netto" in readme_pl
+        and "przy `99,9%`" in readme_pl,
+        "README balancing contract does not expose the 95% / 0.4 kW / 99.9% split",
+    )
     require(
         "README.pl.md" in readme and len(readme_pl.split()) >= len(readme.split()) * 0.8,
         "Polish README is not a complete edition of the English documentation",
@@ -2333,6 +3061,18 @@ def main() -> int:
     workflow_text = (ROOT / ".github" / "workflows" / "validate.yml").read_text(
         encoding="utf-8"
     )
+    workflow_data = yaml.safe_load(workflow_text)
+    require(isinstance(workflow_data, dict), "Validation workflow is not a mapping")
+    validate_mandatory_workflow_step(
+        workflow_data,
+        "python tools/test_battery_balancing_contract.py",
+        job_name="project-checks",
+    )
+    validate_mandatory_workflow_step(
+        workflow_data,
+        "python tools/test_battery_balancing_ha_runtime.py",
+        job_name="battery-balancing-ha-runtime",
+    )
     require(
         license_text.startswith("MIT License\n\nCopyright (c) 2026 Kaluzaburza")
         and "Permission is hereby granted, free of charge" in license_text
@@ -2378,6 +3118,7 @@ def main() -> int:
         "python tools/test_rcm_optimizer.py",
         "python tools/test_diagnostic_analyzer.py",
         "python tools/test_optimizer_startup_contract.py",
+        "python tools/test_battery_balancing_contract.py",
         "python tools/test_automation_matrix.py",
         "python tools/test_automation_matrix.py --exhaustive",
     ):
