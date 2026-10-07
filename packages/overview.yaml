@@ -226,7 +226,6 @@ sensor:
     accuracy_decimals: 0
     # Ten model zwraca rejestr 30017 z młodszym słowem jako pierwszym.
     value_type: S_DWORD_R
-    register_count: 3
 
   - platform: modbus_controller
     modbus_controller_id: ${modbus_fast_controller_id}
