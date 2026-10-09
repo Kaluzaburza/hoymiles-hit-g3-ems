@@ -609,6 +609,14 @@ let v158Task02CandidateState = false;
 let rc2CandidateManifest = null;
 const publicSnapshot = fs.existsSync("tools/release_manifests/rc2_public_provenance.json");
 const v158ReleaseCandidateState = (() => {
+  if (fs.existsSync("tools/release_manifests/stable_1_5_8_contract.json")) {
+    // Stable promotion retains the RC2 frontend, with its own exact source gate.
+    childProcess.execFileSync(pythonExecutable,
+      ["-B", "-c", "import sys; sys.path.insert(0, 'tools'); import stable_release_contract as c; c.validate()"],
+      { encoding: "utf8" });
+    rc2CandidateManifest = JSON.parse(fs.readFileSync("tools/release_manifests/stable_1_5_8_contract.json", "utf8"));
+    return true;
+  }
   if (publicSnapshot) {
     // The public snapshot has its own exact parent/tree/byte contract and no
     // private Git ancestry. A failed contract is fatal, never a fallback.

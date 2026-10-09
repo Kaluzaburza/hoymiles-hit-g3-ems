@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "base": "6617bc4de6592439ea2c64889b0a25bbe5bfa45e",
-  "parent": "c919ed9fbe8858d28f0dce0650ccfdb65af8b31c",
-  "subject": "release: publish stable 1.5.8",
+  "parent": "fec6005633388525e9cd21e4a9114db60761fcb4",
+  "subject": "fix(release): route frontend checks through stable contract",
   "version": "1.5.8",
   "frontend_revision": 122,
   "files": {
@@ -744,7 +744,7 @@
     },
     "docs/WORK_STATE.MD": {
       "mode": "100644",
-      "sha256": "47b5273f64c33d798dda35deff5ba7aa35d9b734ddbdb7aa7c757832b5383d16"
+      "sha256": "da3be621ddb1764cac7cfa4c9818f7545c170ae62bd1bc71c5934d1b2a51d09a"
     },
     "docs/images/README.md": {
       "mode": "100644",
@@ -816,7 +816,7 @@
     },
     "docs/releases/1.5.8/PUBLICATION.md": {
       "mode": "100644",
-      "sha256": "d99546de5f1b94b942d625bf58b395c0e1f53d4b7edad0c0c88d5236bb8a9166"
+      "sha256": "9514b440d46f8f5f9cffcb8c3e30aba620d4faa008295e94ab7d48c56c63179d"
     },
     "docs/releases/1.5.8RC1.md": {
       "mode": "100644",
@@ -1112,7 +1112,7 @@
     },
     "tools/build_stable_source_archive.py": {
       "mode": "100644",
-      "sha256": "65ff6a8c6dd874e8442dfe2bf3f4c742f9301f817cd744d0b0c2c7feb8746d3b"
+      "sha256": "ccc6927e40ecffe0d1c8744b3fe5ed26d81c390b947732dc28d3db0ee6d37999"
     },
     "tools/deploy_ha_dashboard.py": {
       "mode": "100644",
@@ -1312,7 +1312,7 @@
     },
     "tools/stable_release_contract.py": {
       "mode": "100644",
-      "sha256": "af82a12b38b773eab6fd707c068ae265e7f1dbc19b2b63859d2f074bfca28cd2"
+      "sha256": "aa55cbfd51233bbb6d229199cb956aa1bba2e85fe90fe19332f253bca6ef3324"
     },
     "tools/supervisor_ledger_v2_cases.json": {
       "mode": "100644",
@@ -2396,7 +2396,7 @@
     },
     "tools/validate_rce_card.js": {
       "mode": "100644",
-      "sha256": "5191e3123b889bc818ce617fab4e4b7b52343bb46b9994226be4ca39dbd5b03b"
+      "sha256": "a7cdd02de561c4bebdc3c3762524802fd8c296bd3222e9f377ce329347690136"
     },
     "tools/validate_release.py": {
       "mode": "100644",

@@ -3,7 +3,7 @@
 Tag **v1.5.8**, integration/package **1.5.8**, frontend **1.5.8.122**, lease **2**.
 Compatible unchanged firmware: **v1.5.8RC2**, project **1.5.8rc2**.
 
-The source parent is `c919ed9fbe8858d28f0dce0650ccfdb65af8b31c`. The strict
+The source base is `c919ed9fbe8858d28f0dce0650ccfdb65af8b31c`. The strict
 `tools/stable_release_contract.py` and `tools/release_manifests/stable_1_5_8_contract.json`
 pin the exact subject, parent, tracked bytes and modes. Protected runtime parity
 allows only the five listed version-metadata files to replace `1.5.8rc2` with

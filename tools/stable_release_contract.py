@@ -20,11 +20,12 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = 'tools/release_manifests/stable_1_5_8_contract.json'
 SELF_PATH = 'tools/stable_release_contract.py'
 BASE_SHA = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
-PARENT_SHA = 'c919ed9fbe8858d28f0dce0650ccfdb65af8b31c'
-SUBJECT = 'release: publish stable 1.5.8'
-MANIFEST_SHA256 = '312a53fdff401ee4cf5d28fd509cfb8bdcc8b1ffb2937b95a3e374a8bd478bd1'
+PARENT_SHA = 'fec6005633388525e9cd21e4a9114db60761fcb4'
+SUBJECT = 'fix(release): route frontend checks through stable contract'
+MANIFEST_SHA256 = 'f553139002867e0c6138d5df36a4e61b21fd22283c3fabe12855339c4c1c5973'
 PUBLIC_BASE = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
-HISTORICAL_PUBLIC = PARENT_SHA
+RUNTIME_SOURCE_SHA = 'c919ed9fbe8858d28f0dce0650ccfdb65af8b31c'
+HISTORICAL_PUBLIC = RUNTIME_SOURCE_SHA
 
 
 def require(condition, message):
@@ -114,7 +115,7 @@ def verify_runtime(files, root=ROOT):
     provenance = json.loads((root/'tools/release_manifests/rc2_public_provenance.json').read_text())
     require(set(VERSION_ONLY_FILES) <= set(provenance['runtime_files']), 'Version path lacks RC2 provenance')
     for path, expected in provenance['runtime_files'].items():
-        original = git(root, 'show', PARENT_SHA+':'+path)
+        original = git(root, 'show', RUNTIME_SOURCE_SHA+':'+path)
         require(hashlib.sha256(original).hexdigest() == expected, 'RC2 source provenance differs: '+path)
         if path in VERSION_ONLY_FILES:
             require(original.count(b'1.5.8rc2') == VERSION_ONLY_FILES[path], 'Unexpected version occurrence: '+path)

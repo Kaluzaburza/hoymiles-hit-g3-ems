@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import subprocess
 import zipfile
-from stable_release_contract import validate, BASE_SHA, PARENT_SHA
+from stable_release_contract import validate, BASE_SHA, RUNTIME_SOURCE_SHA
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,7 +83,7 @@ def main() -> None:
     require(not git("status", "--porcelain").strip(), "Worktree changed during packaging")
     result = {
         "schema": 1, "name": NAME, "branch": git("branch", "--show-current").decode().strip(), "commit": commit, "tree": tree,
-        "source_commit": PARENT_SHA, "source_tree": git("rev-parse", PARENT_SHA+"^{tree}").decode().strip(),
+        "source_commit": RUNTIME_SOURCE_SHA, "source_tree": git("rev-parse", RUNTIME_SOURCE_SHA+"^{tree}").decode().strip(),
         "public_base": BASE_SHA, "runtime_matches_source_except_explicit_version_metadata": True,
         "compatible_firmware_tag": "v1.5.8RC2", "lease_protocol": 2,
         "integration_version": version, "frontend_version": f"{version}.{revision}",
