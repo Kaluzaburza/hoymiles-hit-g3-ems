@@ -1,6 +1,6 @@
 class HoymilesHitDashboardStrategy extends HTMLElement {
   static noEditor = true;
-  static hoymilesFrontendRevision = 122;
+  static hoymilesFrontendRevision = 123;
   static hoymilesCanonicalModule = true;
 
   static getCreateSuggestions(hass) {
@@ -527,7 +527,8 @@ function hoymilesAuroraServiceCard(cards, language, supplemental = {}) {
       })()
     : null;
   const schedules = manual[2]?.card || manual[2];
-  const detailCards = downloadCard ? [{ ...downloadCard, compact: true }] : [];
+  const detailCards = [{ type: "custom:hoymiles-update-guide-card", language, compact: true },
+    ...(downloadCard ? [{ ...downloadCard, compact: true }] : [])];
   const alarmAndTopology = [
     ...alarms,
     ...legacyDetails.slice(5, 8).map((card) => card?.card || card).filter(Boolean),
@@ -4704,6 +4705,40 @@ function hoymilesMountDiagnosticsDownload(host, hass) {
   host.replaceChildren(card);
   return card;
 }
+
+class HoymilesUpdateGuideCard extends HTMLElement {
+  constructor() {
+    super(); this.attachShadow({mode:"open"});
+    this._onRead = () => this._render();
+  }
+  setConfig(config) { this._config = config || {}; this._render(); }
+  set hass(hass) {
+    this._hass = hass;
+    const language = hoymilesLanguage(hass, this._config?.language);
+    if (language !== this._language || !this.shadowRoot.childElementCount) { this._language = language; this._render(); }
+  }
+  connectedCallback() { window.addEventListener("hoymiles-update-guide-read", this._onRead); this._render(); }
+  disconnectedCallback() { window.removeEventListener("hoymiles-update-guide-read", this._onRead); }
+  getCardSize() { return 2; }
+  _render() {
+    const pl = this._language === "pl" || this._config?.language === "pl";
+    let read = false;
+    try { read = localStorage.getItem("hoymiles-update-guide-1.5.8.1") === "read"; } catch (_error) { /* Storage is optional. */ }
+    const compact = read || this._config?.compact;
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;margin:0 0 14px}section{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 18px;background:#15324188;border:1px solid #3d7c9480;border-radius:13px;color:#e6f2fa;font:14px/1.5 system-ui,sans-serif}div{flex:1;min-width:190px}strong{color:#8fddf6}p{margin:4px 0 0;color:#b3c8d5;font-size:13px}button{border:1px solid #69cbe7;border-radius:9px;background:#164959;color:#effaff;font:inherit;padding:9px 14px;cursor:pointer}button:focus-visible{outline:3px solid #8de7ff;outline-offset:3px}small{color:#ffca98}
+      </style><section><div><strong>${pl ? "Aktualizacja EMS 1.5.8.1" : "EMS 1.5.8.1 update"}</strong>${compact ? "" : `<p>${pl ? "Zaktualizowano przez HACS? Sprawdź, czy ESP też wymaga aktualizacji. Tutaj znajdziesz instrukcję i przygotujesz plik dla swojego urządzenia." : "Updated through HACS? Check whether your ESP also needs an update. Find the instructions and prepare your device file here."}</p>`}</div><button type="button">${pl ? "Instrukcja i aktualizacja ESP" : "Instructions and ESP update"}</button><small role="status"></small></section>`;
+    this.shadowRoot.querySelector("button").onclick = async () => {
+      try {
+        const module = await import(new URL("hoymiles-update-guide.js?v=1.5.8.1.123", import.meta.url).href);
+        module.openHoymilesUpdateGuide(this._hass, pl ? "pl" : "en");
+      } catch (_error) {
+        this.shadowRoot.querySelector("small").textContent = pl ? "Nie udało się otworzyć instrukcji. Odśwież stronę i sprawdź Naprawy w HA." : "Could not open the guide. Refresh the page and check HA Repairs.";
+      }
+    };
+  }
+}
+hoymilesUpgradeCustomElement("hoymiles-update-guide-card", HoymilesUpdateGuideCard);
 
 const HOYMILES_UI_SAFE_OFF_BINDINGS = Object.freeze({
   supervisorEntity: "sensor.hoymiles_hit_ems_supervisor",
@@ -22748,6 +22783,7 @@ class HoymilesAuroraOverviewCard extends HTMLElement {
     this._hass = hass || null;
     if (this._energyCard) this._energyCard.hass = hass;
     if (this._historyCard) this._historyCard.hass = hass;
+    if (this._updateGuideCard) this._updateGuideCard.hass = hass;
     this._patch();
   }
 
@@ -22930,6 +22966,7 @@ class HoymilesAuroraOverviewCard extends HTMLElement {
           <div><span class="eyebrow" data-copy="kicker"></span><h1 data-copy="title"></h1></div>
           <div class="heading-actions"><span class="state-pill" data-value="readiness"></span></div>
         </header>
+        <div data-update-guide-host></div>
         <div class="status-alert" data-status-alert hidden><strong data-copy="attention"></strong><span data-value="status-issues"></span><button class="clear-alert" type="button" data-copy="clear-fault"></button></div>
         <section class="overview-grid">
           <div class="energy-host" data-energy-host></div>
@@ -22952,6 +22989,11 @@ class HoymilesAuroraOverviewCard extends HTMLElement {
         <div data-history-host></div>
       </section>`;
 
+    const updateGuideCard = document.createElement("hoymiles-update-guide-card");
+    updateGuideCard.setConfig({language: this._config.language});
+    root.querySelector("[data-update-guide-host]").append(updateGuideCard);
+    this._updateGuideCard = updateGuideCard;
+    if (this._hass) updateGuideCard.hass = this._hass;
     const energyCard = document.createElement("hoymiles-aurora-energy-card");
     energyCard.setConfig({ ...this._config, layout: "flow_summary" });
     root.querySelector("[data-energy-host]").append(energyCard);

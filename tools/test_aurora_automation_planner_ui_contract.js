@@ -3681,7 +3681,7 @@ check(
   "Variant A planner view is one fluid controls-summary-chart-day-plan composition",
 );
 check(
-  assetsSource.includes("FRONTEND_ASSET_REVISION = 122")
+  assetsSource.includes("FRONTEND_ASSET_REVISION = 123")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 38")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 39")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 40")
@@ -3719,10 +3719,10 @@ check(
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 82")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 87")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 88"),
-  "frontend asset revision is exactly 122",
+  "frontend asset revision is exactly 123",
 );
 check(
-  strategySource.includes("const frontendRevision = 122")
+  strategySource.includes("const frontendRevision = 123")
     && strategySource.includes("history=48h-executed")
     && strategySource.includes("canonicalModuleUrl.search = canonicalQuery")
     && !strategySource.includes("1.5.8.38")
@@ -3760,7 +3760,7 @@ check(
     && !strategySource.includes("1.5.8.82")
     && !strategySource.includes("1.5.8.87")
     && !strategySource.includes("1.5.8.88"),
-  "bootstrap cache reference is exactly revision 122",
+  "bootstrap cache reference is exactly revision 123",
 );
 check(
   ALLOW_GENERATED_DRIFT
@@ -5532,7 +5532,7 @@ check(
   "whole-horizon no-action state remains muted instead of a saturated policy row",
 );
 check(
-  assetsSource.includes("FRONTEND_ASSET_REVISION = 122")
+  assetsSource.includes("FRONTEND_ASSET_REVISION = 123")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 38")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 39")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 40")
@@ -5559,7 +5559,7 @@ check(
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 71")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 72")
     && !assetsSource.includes("FRONTEND_ASSET_REVISION = 73"),
-  "execution-health fix-forward uses frontend revision 122",
+  "execution-health fix-forward uses frontend revision 123",
 );
 check(
   canonicalExtensionSource.includes('range: "Zakres czasu"')

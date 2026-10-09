@@ -5467,6 +5467,10 @@ def _classify_n12_exact_local_base() -> str:
 
 
 def validate_current_integrated_manifests() -> str:
+    if (ROOT / "tools/release_manifests/upgrade_1_5_8_1_contract.json").is_file():
+        import upgrade_1581_release_contract
+        upgrade_1581_release_contract.validate(ROOT)
+        return "HACS_1_5_8_1_CANDIDATE"
     if (ROOT / "tools/release_manifests/stable_1_5_8_contract.json").is_file():
         sys.path.insert(0, str(ROOT / "tools"))
         from stable_release_contract import validate
@@ -8483,6 +8487,9 @@ def entity_translation_keys(translations: dict) -> dict[str, set[str]]:
 
 
 def main() -> int:
+    if (ROOT / "tools/release_manifests/upgrade_1_5_8_1_contract.json").is_file():
+        import upgrade_1581_release_contract
+        return upgrade_1581_release_contract.structural(sys.modules[__name__])
     if (ROOT / "tools/release_manifests/stable_1_5_8_contract.json").is_file():
         sys.path.insert(0, str(ROOT / "tools"))
         from stable_release_contract import structural

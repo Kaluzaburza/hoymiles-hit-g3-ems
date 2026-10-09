@@ -33,7 +33,10 @@ def test_fresh_install_delivers_localized_shared_package() -> None:
         )
         assert destination in written
         assert destination.read_bytes() == source.read_bytes()
-        assert len(written) == 8
+        guide = config_path / "www" / "hoymiles-update-guide.js"
+        assert guide in written
+        assert guide.read_bytes() == (ROOT / "home_assistant/www/hoymiles-update-guide.js").read_bytes()
+        assert len(written) == 9
         assert hass.store_payload["assets"][
             "packages/hoymiles_ems_shared_inputs.yaml"
         ] == assets._sha256(source)

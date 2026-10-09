@@ -1,8 +1,8 @@
 (function registerHoymilesDashboardStrategy() {
   "use strict";
 
-  const frontendRevision = 122;
-  const frontendVersion = `1.5.8.${frontendRevision}`;
+  const frontendRevision = 123;
+  const frontendVersion = `1.5.8.1.${frontendRevision}`;
   const canonicalQuery = `?v=${frontendVersion}&history=48h-executed`;
   const isStrategyScript = (script) => {
     try {

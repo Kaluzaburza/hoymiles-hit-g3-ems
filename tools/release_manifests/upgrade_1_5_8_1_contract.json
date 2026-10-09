@@ -1,0 +1,3030 @@
+{
+  "schema": 1,
+  "base": "6617bc4de6592439ea2c64889b0a25bbe5bfa45e",
+  "parent": "dccf6629d695bf858ad33d9aa353799348f6621e",
+  "subject": "release: publish 1.5.8.1 HACS ESP upgrade guide",
+  "version": "1.5.8.1",
+  "frontend_revision": 123,
+  "files": {
+    ".gitattributes": {
+      "mode": "100644",
+      "sha256": "bc0f7020451929f62c43f22c3565bc234f662dca8c7300a348b91889bd2efc6f"
+    },
+    ".github/CODEOWNERS": {
+      "mode": "100644",
+      "sha256": "be7f273dc78a7a6816b3ad2f769f4f6cc398cec4777511dba850ec2e5f523333"
+    },
+    ".github/FUNDING.yml": {
+      "mode": "100644",
+      "sha256": "31b779cb0538e2d57a5d57b650e818c4c87f8bb4d407dcbd1b9012a0beb6df26"
+    },
+    ".github/ISSUE_TEMPLATE/bug_report.yml": {
+      "mode": "100644",
+      "sha256": "8ce699913cbb2cc3451c7ea2618968c7409c1547d6b17125feab876966b02b79"
+    },
+    ".github/ISSUE_TEMPLATE/config.yml": {
+      "mode": "100644",
+      "sha256": "13064e7bea658e01e718b414fbb7b3b244f36411fe25ee2055c151f7b534547a"
+    },
+    ".github/pull_request_template.md": {
+      "mode": "100644",
+      "sha256": "24d8b100951907f9f0038f9cdfb77d256b3dd30ea4c20236aac9bc3fe82b1937"
+    },
+    ".github/workflows/validate.yml": {
+      "mode": "100644",
+      "sha256": "e39d28b1aefa65cbe6b7d77e41700bf012db7956f6cbb5e5030d97e32600f155"
+    },
+    ".gitignore": {
+      "mode": "100644",
+      "sha256": "726181771b1aacffb5fe22dfb8aa39d914e971e9c631665bf827e575d7c18b76"
+    },
+    "AGENTS.md": {
+      "mode": "100644",
+      "sha256": "8be0c16610cf25c71a869ec3642f6fa8d600be57f08b1c5d4b41169af42e309b"
+    },
+    "CHANGELOG.md": {
+      "mode": "100644",
+      "sha256": "c2593d6ef77520d6e9c3997bcbfd45ba420d45240b66845f39ed255316a557ea"
+    },
+    "CONTRIBUTING.md": {
+      "mode": "100644",
+      "sha256": "763c8ee3a8374812f1a09047b239f84c852fb973291cf30310368393fa058573"
+    },
+    "LICENSE": {
+      "mode": "100644",
+      "sha256": "fa0bb01cef85cd8e77d7930efae10d9c93812cfa6e4878f3d7d57ad23c224290"
+    },
+    "LICENSE_POLICY.md": {
+      "mode": "100644",
+      "sha256": "de5c54241545e3d801b74b494a8ffff2c2b2a3f69bc50790193e198ecd578b78"
+    },
+    "NOTICE": {
+      "mode": "100644",
+      "sha256": "bfaf07a6d2e05ee51d83f8e3826a94d0ad8d647ef6d4fd34f8e0f66d896a112a"
+    },
+    "README.md": {
+      "mode": "100644",
+      "sha256": "370429e2cc0553a32a87598126bc07a29a2e2db02a76308badecb26bfa2cb097"
+    },
+    "README.pl.md": {
+      "mode": "100644",
+      "sha256": "51b44a93a1f7d50fbe0ab5a1ee64747bbe29626dd756be4495f6740f34989f5f"
+    },
+    "RELEASING.md": {
+      "mode": "100644",
+      "sha256": "bbbf315bc57f2338b58748da704e325ca3dab55bf597e31f5429029963f21c3d"
+    },
+    "custom_components/hoymiles_hit_modbus/__init__.py": {
+      "mode": "100644",
+      "sha256": "1df134aaa1ff9a11f2e15ecb0095fb8308e19b3a9d1971908f409023db7661b4"
+    },
+    "custom_components/hoymiles_hit_modbus/assets.py": {
+      "mode": "100644",
+      "sha256": "5438bb390f2b818cd27d7c786bfae085e5eecb845c7da51a9d2560b49aad7076"
+    },
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py": {
+      "mode": "100644",
+      "sha256": "babdca29255bb25166f1f2018821abdc1ef79c3c4e1b05080b4d7e34aacb9736"
+    },
+    "custom_components/hoymiles_hit_modbus/baseline_energy_timeline.py": {
+      "mode": "100644",
+      "sha256": "d6c6037574653becef466970a2faa27b82750c444e53c16945bf0dd30c27d932"
+    },
+    "custom_components/hoymiles_hit_modbus/baseline_energy_timeline_sensor.py": {
+      "mode": "100644",
+      "sha256": "e45415b99cda7957bb5c9d35b5ea8d6c755b731790c6476251c65ab45bc2c46a"
+    },
+    "custom_components/hoymiles_hit_modbus/bounded_history.py": {
+      "mode": "100644",
+      "sha256": "bad24fdf6d0c907c736b5e14ea6db4c3d47a60b0d1d616e6f4e6ea4d226c2c57"
+    },
+    "custom_components/hoymiles_hit_modbus/brand/dark_icon.png": {
+      "mode": "100644",
+      "sha256": "f4548b5d481ace4f9353b6e367f09c15d7fc576a45d5375cbc96a0541da00b57"
+    },
+    "custom_components/hoymiles_hit_modbus/brand/dark_icon@2x.png": {
+      "mode": "100644",
+      "sha256": "c03db4ea5c099ed0a2299d4a2b0b653bc65041eb6d1cf2e17ca4692028f9d85e"
+    },
+    "custom_components/hoymiles_hit_modbus/brand/dark_logo.png": {
+      "mode": "100644",
+      "sha256": "fdcd6d8af11e28ec0b76d638dfda0aa0799b521b1e93159e40352533e7554b60"
+    },
+    "custom_components/hoymiles_hit_modbus/brand/icon.png": {
+      "mode": "100644",
+      "sha256": "1be414d984605d2a43c240f73ea2925015b1c3c785ea324040c4a8c2d9d44089"
+    },
+    "custom_components/hoymiles_hit_modbus/brand/icon@2x.png": {
+      "mode": "100644",
+      "sha256": "17d118acd6b1262897a4caad4c09f5910acfa7c1aa00724bdef1395bdb8b71e8"
+    },
+    "custom_components/hoymiles_hit_modbus/brand/logo.png": {
+      "mode": "100644",
+      "sha256": "2ddec7e9354e74e5d9b4b4c4735062813b7ff9b68a4270fe5b0184e676c106fc"
+    },
+    "custom_components/hoymiles_hit_modbus/button.py": {
+      "mode": "100644",
+      "sha256": "3055918ff1d575e0933e07a2b6c910c519806f309b4fad0fba2a2b178bc3e4ae"
+    },
+    "custom_components/hoymiles_hit_modbus/catalog.py": {
+      "mode": "100644",
+      "sha256": "cc6fb9219b2a7fd7893cb5e46cf9e1e8fb352c8d8b9f23cb48dd7c7cd775dfed"
+    },
+    "custom_components/hoymiles_hit_modbus/charge_forecast.py": {
+      "mode": "100644",
+      "sha256": "98670fd72edfc6c438b7bb0327254a7645db1286e5dee2df7bd91175b8831523"
+    },
+    "custom_components/hoymiles_hit_modbus/charge_forecast_runtime.py": {
+      "mode": "100644",
+      "sha256": "13f39b612005378fb3c9b5b554c6df2442250418e6e9fb4e1c0c667984ce4c06"
+    },
+    "custom_components/hoymiles_hit_modbus/collect_diagnostics.sh": {
+      "mode": "100644",
+      "sha256": "e98aa120bf242df00e53ad4a038646852502b6f89be9459b11aeb79099093c6f"
+    },
+    "custom_components/hoymiles_hit_modbus/config_flow.py": {
+      "mode": "100644",
+      "sha256": "c701d81755c6516ee81a880c58304ed8b0240ea359dee4fcd42c18b313d11067"
+    },
+    "custom_components/hoymiles_hit_modbus/const.py": {
+      "mode": "100644",
+      "sha256": "f3d549223f728f5c36f46ed24670fe9eb58e9afce4142076b4d861b87fa32b10"
+    },
+    "custom_components/hoymiles_hit_modbus/diagnostic_bundle.py": {
+      "mode": "100644",
+      "sha256": "41430fbbca25b165403f8adab60384cf8c2ded377be4a537dedbdc6e1eb50970"
+    },
+    "custom_components/hoymiles_hit_modbus/diagnostic_redaction.py": {
+      "mode": "100644",
+      "sha256": "f6847431fa557e0c484f446023770b65e0e21971bda438064cfca917f64953d5"
+    },
+    "custom_components/hoymiles_hit_modbus/diagnostics.py": {
+      "mode": "100644",
+      "sha256": "d97b18f384c6e63dbf7ecc6000f4f5fe4058db2f7e0c4018e67de2b26432fc64"
+    },
+    "custom_components/hoymiles_hit_modbus/dynamic_price_profile.py": {
+      "mode": "100644",
+      "sha256": "7567e11d976edfb4e8914669c97f5c217674754d3e2d81b9d590f4ffd9ddbe61"
+    },
+    "custom_components/hoymiles_hit_modbus/ems_initial_defaults.py": {
+      "mode": "100644",
+      "sha256": "3b9e470487b41e968d3920ea27098e0ecf452dfb62f44c8b148ccafe3f726555"
+    },
+    "custom_components/hoymiles_hit_modbus/ems_notifications.py": {
+      "mode": "100644",
+      "sha256": "c4328dcb21853e54a173dfab95d37f2f0f04d4abe8188acf5e749fcfb45b5e7c"
+    },
+    "custom_components/hoymiles_hit_modbus/ems_shared_input_migration.py": {
+      "mode": "100644",
+      "sha256": "207208b3fc64d85752544b08246f1e4c404a92c47877d9f476b41883cdee872f"
+    },
+    "custom_components/hoymiles_hit_modbus/ems_shared_inputs.py": {
+      "mode": "100644",
+      "sha256": "5fee8d88344a766c31bf3e94892913a7ee0b3b2ff6b24461f2c70ba4cee6df33"
+    },
+    "custom_components/hoymiles_hit_modbus/ems_supervisor.py": {
+      "mode": "100644",
+      "sha256": "ea8eabd37e3b585542ba326c8582dbfcb0cc81297017dfc694a57ce7fe07ee01"
+    },
+    "custom_components/hoymiles_hit_modbus/energy_data.py": {
+      "mode": "100644",
+      "sha256": "6d89670a1030240e7be99ba47474cb6b4f42fd6e84386629e1b9ce6a487c902d"
+    },
+    "custom_components/hoymiles_hit_modbus/entity.py": {
+      "mode": "100644",
+      "sha256": "70cbc34673e6763c3e8d63ca073bf5dd0aff95ad004738184eaba82d193bda2c"
+    },
+    "custom_components/hoymiles_hit_modbus/entity_catalog.json": {
+      "mode": "100644",
+      "sha256": "a2dacc1d45a0cde36fb25dc8c9b3774c7fd5328d217c11154782897ff2e4c5b4"
+    },
+    "custom_components/hoymiles_hit_modbus/esphome_upgrade.py": {
+      "mode": "100644",
+      "sha256": "b417600c0d87dd5399a4311a75772714859fe92aff1915172d3cc035b8e1271f"
+    },
+    "custom_components/hoymiles_hit_modbus/esphome_upgrade_http.py": {
+      "mode": "100644",
+      "sha256": "0d795c355e09ab42af5cd99ddd1ea6e0cf6998a6250bc8f787173f1ca6c988e7"
+    },
+    "custom_components/hoymiles_hit_modbus/esphome_upgrade_manifest.json": {
+      "mode": "100644",
+      "sha256": "859682b629e14484291d1284eb173c2f02c7863e1c0268bb84e0fc84d7476071"
+    },
+    "custom_components/hoymiles_hit_modbus/ev_load_filter.py": {
+      "mode": "100644",
+      "sha256": "131a52fbbd7b89646c49bbe04df5cc7890e1e4e6f127e25693ab85d50b5d1e99"
+    },
+    "custom_components/hoymiles_hit_modbus/ev_load_runtime.py": {
+      "mode": "100644",
+      "sha256": "4b1763ff444ccfeffd6271bfb68f408b7fcc018e9f91d6d8545baf5ca10f78e0"
+    },
+    "custom_components/hoymiles_hit_modbus/execution_history.py": {
+      "mode": "100644",
+      "sha256": "aef3e8c6753c432737d9cae9385316647cfe0f47c7d573b8dcc23ce5304bef39"
+    },
+    "custom_components/hoymiles_hit_modbus/execution_history_http.py": {
+      "mode": "100644",
+      "sha256": "d06906168516cbad43a345d7caee0c1394bf60c90eea46e00e8abb6d88175474"
+    },
+    "custom_components/hoymiles_hit_modbus/forecast_model.py": {
+      "mode": "100644",
+      "sha256": "1349b9dce4de1e6905b38ce1ebd312691eccc773d1b95b8cb42d1171cd6cf8ab"
+    },
+    "custom_components/hoymiles_hit_modbus/installation_identity.py": {
+      "mode": "100644",
+      "sha256": "8692f0b35a28990b790490aef21971cac40b3e2a616e8ed848ebfb3a64d2a7df"
+    },
+    "custom_components/hoymiles_hit_modbus/load_history_store.py": {
+      "mode": "100644",
+      "sha256": "b35e02cd0092ca530bf8b7a69dce94bc6b1be29bee8d70db33d6e7a8886b343e"
+    },
+    "custom_components/hoymiles_hit_modbus/load_model.py": {
+      "mode": "100644",
+      "sha256": "ee476af5935c7fafdb0165de2050f0a99c652c12dababafdf4b90d21f367d9f9"
+    },
+    "custom_components/hoymiles_hit_modbus/localization.py": {
+      "mode": "100644",
+      "sha256": "f20453177562ed5e1f20e5deb2d1f4e428d36a97bfd70d5a28dc6d7e22033934"
+    },
+    "custom_components/hoymiles_hit_modbus/manifest.json": {
+      "mode": "100644",
+      "sha256": "5e0336f4dec362ec365746a3aa2fbfcee93ac7ac732294fba6fc880060bc13ab"
+    },
+    "custom_components/hoymiles_hit_modbus/models.py": {
+      "mode": "100644",
+      "sha256": "594f65f37dd4771b19431a8bb61d33aeac7b1ba9e7033b73a609ebe6d98d1995"
+    },
+    "custom_components/hoymiles_hit_modbus/number.py": {
+      "mode": "100644",
+      "sha256": "21520becd87e12396e78b342e9264561a730414941608b44664bcb306b508412"
+    },
+    "custom_components/hoymiles_hit_modbus/optimizer_revision.py": {
+      "mode": "100644",
+      "sha256": "5ad0741a0ba903d906d122d1773e19ace82328aee8881101c1df8044fed0e99b"
+    },
+    "custom_components/hoymiles_hit_modbus/power_balance.py": {
+      "mode": "100644",
+      "sha256": "96296bf61821934fb18e1eb9afebc228a0e670bdd27071a67444c860d9b5b26f"
+    },
+    "custom_components/hoymiles_hit_modbus/profit_archive.py": {
+      "mode": "100644",
+      "sha256": "6bb96135b08548a68273c25e1aa5227051e10ba952bfe1e2b266d3adcc53807a"
+    },
+    "custom_components/hoymiles_hit_modbus/profit_http.py": {
+      "mode": "100644",
+      "sha256": "2bc17c7ff2d60261599d990f893917566ac7f4145b029ed1ccaf21fe44d23d00"
+    },
+    "custom_components/hoymiles_hit_modbus/profit_runtime.py": {
+      "mode": "100644",
+      "sha256": "5b89adfcca493f155cf9f04b01f107315a12c4b64bc824b2977c7b90e610c668"
+    },
+    "custom_components/hoymiles_hit_modbus/pstryk_client.py": {
+      "mode": "100644",
+      "sha256": "ea713e18dbeaec34018136fcd05e7b6ef8d2448d6f7d6428f5b01dea06ef0892"
+    },
+    "custom_components/hoymiles_hit_modbus/pstryk_daily_cache.py": {
+      "mode": "100644",
+      "sha256": "68cae39d322434fecd35704545ed4c288a7443d7d39165af809d320a50b5abe4"
+    },
+    "custom_components/hoymiles_hit_modbus/pstryk_joint.py": {
+      "mode": "100644",
+      "sha256": "74d523ea6a24eb9dc842fe0b3e792149521a236dbdb5a5f2745f43467c7b9dc3"
+    },
+    "custom_components/hoymiles_hit_modbus/pstryk_origin.py": {
+      "mode": "100644",
+      "sha256": "be6df8ec9a062680b5fedb15bd283f3bf21dcaddb75293e146e916c63424fc05"
+    },
+    "custom_components/hoymiles_hit_modbus/pstryk_plan.py": {
+      "mode": "100644",
+      "sha256": "f0956c60a740572bd994555408239e726c976cde5416e35dddaa74d623c1dae3"
+    },
+    "custom_components/hoymiles_hit_modbus/pstryk_prices.py": {
+      "mode": "100644",
+      "sha256": "b88cec3d960d2925fc174be99f3e2ac8ebd4106d5df7ab6ef435234418e3f70e"
+    },
+    "custom_components/hoymiles_hit_modbus/pstryk_runtime.py": {
+      "mode": "100644",
+      "sha256": "047ffbf38d33ae770d5a61d7b6874c038b377d1716fade124b49cf68b5910970"
+    },
+    "custom_components/hoymiles_hit_modbus/pstryk_settling.py": {
+      "mode": "100644",
+      "sha256": "73592e4f801d419eb6bbb367391d1cd0eb8078cd2bba32fef89a797d42f9ff8e"
+    },
+    "custom_components/hoymiles_hit_modbus/pv_charge_delay.py": {
+      "mode": "100644",
+      "sha256": "bfd757504e4c808da196eb0020d72ce5cc7725b1dfb941b002b4da34f7d7141e"
+    },
+    "custom_components/hoymiles_hit_modbus/pv_charge_delay_adapter.py": {
+      "mode": "100644",
+      "sha256": "76e948728f25fcb15e72379a8c598e48f80c899fa0102a28f42550f65f318444"
+    },
+    "custom_components/hoymiles_hit_modbus/pv_charge_delay_control.py": {
+      "mode": "100644",
+      "sha256": "9665d7ed8889d11b65090071988ddefcc8cafd5ee4a8fd5fd75c0106a099c382"
+    },
+    "custom_components/hoymiles_hit_modbus/pv_forecast_usability.py": {
+      "mode": "100644",
+      "sha256": "53fadc8570b99f106a4a0e76961328e860911912b127eda8f4d276ffb14540a8"
+    },
+    "custom_components/hoymiles_hit_modbus/rce_history.py": {
+      "mode": "100644",
+      "sha256": "f184fef37a3108137c8a21c231b93d8c738dd0d5a3b8b219c52ebb8678a6bc0c"
+    },
+    "custom_components/hoymiles_hit_modbus/rce_optimizer.py": {
+      "mode": "100644",
+      "sha256": "879dc7cfa83c29f28f6ca2223b3ba11f2bff87a070f40681a7a3d12c3dcb9cd7"
+    },
+    "custom_components/hoymiles_hit_modbus/rce_price_cache.py": {
+      "mode": "100644",
+      "sha256": "53b4c6eef6fd49e1c62ffd90a14c9e1e799a9e87365c430d8a84a5f2c51aff4b"
+    },
+    "custom_components/hoymiles_hit_modbus/rce_price_sensor.py": {
+      "mode": "100644",
+      "sha256": "5e484f7950b6aacbcfe30135ff78669c7fec7a54c434083dc73e5c4a8c58b46d"
+    },
+    "custom_components/hoymiles_hit_modbus/rce_self_consumption_shadow.py": {
+      "mode": "100644",
+      "sha256": "822580e4b1772d23beb50a3b6eda943eb007ede97e6d41a6b5a3bf7b7c2203a7"
+    },
+    "custom_components/hoymiles_hit_modbus/rce_sensor.py": {
+      "mode": "100644",
+      "sha256": "d1e18fa8be629e7789856f8facbb7c5a567dab01df54b85592e7836fa8bf687c"
+    },
+    "custom_components/hoymiles_hit_modbus/rcm_history.py": {
+      "mode": "100644",
+      "sha256": "ced44e11e9b1347ece3be950897792156fb61b0dd8697984d25106eb6de82433"
+    },
+    "custom_components/hoymiles_hit_modbus/rcm_optimizer.py": {
+      "mode": "100644",
+      "sha256": "d52926de16e4ba580c369a73e33ed64935988454c3aff0c6c5a605ba561bcee0"
+    },
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": {
+      "mode": "100644",
+      "sha256": "ee9739e3b781e89aa057baf1ce20575756be41f7f13e46bfeb8496273a82e7f3"
+    },
+    "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py": {
+      "mode": "100644",
+      "sha256": "e4022918271e22b76b1a0996f363a89254184d76f59bbd1b5ba9420fb68d59e6"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml": {
+      "mode": "100644",
+      "sha256": "7db9cc9d6adc74b5c7d576916d41d6493bb0230b9cd5795847a5058e9c9ba6d7"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml": {
+      "mode": "100644",
+      "sha256": "3869d153bccdb6afc3d2b97f2881edcbde7fe5b2cdf9390241c765b4a925bc75"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml": {
+      "mode": "100644",
+      "sha256": "5a971764f759e2d14239194e027e92d20b23d6e3a30a9c6c0af93039d4056e29"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_shared_inputs.yaml": {
+      "mode": "100644",
+      "sha256": "6ed352665655e5ae2e7e0740d9eca26a686bdf11080044a9ff9b3a60e614694f"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml": {
+      "mode": "100644",
+      "sha256": "b7da3710b4f1154b4aaa6e75676f0e33bd987b451f200d4b7ebad8cfd1bcb069"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_shared_inputs.yaml": {
+      "mode": "100644",
+      "sha256": "f1ed1379b4fe2140b020cb8e5b3772ea5f10d9116d28ea635f35b49176330120"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json": {
+      "mode": "100644",
+      "sha256": "cf377283cd3864cb50dac29c7720b8f99f642ee224f8a19285f671bdeb8b7697"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json": {
+      "mode": "100644",
+      "sha256": "a3c4b9ed4a209beb097ffb7f10460355279ae2aed47d28cef09a1a7a25e2c2cd"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js": {
+      "mode": "100644",
+      "sha256": "1ef37bbf04e7993d0b464eba8ef1eb541cadea070d4469e433988fd7d56653ba"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-inverter.png": {
+      "mode": "100644",
+      "sha256": "4531e85081e78cf94dee82dbde75b2f931860886457ce9800f546afb4a3b3d15"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js": {
+      "mode": "100644",
+      "sha256": "6916ddbc35779a87e9d5e8899fd995db30dc6e8009b25e652673d03d15d3d06a"
+    },
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-update-guide.js": {
+      "mode": "100644",
+      "sha256": "a4fdc70410d2cce7e92c1442181e67dbb982a913171e718419e209b214256556"
+    },
+    "custom_components/hoymiles_hit_modbus/sale_block_search.py": {
+      "mode": "100644",
+      "sha256": "483308ad4beaf98c483b7fc01861c94184c452276e723d3f762fa4369a2bba3e"
+    },
+    "custom_components/hoymiles_hit_modbus/select.py": {
+      "mode": "100644",
+      "sha256": "40b1e706638c420c2e3dc232485cbe0e2af0e3eeefaee34c66dfdf5ec8e7048b"
+    },
+    "custom_components/hoymiles_hit_modbus/sensor.py": {
+      "mode": "100644",
+      "sha256": "db69bcb6db406c0d085e17b9e08ccdbc90d02905759a31d8217a6dbe87395b3d"
+    },
+    "custom_components/hoymiles_hit_modbus/services.yaml": {
+      "mode": "100644",
+      "sha256": "996a8938dcff68d8e76becc4a00e53e1f34509a624fcc3ace11f44cbc9c9e8cb"
+    },
+    "custom_components/hoymiles_hit_modbus/source_device.py": {
+      "mode": "100644",
+      "sha256": "b0e3f570dfb0c727ca4840635448303693c751cc350b1999cd0438fc3a1819ff"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_accounting_runtime.py": {
+      "mode": "100644",
+      "sha256": "594e33678428514b15c37ad7d443e2be90699c0b95e78c93de33e482aef7ad2f"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_accounting_sensor.py": {
+      "mode": "100644",
+      "sha256": "a9c3077d65788075f2841cd08c052fb15719424b845c6cbda43cf51077bd4d98"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_accounting_v2.py": {
+      "mode": "100644",
+      "sha256": "1dbb6e60edc115f60f323c97a381c169d36c08934ec1a07b8ceea78ab2f77aac"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_active_bridge.py": {
+      "mode": "100644",
+      "sha256": "18ef58b067574af544b32d7d50f4a1a42c5833621a8128b9b603fc6c6e91ae1f"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_active_controller.py": {
+      "mode": "100644",
+      "sha256": "b6286f1ba4c1a0ac8e8ba9358a5cf620b467beb7498f900436bb20fc11543097"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_canonical_ledger.py": {
+      "mode": "100644",
+      "sha256": "535b92d9aa13da36226ea3506ace76ac48308422f7826cc08b953bf10ebe0f64"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_canonical_runtime.py": {
+      "mode": "100644",
+      "sha256": "481c52536a729736572d9713ecd53afcbbcd9e05ed4f3547739fcc8886fa7d85"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_canonical_sensor.py": {
+      "mode": "100644",
+      "sha256": "4552042411a01952af80942a44f875d4757cb40f59150013d203d6c619401754"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_control_lease.py": {
+      "mode": "100644",
+      "sha256": "2b5c9a9cce6b8b6fd07019471ab0d136c77b8005787c2b16b2bc9187018e997d"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_executor.py": {
+      "mode": "100644",
+      "sha256": "5c1be466bfe68b54129be51398f82194aac8ed23bb0098c2f367c31aacf4af00"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_executor_codec.py": {
+      "mode": "100644",
+      "sha256": "9d0598cccd747551b8986a4970721edf3b634b3b33a6b3631e2e7371a5ad0439"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_ledger.py": {
+      "mode": "100644",
+      "sha256": "e922b373db6e3b1d944c327bf6a82809eb4b1b43818e9401b4a49d8f8403c196"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_runtime.py": {
+      "mode": "100644",
+      "sha256": "e8608912aa717b43d426fcdf633fa1c86176699e1424415cb9c0a21407617600"
+    },
+    "custom_components/hoymiles_hit_modbus/supervisor_sensor.py": {
+      "mode": "100644",
+      "sha256": "f02e4f13a83b38ea2a614f0a66518f429cd8acf0363416f871942c5f38474b42"
+    },
+    "custom_components/hoymiles_hit_modbus/support_http.py": {
+      "mode": "100644",
+      "sha256": "558a26da9672e955a9a6132c44787110496b2d87b069f8109a303deadc770d4b"
+    },
+    "custom_components/hoymiles_hit_modbus/tariff_optimizer.py": {
+      "mode": "100644",
+      "sha256": "57540ede86941066a2868be5dc9231e5f210eb21e6605b8d40779caf1e667fd6"
+    },
+    "custom_components/hoymiles_hit_modbus/tariff_price_schedule.py": {
+      "mode": "100644",
+      "sha256": "fea2206d84344692712d51a4c10bfcf11bbbf9b9dc5bbb962dabba00d4875957"
+    },
+    "custom_components/hoymiles_hit_modbus/tariff_price_sensor.py": {
+      "mode": "100644",
+      "sha256": "45d73adfa5a3fb091e4875e27a7d53e94dd12b69c336576b4bcc5a553f8095eb"
+    },
+    "custom_components/hoymiles_hit_modbus/tariff_profiles.py": {
+      "mode": "100644",
+      "sha256": "03f9ca17530264072e3162eaee5f4c3d165c37375627aca93cb0ac13ebb0bf0d"
+    },
+    "custom_components/hoymiles_hit_modbus/tariff_sensor.py": {
+      "mode": "100644",
+      "sha256": "a80bca35d777208dfd69143d9af230e04a23feebc091f74f0f527a5297ace48c"
+    },
+    "custom_components/hoymiles_hit_modbus/timeline_sensor.py": {
+      "mode": "100644",
+      "sha256": "404dbb8f8ef09cdc377809f7cba8e7610b682f152976b0996b29551b6a4bb9dc"
+    },
+    "custom_components/hoymiles_hit_modbus/translations/en.json": {
+      "mode": "100644",
+      "sha256": "044ad5ccfaa3c53a8f6abd29688e28b9f63c89d5eeff1abb5d0d54ba2dc964c5"
+    },
+    "custom_components/hoymiles_hit_modbus/translations/pl.json": {
+      "mode": "100644",
+      "sha256": "5052640dedf387347575f3c15f5753371295054838fbb001617bfc385227ab35"
+    },
+    "dashboard_hoymiles.yaml": {
+      "mode": "100644",
+      "sha256": "e138050d45ddbffb56fc9dc2ba22b7d1dbc3bef9e894d9607ac99645dcfe05fd"
+    },
+    "docs/AUTOMATION_TEST_REPORT.md": {
+      "mode": "100644",
+      "sha256": "427301a99a6040fc08118e966bf6671fbc9874551d824f22abcd40a8679f2dbb"
+    },
+    "docs/CANONICAL_CURRENT_SALE_2026-10-01.md": {
+      "mode": "100644",
+      "sha256": "429833c5596aea98950cfea1c6f660891d53a62b4a90e7778a1923495087df42"
+    },
+    "docs/CANONICAL_DISABLED_RCEM_2026-10-04.md": {
+      "mode": "100644",
+      "sha256": "e6edf0a8a099c8140005cd7c3e3b536429f29503198f0a2138ab1a8288bcaa0e"
+    },
+    "docs/CANONICAL_READINESS_2026-10-03.md": {
+      "mode": "100644",
+      "sha256": "586962963982ef76b16d975776c124b12f09ce2bce163a191234686fe9d9956f"
+    },
+    "docs/CHARGE_STABILITY_2026-10-05.md": {
+      "mode": "100644",
+      "sha256": "c8d55a872db8d9b743656a6e2ca46ca9fd63990500354c1f8c7e1dfd108faf59"
+    },
+    "docs/COMPATIBILITY.md": {
+      "mode": "100644",
+      "sha256": "c80309ff903d11c85da9c0892df9adafc37c90744c35723cf526d61d93d909ed"
+    },
+    "docs/DIAGNOSTICS.md": {
+      "mode": "100644",
+      "sha256": "b148ef0b1ab490a1a949fa618a79c1faae0a630dfb42d2c6954d33039c2c99df"
+    },
+    "docs/DIAGNOSTICS_ANALYZER.md": {
+      "mode": "100644",
+      "sha256": "4ae034fa37a2426cafa1e2474fcafd5457ab3afad11ea33f6339a4b52ce4042c"
+    },
+    "docs/EMS_CHANGE_CLOSEOUT_PROMPT.md": {
+      "mode": "100644",
+      "sha256": "026d4fdd6091d54b15573018a6d1e38ef37f2405158bf9b2efa934dd4b7b0ad4"
+    },
+    "docs/EMS_CONTINUITY_CONTROL_20260930.md": {
+      "mode": "100644",
+      "sha256": "c166393e888f5ab92706d16a67ae0568ffbf9ac6e19227550ce2a112aafe734e"
+    },
+    "docs/EMS_PROFITS.md": {
+      "mode": "100644",
+      "sha256": "6e0c6cbd0414f4b8b95007fb9e1059eb4acb1d7e0f2468623efd59f349f7e084"
+    },
+    "docs/EMS_READINESS_SELL_2026-10-04.md": {
+      "mode": "100644",
+      "sha256": "41c879121c09aeb3d9eaaa3860056a940851efd7f7c5d376bcf5aa7388990fb6"
+    },
+    "docs/EMS_TIMING_2026-10-02.md": {
+      "mode": "100644",
+      "sha256": "01763f4b282c8d477049be28ba066d6feda10ac27a5079de59a94a0e788968de"
+    },
+    "docs/EMS_UNIFIED_CONTROL_20261001.md": {
+      "mode": "100644",
+      "sha256": "428dd18934f3755ea5ab96e3bf1b796e3915a784218b813ddbdbfd03d837c17d"
+    },
+    "docs/ESP32_ESPHOME_2026_9.md": {
+      "mode": "100644",
+      "sha256": "6f30ac7a82a335705e0c6712f1a2174fc8b0bdeafc91e6eb948a82655c548106"
+    },
+    "docs/ESP32_VARIANTS.md": {
+      "mode": "100644",
+      "sha256": "7e5bc6f31835aaae6d7c8e0c00af432d321e37969b74301b382f26662b84a1f8"
+    },
+    "docs/ESP32_WROOM_ACCEPTANCE_2026-10-08.md": {
+      "mode": "100644",
+      "sha256": "676ac92dfe057b5926086d2aa1ca87e5258510d761345b536b52e74892357677"
+    },
+    "docs/ESP_UPDATE_GUIDE.md": {
+      "mode": "100644",
+      "sha256": "1aa9ba3a7371c8e7200dbab3e0ad21b0ac0b4987c89ac5588d0548e488b97163"
+    },
+    "docs/LOAD_HISTORY_CONTINUITY_2026-10-04.md": {
+      "mode": "100644",
+      "sha256": "80195ae859ef900af1e3e5ae1659c6b21631530bfc48092ff57789940b0a9050"
+    },
+    "docs/PGE_G12E.md": {
+      "mode": "100644",
+      "sha256": "53d7513cb0ddcb33bd68715777da0487a3e986828c420ca290c7cab1f33e89fd"
+    },
+    "docs/PSTRYK_ACTIVE_RUN_2026-10-01.md": {
+      "mode": "100644",
+      "sha256": "d017b36424aac39165eb23c8adfb33dee03f07297fdba74cf1597139f9ff25c1"
+    },
+    "docs/PSTRYK_BUY_RESERVE_2026-10-04.md": {
+      "mode": "100644",
+      "sha256": "0e7f961eb7bf6f156915eb296ba2f3c416d8de419b1fdc98c547099f1300761a"
+    },
+    "docs/PSTRYK_CHARGE_CHART_2026-10-03.md": {
+      "mode": "100644",
+      "sha256": "bbdd4ca70480aa3be6187ff1abce4ce272a04f3bd7ccca0b0026094fda92468d"
+    },
+    "docs/PSTRYK_RCE_CONTINUITY_2026-10-01.md": {
+      "mode": "100644",
+      "sha256": "c24004450ffef5a8ed9ebf5d7547b19b1e2055fc233959dec273463b11408eac"
+    },
+    "docs/PSTRYK_RCE_PARITY_2026-10-01.md": {
+      "mode": "100644",
+      "sha256": "1b4c2fed3a4667f4f68c6f647226cb7fbf5147817ebc89caa81df77b2272dc60"
+    },
+    "docs/PSTRYK_SELL_CONTINUITY_2026-10-03.md": {
+      "mode": "100644",
+      "sha256": "d9ce05f37c677fa6ba9fa8caebb43705e10f9d0787d09fe927d360051ab9bb16"
+    },
+    "docs/PSTRYK_SELL_START_2026-10-01.md": {
+      "mode": "100644",
+      "sha256": "30a7c12bef2a9ba01e9159ffcbdf9986dd754089307a41275f33d3d3dcc0d64b"
+    },
+    "docs/PV_CHARGE_HOLD_DISPLAY_2026-10-01.md": {
+      "mode": "100644",
+      "sha256": "35027d1e07f4024040094dba643da281912703e552f4045d77415c68872b3e7b"
+    },
+    "docs/PV_DELAY_HOUSE_SELF_CONSUMPTION_2026-10-05.md": {
+      "mode": "100644",
+      "sha256": "a26c3b714e3471f0bd0931314d0f926b1389b2906bc634b05d27d511a8e7e2af"
+    },
+    "docs/PV_DELAY_MODE_AUTHORITY_2026-10-05.md": {
+      "mode": "100644",
+      "sha256": "40872c118cf948052c452bddf8448d54174fa978ac22c7f261cd67c87aa31be6"
+    },
+    "docs/PV_DELAY_PROFILES_2026-10-02.md": {
+      "mode": "100644",
+      "sha256": "ca3d1c4eaa49ef619fcbea0fd8f233902fcc0de0c420fb05dbcc428d16de0b94"
+    },
+    "docs/PV_DELAY_RESERVE_2026-10-04.md": {
+      "mode": "100644",
+      "sha256": "afa186bc9ad06ebbb17faa77d22440c74d5996e162de2db7967de1b3c898a9f8"
+    },
+    "docs/PV_DELAY_RETRY_2026-10-09.md": {
+      "mode": "100644",
+      "sha256": "77750bccc197eaa6666cbc37d5297a2543eab77bfe6c8474ba7ab4132b60a055"
+    },
+    "docs/PV_DELAY_TOMORROW_2026-10-01.md": {
+      "mode": "100644",
+      "sha256": "08673b4acbfb70ca7ba59c5bd62292c29a5bbd773dc95767726eaac76161c1f6"
+    },
+    "docs/PV_HOLD_STARTUP_2026-10-03.md": {
+      "mode": "100644",
+      "sha256": "512fee4d5b462ff13f533b16073aa6826c28e320cbc1b6cde3693a306cd05362"
+    },
+    "docs/QUICK_START.md": {
+      "mode": "100644",
+      "sha256": "1c10ffddafbc82292573680cfcf497dbe140609a38a0358cf9548e59fdcd4770"
+    },
+    "docs/RC2_HISTORY_CONTRACTS_2026-10-04.md": {
+      "mode": "100644",
+      "sha256": "09e0883d3ed248c4874ddd86779ad208fae7bc74478f02368397a9dbeb27edc4"
+    },
+    "docs/RCE_CONTINUITY_20260926.md": {
+      "mode": "100644",
+      "sha256": "2eddc8a3196bcdaffa6aed8ad29bcc97d8691df48b339e0ef1d318ea5be2a826"
+    },
+    "docs/RCE_CONTINUITY_20260927.md": {
+      "mode": "100644",
+      "sha256": "e850351aa4ccc7b3e71461c52ddf773d8026b31e4c00a9d8f5fb708a3e281c84"
+    },
+    "docs/RCE_FORECAST_MARKET_SCOPE_20260927.md": {
+      "mode": "100644",
+      "sha256": "5db0f25364acad8eb8f1bc97408f2fabf173a1518d4309ae33f2055b68141c4c"
+    },
+    "docs/RCE_FUTURE_CHART_20260928.md": {
+      "mode": "100644",
+      "sha256": "1ccd81d76be273288c3f90de9b328801b8620a19ce744ae235be44de6e2310e0"
+    },
+    "docs/RCE_PRICE_CACHE_20260930.md": {
+      "mode": "100644",
+      "sha256": "7cd94da8e3eae775d356b5fb49696e9005b868ee519e91b972de2a755bac25de"
+    },
+    "docs/RCE_PSTRYK_COMMITMENT_COHORT_2026-10-01.md": {
+      "mode": "100644",
+      "sha256": "a006728f8aa84d74fedad32c84d3d7fe326229b411d8bc0acbc9cf213eefdeb8"
+    },
+    "docs/RCE_PSTRYK_LOAD_MARGIN_OFFLINE.md": {
+      "mode": "100644",
+      "sha256": "beac85be305f0d1c467d71787dd13fbd0ca8608b73eece5110f87b00c4e1a0e2"
+    },
+    "docs/RCE_PSTRYK_SHARED_LOAD_2026-10-06.md": {
+      "mode": "100644",
+      "sha256": "cf3270621d2183c3faff7aa3058b7de355e36080277c47dabf9505f771ecb10d"
+    },
+    "docs/RCE_RETARGET_CHALLENGE_20260927.md": {
+      "mode": "100644",
+      "sha256": "f62dfc201c619cfa2d847d05ed7673fc7440bb1ffa1e81b693fc0c29e8a87322"
+    },
+    "docs/RCE_REVALIDATION_ENERGY_20260927.md": {
+      "mode": "100644",
+      "sha256": "fce06861d1d087d69a894af166ed272d9bfed727641c28f399bc50e5b4d08877"
+    },
+    "docs/RCE_TAIL_START_PUSH.md": {
+      "mode": "100644",
+      "sha256": "61556360da27da6a8e96082796091a1866313e84acd3241aabf9c3734a6035a9"
+    },
+    "docs/RECORDER_AND_STORAGE.md": {
+      "mode": "100644",
+      "sha256": "7e9f607b5fb2341be1526dec7104189472fd637ed9b85abe089ffdd1dc8ad0e0"
+    },
+    "docs/SAFETY_AND_COMPLIANCE.md": {
+      "mode": "100644",
+      "sha256": "b6c2586f60e9e28945b320def9c0303f12b6bbca7cae3b26dc43ba641a60faf6"
+    },
+    "docs/SELL_CONSOLIDATION_OFFLINE.md": {
+      "mode": "100644",
+      "sha256": "f8c1ad7f76d71209ed3079b65f024ef535d7092b46494a5f8f21c5b1d6d9a25c"
+    },
+    "docs/SOC_SCOPE_READINESS_2026-10-04.md": {
+      "mode": "100644",
+      "sha256": "349449778e159b1d9884be70f30a37b2643eea82292971e0412e217826f43a37"
+    },
+    "docs/STALE_INPUTS_AND_SELL_TAILS_OFFLINE.md": {
+      "mode": "100644",
+      "sha256": "a4e5d79efc857441f619e11871e62f298c5d0bc4bd7e9d61b845da4121839560"
+    },
+    "docs/TARIFF_CONTINUITY_AND_SOC_OFFLINE.md": {
+      "mode": "100644",
+      "sha256": "33015a5fc187aa2c89d1f83875b8ed20d756fb2ce8a49fc4fe0ba01a8ac7a40e"
+    },
+    "docs/TARIFF_PV_CONTINUITY_2026-10-04.md": {
+      "mode": "100644",
+      "sha256": "78d8f25bba1fc76f6e8fd471fee1ffd9c87a705fd96db096fd2a7fcb50d9b577"
+    },
+    "docs/TARIFF_SUPPORT_PV_DELAY_2026-10-07.md": {
+      "mode": "100644",
+      "sha256": "c53c896d42f2e1565f5eeee91aa21e87dc3008bfa1beece583e08a511927c6df"
+    },
+    "docs/UPGRADE_1_5_7.md": {
+      "mode": "100644",
+      "sha256": "3dacd74942343644e76d465d5efee4e327ab4d761469a0505cd3c309fe8c14a6"
+    },
+    "docs/WIRING_ESP32_S3.md": {
+      "mode": "100644",
+      "sha256": "c8b38400f13652e06ca28b9ce1957f16ee7ec3437ec17f2905ef8886ac23521e"
+    },
+    "docs/WORK_STATE.MD": {
+      "mode": "100644",
+      "sha256": "0327b05b7e23ed9721fc2333c18a57be1a59f0af64b4a2e939950b22f29a0bfd"
+    },
+    "docs/images/README.md": {
+      "mode": "100644",
+      "sha256": "8e08134b51e24d8510d0b551d16c5a01b1c1083090e874af1ba185d1f9a5e7f6"
+    },
+    "docs/images/dashboard-ems-v1.5.8.png": {
+      "mode": "100644",
+      "sha256": "77a1af903dffcb96d1878ed183d9a41469c914b922521b589e1c9e99fe887682"
+    },
+    "docs/images/dashboard-gallery.html": {
+      "mode": "100644",
+      "sha256": "5fdaa1c3cda731dc6377b8acf45c805bf96dc589f63a864fcacb749447259b49"
+    },
+    "docs/images/dashboard-overview.png": {
+      "mode": "100644",
+      "sha256": "6bdf3a11863e2c440e3ca3a904cc1fc61daa524e50610f3193baf16f504ba829"
+    },
+    "docs/images/dashboard-rcem-v1.5.8.png": {
+      "mode": "100644",
+      "sha256": "2f89a9d8279a141fb69cc246fac89de8c4b9be47d85589409f8f87381b325013"
+    },
+    "docs/images/dashboard-start-v1.5.8.png": {
+      "mode": "100644",
+      "sha256": "ddc6f988784089514666e40960c9549b615e5199d08c43ea2be36365a6d77739"
+    },
+    "docs/images/dashboard-tariff-v1.5.8.png": {
+      "mode": "100644",
+      "sha256": "c26abe5140f9833d5ba111c31d4ce7e0fdf58407b45101815cd44fa449b5c230"
+    },
+    "docs/images/esp32-s3-rs485-hoymiles-pl.png": {
+      "mode": "100644",
+      "sha256": "a0567da406d5b11dc4df640bfc6b581cdab35bc150b55ae504bcacdbce1209af"
+    },
+    "docs/images/esp32-s3-rs485-hoymiles-pl.svg": {
+      "mode": "100644",
+      "sha256": "1d205a9ba26a427a8aba6bc307eedc15a5ec4382671a708c7a87429955d71f24"
+    },
+    "docs/planning/EV_LOAD_FILTER_1_5_8_OFFLINE.md": {
+      "mode": "100644",
+      "sha256": "1604650db7d036f4201fcdc3c777524f7ac63cc05d0fc010b10fc9e8eef273e1"
+    },
+    "docs/planning/PSTRYK_1_5_8_IMPLEMENTATION.md": {
+      "mode": "100644",
+      "sha256": "e3b8ab7c1f362a91b51abff3ec5c26054c2f5418dc84d984601f54eb60aebbbf"
+    },
+    "docs/planning/PSTRYK_1_5_8_OFFLINE.md": {
+      "mode": "100644",
+      "sha256": "c6d768cf97797cb4af54e7b3bed5e1f38fd8ae2b19a01af878f6bab722766713"
+    },
+    "docs/planning/PSTRYK_1_5_8_RISK_REVIEW.md": {
+      "mode": "100644",
+      "sha256": "a4b13d86df2aa07a930cefb7cac68b7aec9d67b38f4e5ead74e34639785023a8"
+    },
+    "docs/planning/PSTRYK_EV_UNIFIED_20261001.md": {
+      "mode": "100644",
+      "sha256": "8819e7daaf0a84dcb85ab47f14740a15f45dad13aab351aa64c58cc3fceee69b"
+    },
+    "docs/planning/PSTRYK_RC1_OFFLINE_COMPLETION.md": {
+      "mode": "100644",
+      "sha256": "251a9b18eea06c53c587026b672aec9579811ec24103ef65145db8e5b62a6e6a"
+    },
+    "docs/planning/PV_CHARGE_DELAY_1_5_8_OFFLINE.md": {
+      "mode": "100644",
+      "sha256": "cd4b02f693937b0295ea7bbd337426a441defee8e5e5700e8fb36a608a019165"
+    },
+    "docs/planning/v1.5.9-TODO.md": {
+      "mode": "100644",
+      "sha256": "ab46ee7475c836c00760da83bed617280340b6d9b401502f38fb66401b858684"
+    },
+    "docs/releases/1.5.8/PUBLICATION.md": {
+      "mode": "100644",
+      "sha256": "9514b440d46f8f5f9cffcb8c3e30aba620d4faa008295e94ab7d48c56c63179d"
+    },
+    "docs/releases/1.5.8RC1.md": {
+      "mode": "100644",
+      "sha256": "0aae8f288d2a4936ed2002fffbd2995ddc8abc6d5a8633dcb6d800f0c8c908b4"
+    },
+    "docs/releases/1.5.8RC1_BASELINE.json": {
+      "mode": "100644",
+      "sha256": "e995393f4220f1112868add5c18551fc9230b0839cce93338bcef93050a6d032"
+    },
+    "docs/releases/1.5.8RC2/FIELD_ACCEPTANCE.md": {
+      "mode": "100644",
+      "sha256": "795516dd5db808516c12720647d5a68c26c3529d13eab4c3f08d74cf8547016c"
+    },
+    "docs/releases/1.5.8RC2/HACS_ICON.md": {
+      "mode": "100644",
+      "sha256": "7500650fcf34bb971fedcbac57abe1411eb3a695125af904814b6d69cc301d56"
+    },
+    "docs/releases/1.5.8RC2/ISSUES.md": {
+      "mode": "100644",
+      "sha256": "f6a41142f6657fa94ea2d228db0a6b184f219124666ba95586990576dbd21ffc"
+    },
+    "docs/releases/1.5.8RC2/PUBLICATION.md": {
+      "mode": "100644",
+      "sha256": "211ea04c59c72222421e1ff926ea652c459a2d17d84b4d4cb0a934ed2d5abd88"
+    },
+    "docs/releases/1.5.8RC2/README.md": {
+      "mode": "100644",
+      "sha256": "ce25b2fe44951a3aff9f06dc6bcb117d84a4ebb1215025f9874c4189557fbb24"
+    },
+    "docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md": {
+      "mode": "100644",
+      "sha256": "5d54bcd3a7a7bf1b899f99719960ce9fe40ab96776a78ec5652ea3ce9af0c006"
+    },
+    "docs/releases/v1.4.0.md": {
+      "mode": "100644",
+      "sha256": "02e856be089549211c93fcc4523c67eddd87fe8032f273694a78190ef0dd1d6e"
+    },
+    "docs/releases/v1.4.1.md": {
+      "mode": "100644",
+      "sha256": "25d39dd820fb4774909dfb271024d3f9f38acb40356976dbcc3ac18037d82473"
+    },
+    "docs/releases/v1.4.2.md": {
+      "mode": "100644",
+      "sha256": "b7cbfed27c8be402a57cdfc4765e9c2d598a868551b8533e4a10c769e5fbd6cc"
+    },
+    "docs/releases/v1.4.3.md": {
+      "mode": "100644",
+      "sha256": "8a130684ea2553e56c2a7fe9fa3ad0646f6e61108723b3173bb4aeb37e88ee54"
+    },
+    "docs/releases/v1.4.4.md": {
+      "mode": "100644",
+      "sha256": "c44147a9296326e422503a3ea835e64f8fc9fb0d166c7fbe710fea60b56d7e7d"
+    },
+    "docs/releases/v1.4.5.md": {
+      "mode": "100644",
+      "sha256": "d14386c76ebc7cd7ff7241a5f0239b98727b28a6c3224c32d69b5c4a9839f500"
+    },
+    "docs/releases/v1.4.6.md": {
+      "mode": "100644",
+      "sha256": "135a7d21a6b839e76f49152b988a94fbad6a9116099ec11468a3cc273677d7c7"
+    },
+    "docs/releases/v1.4.7.md": {
+      "mode": "100644",
+      "sha256": "dfd3b5d5f408bca96398f42c5f770b40134a1283eb6d91a4b9f3ddd4ff4e2edc"
+    },
+    "docs/releases/v1.4.8.md": {
+      "mode": "100644",
+      "sha256": "05ae0ccf329632e707669c33f7e5ea70cfa4e5d49fb304d32afdd6c7697879e7"
+    },
+    "docs/releases/v1.5.0.md": {
+      "mode": "100644",
+      "sha256": "c9f85aa69fc56a7cbe4ea5cb73eaec7069f40f75ced0c4ad7de7300f6f35b380"
+    },
+    "docs/releases/v1.5.1.md": {
+      "mode": "100644",
+      "sha256": "f0e9463f05856ce06ad2ba6688f22a0bd279384a9ca2bddec7d742752d73fb33"
+    },
+    "docs/releases/v1.5.2.md": {
+      "mode": "100644",
+      "sha256": "59de85110a5f9250f994c01e5f138a9dbce2c24e40e70d1836bddfb1f05a9b1c"
+    },
+    "docs/releases/v1.5.3.md": {
+      "mode": "100644",
+      "sha256": "244e304772fe6d7bb5c0cd5b737cfa911a449c642eb2bbadbe3eabd9b8c7adbc"
+    },
+    "docs/releases/v1.5.5.md": {
+      "mode": "100644",
+      "sha256": "7b8fe62f2fcaa707057791a13b7909363c24e9ab4427e7b358bb6e6b4baa88c7"
+    },
+    "docs/releases/v1.5.6.md": {
+      "mode": "100644",
+      "sha256": "a8750de4f55972a3298f2283f343e0c1f3ce58254c2d85bee139c839eeb6e6b0"
+    },
+    "docs/releases/v1.5.7.md": {
+      "mode": "100644",
+      "sha256": "e1e6690890fccdcd22832bbc491093717a32de97ef294adc4b44eb535cf06e51"
+    },
+    "docs/releases/v1.5.8.1.md": {
+      "mode": "100644",
+      "sha256": "05cf115bceb15d374004a9a7404aff9b3336ab492f14de7f99bf8b847ea48e7d"
+    },
+    "docs/releases/v1.5.8.md": {
+      "mode": "100644",
+      "sha256": "aa6599bd7974ae5ec5261e38a151a91429b8f634d1d8a74d17525922267999c7"
+    },
+    "docs/releases/v1.5.8rc2.md": {
+      "mode": "100644",
+      "sha256": "2a1048e57cc5196bebd7e86cf0c956c88f91b11956b76d637587e451bbdf3847"
+    },
+    "examples/esphome/esp32-wroom-diagnostic.yaml": {
+      "mode": "100644",
+      "sha256": "ef79ba4b97f19da46e82016fa665150986408ea650f403cedbf34699595b85a4"
+    },
+    "examples/esphome/hoymiles-hit-g3.yaml": {
+      "mode": "100644",
+      "sha256": "42555d76530e5caf3915e6088de9985c4a4ea339055733702da2126e56fd794b"
+    },
+    "hacs.json": {
+      "mode": "100644",
+      "sha256": "4493615dbcc5688d37bf0dd8f8bb7ea35f56f5b818f41b6f788c53665706332e"
+    },
+    "home_assistant/README.md": {
+      "mode": "100644",
+      "sha256": "3b2dc1c0ca9df734c84d25eb267406fc51185f6319703ba02e8783704e853898"
+    },
+    "home_assistant/hoymiles_ems_scheduler.yaml": {
+      "mode": "100644",
+      "sha256": "b7da3710b4f1154b4aaa6e75676f0e33bd987b451f200d4b7ebad8cfd1bcb069"
+    },
+    "home_assistant/hoymiles_ems_shared_inputs.yaml": {
+      "mode": "100644",
+      "sha256": "f1ed1379b4fe2140b020cb8e5b3772ea5f10d9116d28ea635f35b49176330120"
+    },
+    "home_assistant/www/hoymiles-dashboard-strategy.js": {
+      "mode": "100644",
+      "sha256": "1ef37bbf04e7993d0b464eba8ef1eb541cadea070d4469e433988fd7d56653ba"
+    },
+    "home_assistant/www/hoymiles-inverter.png": {
+      "mode": "100644",
+      "sha256": "4531e85081e78cf94dee82dbde75b2f931860886457ce9800f546afb4a3b3d15"
+    },
+    "home_assistant/www/hoymiles-rce-chart-card.js": {
+      "mode": "100644",
+      "sha256": "6916ddbc35779a87e9d5e8899fd995db30dc6e8009b25e652673d03d15d3d06a"
+    },
+    "home_assistant/www/hoymiles-update-guide.js": {
+      "mode": "100644",
+      "sha256": "a4fdc70410d2cce7e92c1442181e67dbb982a913171e718419e209b214256556"
+    },
+    "hoymiles-inverter-flow-control.yaml": {
+      "mode": "100644",
+      "sha256": "746f9461f58ba2d028ace7ba80ae128f5c031886bc121ad02605d7758641a7e3"
+    },
+    "hoymiles-inverter-s3.yaml": {
+      "mode": "100644",
+      "sha256": "fc122a9d9e2f39c5d757669a8115fa8edcd0fcebe2581e406be31804e6318f55"
+    },
+    "hoymiles-inverter.yaml": {
+      "mode": "100644",
+      "sha256": "d8a79a5b8715f49e478914b0b6faf301a75eb47582ac71e39dfbbfd82d7f83bf"
+    },
+    "packages/README.md": {
+      "mode": "100644",
+      "sha256": "8dcd5ae8c1f1102a8809b3cf5d521551349cfeceac161e6013bf7faa66544b44"
+    },
+    "packages/backup_load.yaml": {
+      "mode": "100644",
+      "sha256": "639c6ffb559b5bd0fb997fa215306bb06dcd93d5312bfb03dd203828384fc0bc"
+    },
+    "packages/battery.yaml": {
+      "mode": "100644",
+      "sha256": "2cc26105948ad4d63fd211d78cc5cfcef2eadf0ebb19efbb2a8cbce6ed7d6ec4"
+    },
+    "packages/core.yaml": {
+      "mode": "100644",
+      "sha256": "74c6a70cfede815a2ea2ab3a5dfffb3b715082a5271191683c5046ff706c2a18"
+    },
+    "packages/diagnostics.yaml": {
+      "mode": "100644",
+      "sha256": "93aeafc809607f364ddde0d42f0b932adeffba099982d0012421613381fdd7c1"
+    },
+    "packages/energy_flow.yaml": {
+      "mode": "100644",
+      "sha256": "c23e4b5331c47515b2961a0e0903fb8a115aa008943a81c46f5f591cbfeeaf13"
+    },
+    "packages/generator.yaml": {
+      "mode": "100644",
+      "sha256": "01a2dbbe8d819e320524be211c2da590584cc1544a9c30301dc5df8ca27e3f4f"
+    },
+    "packages/grid.yaml": {
+      "mode": "100644",
+      "sha256": "eebf1d81f4c747d1b7ec028e775901e9bdeb201b3e2ed1ced1cdd9659a4c0423"
+    },
+    "packages/inverter.yaml": {
+      "mode": "100644",
+      "sha256": "56f81d58f94f7c8734353d7e3beecca4ab4976ec5d94bee64e40633e4b125005"
+    },
+    "packages/meters.yaml": {
+      "mode": "100644",
+      "sha256": "adfdfad9915e11710ad94c6d3ef6ed1d9ddc1ffd3ec6af351051551603e36d49"
+    },
+    "packages/modbus_connection.yaml": {
+      "mode": "100644",
+      "sha256": "2add6c7d4a0f7b99a3c0e1e8b0b7f39ab9f0f1f54cd1c076af74c81505cf7bf7"
+    },
+    "packages/network.yaml": {
+      "mode": "100644",
+      "sha256": "9f9866b0080672aafb163b6a9665fa243f488f8ea8f8db1087180345618b220b"
+    },
+    "packages/optional_battery_legacy.yaml": {
+      "mode": "100644",
+      "sha256": "e49ce509580b7a54136bebcee267e0091682c792b471b96410d3d18fceaede95"
+    },
+    "packages/optional_battery_pack_diagnostics.yaml": {
+      "mode": "100644",
+      "sha256": "89814d6f4d6dbc00ff131b41e9c829f14c6abd4c74e584b91875b2be96367652"
+    },
+    "packages/overview.yaml": {
+      "mode": "100644",
+      "sha256": "be25be763a1aeea1ab1ebda169ebe01804ecba1396ea3bad47dde1d8adb4a45f"
+    },
+    "packages/parallel_network.yaml": {
+      "mode": "100644",
+      "sha256": "0633dff55017132b1d061510f4f0247612a3e279a193c21d7196ec7c1bc8f784"
+    },
+    "packages/pv.yaml": {
+      "mode": "100644",
+      "sha256": "d8f629073b11a47a0f471791feaed8f07c704315fe73d1838fe13ffd020df2e1"
+    },
+    "packages/settings.yaml": {
+      "mode": "100644",
+      "sha256": "fc83b7234462686eafb8b5d57f276c5c6cc20be258373133b3dd7cb9b4666afb"
+    },
+    "packages/states_alarms.yaml": {
+      "mode": "100644",
+      "sha256": "d75de9dda6c8121994001ab2beda8757bb0c12ce64523e58960d6353a232ce60"
+    },
+    "packages/system.yaml": {
+      "mode": "100644",
+      "sha256": "5623bb4227919eb1d848f4fb24b95cbf164def374adfe32fb2899d8ce50c994d"
+    },
+    "requirements-dev.txt": {
+      "mode": "100644",
+      "sha256": "1d3d3e76a40ffdcb7ca31ab73aff15cd0cf1f47c4da2495bf7064386fab303a5"
+    },
+    "secrets.yaml.example": {
+      "mode": "100644",
+      "sha256": "6bb6dade2e749563893034bb16f60d3310c5be11002c41d867d8b228ecdccebc"
+    },
+    "tests/test_ems_initial_defaults_storage.py": {
+      "mode": "100644",
+      "sha256": "f500c21464fbdc499969c4996780adccff135bc72de8c3dc3e90fbd326ca0236"
+    },
+    "tests/test_ems_shared_input_migration_storage.py": {
+      "mode": "100644",
+      "sha256": "794de8e8a52d19c42f307e07cd32715beb4853dcd734471f4d156b9e0506766f"
+    },
+    "tests/test_timeline_platform_registration.py": {
+      "mode": "100644",
+      "sha256": "a1774df4044ba8d0f358e43686acfc1591dc19f27671d41b9309b499a321f8a4"
+    },
+    "tools/.gitignore": {
+      "mode": "100644",
+      "sha256": "42dd5a9c86ecaee04d442715c0be59991b54aa1cb6a0ffa2c9e310460d6a79ba"
+    },
+    "tools/analyze_diagnostic_bundles.py": {
+      "mode": "100644",
+      "sha256": "4bfce43e3133f96e9fd65decc9a030965a49e672f75cb4c7cd411d7a0b859ab8"
+    },
+    "tools/baseline_timeline_ui_fixture.html": {
+      "mode": "100644",
+      "sha256": "398d5a2397b60988c61d63d823489fcc9bbcfdcae270eb20bfb07635bbc3561f"
+    },
+    "tools/benchmark_ev_load_recorder.py": {
+      "mode": "100644",
+      "sha256": "42cf4d2efb006a30a9b1d14496023a14e8d2672d792eef3f23dfa85d87e1181f"
+    },
+    "tools/benchmark_pstryk_recorder.py": {
+      "mode": "100644",
+      "sha256": "f15c3abf28efd66a02e0f66be68dde8e21403608f7964e55c8a8990d0510608a"
+    },
+    "tools/benchmark_pstryk_storage.py": {
+      "mode": "100644",
+      "sha256": "b2bf4b41dda005f527b1d4daa823aae5f03334504b4af03dbfe0f8d77746822c"
+    },
+    "tools/benchmark_pv_bms_recorder.py": {
+      "mode": "100644",
+      "sha256": "575bd9d70e5216bbc22215cc3b975e67d743e82199ca4d7dc5b88e8d6d2c859a"
+    },
+    "tools/benchmark_pv_charge_delay_recorder.py": {
+      "mode": "100644",
+      "sha256": "ff6e626f2f4af7ca08ae7157c169bbde211ea48bff1901d6a9f4b0b6d1ebc62e"
+    },
+    "tools/build_esphome_upgrade_manifest.py": {
+      "mode": "100644",
+      "sha256": "a31efc6a732f35ad6291ac92268a1c2df323e6fd38022016d04023543591f22b"
+    },
+    "tools/build_hacs_assets.py": {
+      "mode": "100644",
+      "sha256": "a331fc5aca989125cb00b77fd0a76a0eadb81853f221adcf88e7b78aa7531ccc"
+    },
+    "tools/build_rc2_source_archive.py": {
+      "mode": "100644",
+      "sha256": "e492e1126ad0be25196e4eb62a288a1934dd7bf5ab97418fbcc95622eebe0616"
+    },
+    "tools/build_stable_source_archive.py": {
+      "mode": "100644",
+      "sha256": "ccc6927e40ecffe0d1c8744b3fe5ed26d81c390b947732dc28d3db0ee6d37999"
+    },
+    "tools/build_upgrade_1581_source_archive.py": {
+      "mode": "100644",
+      "sha256": "a9d4aed33767f9b51f61ed7dd7b4db3a7e9bfbab759b8c80fbb677910bed5587"
+    },
+    "tools/deploy_ha_dashboard.py": {
+      "mode": "100644",
+      "sha256": "32aaaa1601432bd87ce5c4364f06c83215f03442b35c82a596717248aa6ae24e"
+    },
+    "tools/diagnostics_analysis/__init__.py": {
+      "mode": "100644",
+      "sha256": "89a2d122ed9403711ca518fee290e52ad9114ee95214daab5b7a335f2b213d53"
+    },
+    "tools/diagnostics_analysis/analyzer.py": {
+      "mode": "100644",
+      "sha256": "02fb08b8d88f9de89542de908c822463840ffeab254d293c997827805c34b93d"
+    },
+    "tools/diagnostics_analysis/archive.py": {
+      "mode": "100644",
+      "sha256": "62354de6ba45623d97d6978733f0b2a0895bc60cf12a2536fd3dd1e1eef70701"
+    },
+    "tools/diagnostics_analysis/extractors.py": {
+      "mode": "100644",
+      "sha256": "a70d9f29c54dae47a40716723772dd0f624fa7cbeed6d20bd147dbeae97de146"
+    },
+    "tools/diagnostics_analysis/history.py": {
+      "mode": "100644",
+      "sha256": "e47348a02298b693dd8eab5cf6965d95f1f189ccfc44d4d6251eaa09fa7f69b2"
+    },
+    "tools/diagnostics_analysis/models.py": {
+      "mode": "100644",
+      "sha256": "140c83773aee864810814797e3ae6ee0955683587651582d33a18aeba8e915d5"
+    },
+    "tools/diagnostics_analysis/outputs.py": {
+      "mode": "100644",
+      "sha256": "30f7a6d1c13263c3334954b9843379d63c5f3a0495f5253f5affd33e303cd95e"
+    },
+    "tools/diagnostics_analysis/privacy.py": {
+      "mode": "100644",
+      "sha256": "1b0876650d1f07475d1c4e3941ecd5fbc5e5608751112055b541a633dd5adeaa"
+    },
+    "tools/diagnostics_analysis/rules.py": {
+      "mode": "100644",
+      "sha256": "7b21df5f334d1478e68e9b18f990c85cd8ff9dd38250f35c93b03e79293d816a"
+    },
+    "tools/ems_retention_policy.py": {
+      "mode": "100644",
+      "sha256": "1e948dd38e7c4773a748f135c11cb321c3710493c1bd0ae61e6d37b0be81068b"
+    },
+    "tools/esphome_verify_ci.yaml": {
+      "mode": "100644",
+      "sha256": "1d072778f198c7e639cfea59cba1e1d47e6ec235c52a01a2e04d986cefee328c"
+    },
+    "tools/esphome_verify_wroom.yaml": {
+      "mode": "100644",
+      "sha256": "d569452fbcf3d068ded32d99b9844d6295682055279e46f02d88d0c0bbfc9d77"
+    },
+    "tools/fixtures/ems_supervisor_shadow_decisions_v1.json": {
+      "mode": "100644",
+      "sha256": "d58219a267dae7101bd8e2eac1488b6bf3d487e1ef8f8a433f9a298a197fb21d"
+    },
+    "tools/fixtures/pstryk_buy_search_counterexamples.json": {
+      "mode": "100644",
+      "sha256": "6249e2f702b0e21c4b81e6bd5ab9d347b3219451065ec29b582c0ca07d3c5632"
+    },
+    "tools/fixtures/pstryk_high_pv_night_grid_support.json": {
+      "mode": "100644",
+      "sha256": "b39c4b07017501f19ebc873de4e251525fd59ff9e09f76f295e345c678f234a3"
+    },
+    "tools/fixtures/pv_noc01_installation_1_2026_09_13.json": {
+      "mode": "100644",
+      "sha256": "343925bb7b6632350dc65cb016583ed88fd70d743444a36e3e6694b4fd7aa876"
+    },
+    "tools/fixtures/rce_economics_81_point.json": {
+      "mode": "100644",
+      "sha256": "792c5c0e36e92772f9929b5b39d6e8c2c7d93ce3da25867b4bb62ca42b58ca90"
+    },
+    "tools/fixtures/rce_stability/field_20260927.json": {
+      "mode": "100644",
+      "sha256": "37b9ca50a7f52d1952bcb1cc66670e98465c3451b2d4d53f0e386c0c1cc025f7"
+    },
+    "tools/fixtures/recorder_119b_baseline.py": {
+      "mode": "100644",
+      "sha256": "ecd0dca563b5a299ba39c1c1796c10913eff67c0f72a371f5d97b78f8ac0b1d6"
+    },
+    "tools/fixtures/recorder_6484a82_baseline.py": {
+      "mode": "100644",
+      "sha256": "6fba682065d083f2c6d85a9812989ae63820c498aad5b9c34790d4ca8a318238"
+    },
+    "tools/fixtures/shared_input_parity_v1.json": {
+      "mode": "100644",
+      "sha256": "130084cef29c46469cfd5e369a62b0c6daacaee84f39dba46a2351f339b49563"
+    },
+    "tools/fixtures/soc01_installation_1_2026_09_13.json": {
+      "mode": "100644",
+      "sha256": "ff5c939566133747c535553f3dfdfa4dc913aef20ece0b1a937c0051233ddf9c"
+    },
+    "tools/fixtures/supervisor_canonical_ledger_v1.json": {
+      "mode": "100644",
+      "sha256": "9b6b4ad96ba2641f9dee1e7ccd8773866b952bf061e91788dc21b3342b6c4a45"
+    },
+    "tools/fixtures/tariff_g12w_20261004.json": {
+      "mode": "100644",
+      "sha256": "037cfb651c890f8c2e3695b594f25711ed82fded425a96764f613861c79ee683"
+    },
+    "tools/generate_brand_assets.py": {
+      "mode": "100644",
+      "sha256": "c3bb75e13b4cb09b0807d2fd5df2a300c226be19a6fe945cf4abe22a292dc1e1"
+    },
+    "tools/inspect_pstryk_replay_data.py": {
+      "mode": "100644",
+      "sha256": "f1bb146cf13e18147a369a36bd94830192dec8e701be68792c5209719055387d"
+    },
+    "tools/rc2_regression_baseline.py": {
+      "mode": "100644",
+      "sha256": "d20f251c0fd3c8d498d8f19fd0b2945b386c71f6b5940918548860a14e9246bf"
+    },
+    "tools/rc2_release_contract.py": {
+      "mode": "100644",
+      "sha256": "ee3ec6f99d62067b6759006b2969a1ac8b24224725bdf0ad5128e8446dcdbcb0"
+    },
+    "tools/release_fixtures/rc2_baselines/177215b/rce_optimizer.py": {
+      "mode": "100644",
+      "sha256": "5620f002ac9d96e5d349fab6236646eaaceffcaecfdd0867ba45eea4dc8696f1"
+    },
+    "tools/release_fixtures/rc2_baselines/6484a82/execution_history.py": {
+      "mode": "100644",
+      "sha256": "093912896cda7b83a36f703f6d3d9d482404fbff5890c2b1e73f428854106374"
+    },
+    "tools/release_fixtures/rc2_baselines/6484a82/rce_optimizer.py": {
+      "mode": "100644",
+      "sha256": "cdc4968ead73b969e5272e51380ceed2b87d1a658adac437e2a4fa9f388dae2e"
+    },
+    "tools/release_fixtures/rc2_baselines/6484a82/rce_sensor.py": {
+      "mode": "100644",
+      "sha256": "a346feeb9b03799751465aca9d075f3233458ab02a9f5c06aa78e2fbac9bca0b"
+    },
+    "tools/release_fixtures/rev28_frontend_layers.tar.gz": {
+      "mode": "100644",
+      "sha256": "be2588b3babcd81c1a805a90831e899e43c60191b6d0ed758d7dd4c316ddbb2c"
+    },
+    "tools/release_manifests/n12_v1_5_8.json": {
+      "mode": "100644",
+      "sha256": "320a5efc56686e200e101745d3281c4221eec7fedd0baaf51c0adb6a41481c0a"
+    },
+    "tools/release_manifests/rc2_anonymous_frontend_fixture.json": {
+      "mode": "100644",
+      "sha256": "6d827e84c179b012e596b7cc3a462a79eb973205ce0ac7b42197d86b786d9daf"
+    },
+    "tools/release_manifests/rc2_local_contract.json": {
+      "mode": "100644",
+      "sha256": "88ae743bfc10cfcb1373f85dfc007e3bf42f216e473bba6dec94e5fbf8a3160f"
+    },
+    "tools/release_manifests/rc2_public_provenance.json": {
+      "mode": "100644",
+      "sha256": "242106dde22a904b8e315913ed175db6c0d80ff2a180cc338c8b847af7bac86f"
+    },
+    "tools/release_manifests/rc2_regression_baselines.json": {
+      "mode": "100644",
+      "sha256": "eb460544a50e4a8e39c66e1f6cc2c4e3d58a069ff4c1ca394673e9406de28736"
+    },
+    "tools/release_manifests/rev28_historical_fixture.json": {
+      "mode": "100644",
+      "sha256": "9bc192e3e6e6710e9b01e0bcffe9f30fe9ca26972e6812c79e6d40d449303e9f"
+    },
+    "tools/release_manifests/stable_1_5_8_contract.json": {
+      "mode": "100644",
+      "sha256": "f553139002867e0c6138d5df36a4e61b21fd22283c3fabe12855339c4c1c5973"
+    },
+    "tools/release_manifests/v1_5_8_pv_noc01_delta.json": {
+      "mode": "100644",
+      "sha256": "48c78a8ac6b983d049d98e5a61f93aa8ba49a65196d1524dc20fca747eaa44ef"
+    },
+    "tools/release_manifests/v1_5_8_release_delta.json": {
+      "mode": "100644",
+      "sha256": "af0c9fd08562d833b823febcc6bb0a31fc47f7d874bf1fd6473e79e525066272"
+    },
+    "tools/release_manifests/v1_5_8_soc01_delta.json": {
+      "mode": "100644",
+      "sha256": "39a60b170df19f8b4db4cc46175625fa903b4840de8b5fca12c7d3607c2e8f7e"
+    },
+    "tools/release_manifests/v1_5_8_task02_candidate.json": {
+      "mode": "100644",
+      "sha256": "74d3cff868adaf8116bc4a03c73c5c53ee7173bf71835a17f30f01bb3ed9bcbc"
+    },
+    "tools/replay_load_model.py": {
+      "mode": "100644",
+      "sha256": "85710eb7c4a0316af4ae0f09a8826065785095e818c59d005a06b885e1f49ba3"
+    },
+    "tools/replay_pstryk_joint.py": {
+      "mode": "100644",
+      "sha256": "8ddb07fa3aa4bd18d7aacd88b466036074bcd33645c9db9734fcdf47e96108b7"
+    },
+    "tools/shared_ems_ui_fixture.html": {
+      "mode": "100644",
+      "sha256": "ef0b3e1dac5afd1b04e75f16e2a2e58ac65e7f398876911f4afb008d06468175"
+    },
+    "tools/simulate_rcm_csv.py": {
+      "mode": "100644",
+      "sha256": "fb5edc254ab5fcb559fe0bb1a9c897de963575427654bf5057e5eabec568cdfe"
+    },
+    "tools/simulate_winter_tariff_month.py": {
+      "mode": "100644",
+      "sha256": "d50798f366074fb3e1a20323da733c63b6979eb369b01450b7b70fc74c408ed2"
+    },
+    "tools/stable_release_contract.py": {
+      "mode": "100644",
+      "sha256": "18a0915b80e20ec81145db3b61d1e4a83afae30e03b55251cb91136cb8d1370e"
+    },
+    "tools/supervisor_ledger_v2_cases.json": {
+      "mode": "100644",
+      "sha256": "2a85ad94efbed3c06d03dd7f9ab29ac1e389d52af93bcd53da5b2ede408b7597"
+    },
+    "tools/test_aurora_automation_planner_ui_contract.js": {
+      "mode": "100644",
+      "sha256": "3da2be0d72321ac955c8b74f1698e38e75739ac8f0ccf2f49aa2f19e2ac35570"
+    },
+    "tools/test_aurora_compact_dashboard_contract.py": {
+      "mode": "100644",
+      "sha256": "af9636abbeba71f99c81e92a1793eb08473fdea5b8ed3f154eb499f81c47faf1"
+    },
+    "tools/test_aurora_disclosure_embedded_contract.py": {
+      "mode": "100644",
+      "sha256": "ec966789c4238ed93e46555207d61fb4543dc8259359cd0fc36643dc9a076c0b"
+    },
+    "tools/test_aurora_disclosure_embedded_runtime.js": {
+      "mode": "100644",
+      "sha256": "f69e775e25322d75e7f33460951653e5525aac0cd981894619cdf0e092330bbf"
+    },
+    "tools/test_aurora_mobile_ems_playwright.js": {
+      "mode": "100644",
+      "sha256": "b4f87d1fea1d9677d81b7876df70609412b83552bb43406e0caba09cfc2a51f6"
+    },
+    "tools/test_aurora_mobile_scroll_playwright.js": {
+      "mode": "100644",
+      "sha256": "8b23493b2a7d8cc8f75f73b9f5be2aed0b11bb284d90c59551dce944e150a669"
+    },
+    "tools/test_aurora_next_block.js": {
+      "mode": "100644",
+      "sha256": "2890e8d4b2869d9ca983fa33847799a251df5ad8b5677e5b6865d7c6b7f33cf1"
+    },
+    "tools/test_aurora_next_block_playwright.js": {
+      "mode": "100644",
+      "sha256": "f1e6f3d8daae43a5d8791336a04a41424797b7a25f0c37fbcdb506a517e0b6f3"
+    },
+    "tools/test_aurora_service_manual_ui_contract.py": {
+      "mode": "100644",
+      "sha256": "47e0a4c4b8996f24414d05238295cddc4b00db8d4b8c292eb556c535c5b6945e"
+    },
+    "tools/test_automation_matrix.py": {
+      "mode": "100644",
+      "sha256": "418a8d851606b2b0d3466cb4a1aa5325b3c18a8a662893a192fdb61f3a7ef919"
+    },
+    "tools/test_automation_plan_timeline.py": {
+      "mode": "100644",
+      "sha256": "35e9b80b68f440881e47e9a0c55f1cd7c69a0ca5146d5dcb2bffc8f0aead1395"
+    },
+    "tools/test_baseline_energy_timeline.py": {
+      "mode": "100644",
+      "sha256": "9b4a77f584f0f4d5f1241a8122877b8934b5405218974a2e30eb2517c714951f"
+    },
+    "tools/test_baseline_energy_timeline_sensor_contract.py": {
+      "mode": "100644",
+      "sha256": "79913a0e372129e7a125855a66d8181a71385e1bf9b9fd78461ecc6e62a41e54"
+    },
+    "tools/test_battery_balancing_contract.py": {
+      "mode": "100644",
+      "sha256": "e89e19464472f7b4e708b815ae0103264a6de27d6f91d09b6d4c62986e8401a9"
+    },
+    "tools/test_battery_balancing_ha_runtime.py": {
+      "mode": "100644",
+      "sha256": "6d3a8064b5636ca48c4c4158b1893a544fdc98e78eb8c78be8529466a5c90260"
+    },
+    "tools/test_c4_final_ui_contract.js": {
+      "mode": "100644",
+      "sha256": "ce413bee4d6b891119957cb9b49a26e44be574c441e019a2a3eeb8e40a22c736"
+    },
+    "tools/test_canonical_adapter_errors.py": {
+      "mode": "100644",
+      "sha256": "783caa404b5b8174aacb1cc9f41bf4f941430119899d290d86d5a3c2a932e7ad"
+    },
+    "tools/test_canonical_disabled_rcm.py": {
+      "mode": "100644",
+      "sha256": "fe67b6b5ae80fc6e9907604d7642986a8b1c18947fb0fc17dd7b7ddbcc173e29"
+    },
+    "tools/test_charge_forecast_runtime.py": {
+      "mode": "100644",
+      "sha256": "f85598952c952ea62c9cf6d505f2baf90e6942d573d9556c62bb93ed5f61e565"
+    },
+    "tools/test_diagnostic_analyzer.py": {
+      "mode": "100644",
+      "sha256": "a11703866da6d9a6f224bcbf8b6e5bf7a66fa25281a1dd9e52a9fdb42d526903"
+    },
+    "tools/test_diagnostics.py": {
+      "mode": "100644",
+      "sha256": "1badab323b9da03df4f59cd327061535f8363a2c0b022feafe2eeddd0d0c4a5f"
+    },
+    "tools/test_diagnostics_future.py": {
+      "mode": "100644",
+      "sha256": "8cdac06a310fa242cad4633c433e46315908a2a7f3459c499ad1cdf468cedd40"
+    },
+    "tools/test_ems_confirmed_telemetry_grace.py": {
+      "mode": "100644",
+      "sha256": "91d5bf53a4d03b787670ee3ecbf069e173e0276acdb0961371c66a02f7ada5c1"
+    },
+    "tools/test_ems_initial_defaults.py": {
+      "mode": "100644",
+      "sha256": "47572dacf0bae0f0ada8337cca6be28b771fb24faf9624035644b6f1ea1c32e4"
+    },
+    "tools/test_ems_lease_timing.py": {
+      "mode": "100644",
+      "sha256": "78d68bd0b87f672d3b71f8dcd480570b8e5e9ec549f86fcf1205b171b5d1001a"
+    },
+    "tools/test_ems_notifications.py": {
+      "mode": "100644",
+      "sha256": "39f54d634819e165bbf2fa96b4b3dc87c76651ec35c3d432653cf6930e9e4349"
+    },
+    "tools/test_ems_retention_policy.py": {
+      "mode": "100644",
+      "sha256": "3487214107f5736e3738a72d2b1d4a2b211e0c02b6358e3e8602077a1153968b"
+    },
+    "tools/test_ems_retention_runtime.py": {
+      "mode": "100644",
+      "sha256": "129fc25d51a29ed43386240c7b46770c3222c67a4c82fbdf8d359354be814487"
+    },
+    "tools/test_ems_shared_consumer_parity.py": {
+      "mode": "100644",
+      "sha256": "52dd9d7aff8bba708374e76fca207094bc645e531bf57b0569b86055c927d0b1"
+    },
+    "tools/test_ems_shared_helpers_contract.py": {
+      "mode": "100644",
+      "sha256": "510e91330ac33cd2f17e325fd57a5b7c91a322656e42f94c520ed8d3132f581d"
+    },
+    "tools/test_ems_shared_input_migration.py": {
+      "mode": "100644",
+      "sha256": "94ba651c2c932d0992219df4a83150f8322258bf564638af4ff1f3415462168c"
+    },
+    "tools/test_ems_shared_inputs.py": {
+      "mode": "100644",
+      "sha256": "eaf03e42f589f3390a8bc7c7970087cec9936711e8e01def8f30bab36a4b8e07"
+    },
+    "tools/test_ems_start_push_limit.py": {
+      "mode": "100644",
+      "sha256": "9dc99639f2594c291e68c87aba1ba1742721e625ccd511c8699fb3620bbbeea6"
+    },
+    "tools/test_ems_supervisor.py": {
+      "mode": "100644",
+      "sha256": "abc72cfb0540e72a97a7a6d373b568833acbc6d925154dfdfcb838e3585b459d"
+    },
+    "tools/test_ems_supervisor_active_golden.py": {
+      "mode": "100644",
+      "sha256": "0af11424d9f6d06689620f7129d779bd23aca93ff47244611947658df4e5a30a"
+    },
+    "tools/test_energy_data.py": {
+      "mode": "100644",
+      "sha256": "d0626e9c97d7514754363d6ffdb9b682b34f3ff901747e73371883c996b00eb9"
+    },
+    "tools/test_esphome_2026_9_migration.py": {
+      "mode": "100644",
+      "sha256": "18dd8976ad85ce578c5f5834a4e2bd5567f8895a092075b02cae8e72fc320ea9"
+    },
+    "tools/test_esphome_entry_points.py": {
+      "mode": "100644",
+      "sha256": "8100cbd5b34fe9d2f161268b5ee0cd8d5fade3b043ce336b7e14112c046b2180"
+    },
+    "tools/test_esphome_upgrade.py": {
+      "mode": "100644",
+      "sha256": "84dfe4f11e2949fd372fdaa38a8517782a6a00e3089e3ab4ba224196269856ba"
+    },
+    "tools/test_esphome_upgrade_config.py": {
+      "mode": "100644",
+      "sha256": "3eb2b548e88da22cb30525ebe36ec2adc7d357e702fa295e49508a3759092324"
+    },
+    "tools/test_esphome_upgrade_http.py": {
+      "mode": "100644",
+      "sha256": "0c84d1cd6010f7b863133c2e9cd19e85a63b03e4408a909a59adcc56b04de3eb"
+    },
+    "tools/test_esphome_upgrade_ui.js": {
+      "mode": "100644",
+      "sha256": "72c135f24eac81ca72276d85e102ccd2fc40d5ebd587eeb8005adc33536ee08d"
+    },
+    "tools/test_esphome_wroom_profile.py": {
+      "mode": "100644",
+      "sha256": "b9aac28c2c295959e2a859761b539812d89997b6346e996e350046699c2697f3"
+    },
+    "tools/test_ev_load_filter.py": {
+      "mode": "100644",
+      "sha256": "2d165a5fc62f35afbef1c49009459819c231e5af625412a86b33300756410d76"
+    },
+    "tools/test_ev_load_runtime.py": {
+      "mode": "100644",
+      "sha256": "baa030169e993db0867b4bc69432bfa37d2b8d5a76f1f393f32c5cc6c06fb0b8"
+    },
+    "tools/test_ev_load_ui.js": {
+      "mode": "100644",
+      "sha256": "6e22f85bdd98550b86f5f746e66103dbf4b348538f3a581aaef22fb1b0ca8648"
+    },
+    "tools/test_execution_history.py": {
+      "mode": "100644",
+      "sha256": "abbed5708becba98ce8c442f888f8524bb72631109427cca597ba81c6b0b2654"
+    },
+    "tools/test_execution_history_http.py": {
+      "mode": "100644",
+      "sha256": "df1577e68e31b08a3fe519852574108593af778e8b4ebacb3aee1951f35028e9"
+    },
+    "tools/test_execution_history_ui.js": {
+      "mode": "100644",
+      "sha256": "46f8ffd3657636cbccdeae7be4cf574070ec744a44ae2c2b74a2b14565e50221"
+    },
+    "tools/test_firmware_readback_contract.py": {
+      "mode": "100644",
+      "sha256": "665b53da5808ed2f3d4940f3dc7c8b260970235cbf4cf7fad4356f958491f359"
+    },
+    "tools/test_forecast_history_quality.py": {
+      "mode": "100644",
+      "sha256": "6899443878cb3becaabdda426e142dbe2ff63b525680f6c6a40663e5b7b2216e"
+    },
+    "tools/test_forecast_history_versions.py": {
+      "mode": "100644",
+      "sha256": "3e99e8cc8c67b1d9bfc18cf2652e08e44e2d2c36af0cecec983dccaebfede967"
+    },
+    "tools/test_forecast_learning_runtime_quality.py": {
+      "mode": "100644",
+      "sha256": "c2aa4cd835cfe0ae55961dbc9a66e3a5691f850733a0c9fcf3376e30499c82f6"
+    },
+    "tools/test_frontend_bootstrap_revision_contract.js": {
+      "mode": "100644",
+      "sha256": "04602d2e5601d991d6772025fe2cef304f1a565c7c698d7baef85e2ac6a794a5"
+    },
+    "tools/test_i3_policy_cadence_contract.py": {
+      "mode": "100644",
+      "sha256": "7c752528b618b0d3ba67e830192293aaca6c7ac0e66da0920868b40614fb0fa2"
+    },
+    "tools/test_integer_control_targets.py": {
+      "mode": "100644",
+      "sha256": "ea2b9a38e9cbf469c8d2a30e5dee6c13bbf9248657f9ce8ca4fd28f71b998743"
+    },
+    "tools/test_integer_percent_firmware_contract.py": {
+      "mode": "100644",
+      "sha256": "cc7446bcc560e12efb2ad27b8df58aec655aba27317866be476cc4ff7bfcbf1e"
+    },
+    "tools/test_integer_percent_scheduler_contract.py": {
+      "mode": "100644",
+      "sha256": "faf336fdf5bd0b62194081f226ff51047ce6198d820f329ba6e0f26e94193dfe"
+    },
+    "tools/test_lease_acceptance_journal.py": {
+      "mode": "100644",
+      "sha256": "dff24bbd9633dabee07419955cb3387ab5d31a090946c8cc3bc4f0c110f92c70"
+    },
+    "tools/test_load_diagnostics_buycoffee_playwright.js": {
+      "mode": "100644",
+      "sha256": "cb73ad685da45248ceb2fb9e51e3aaa022f1f4e0f49d9e6af40259934084bfe3"
+    },
+    "tools/test_load_forecast_parity.py": {
+      "mode": "100644",
+      "sha256": "6545e6ab22f6402c3fa3677d7e25effecf413338cacebf3957e340873b772b6d"
+    },
+    "tools/test_load_history_continuity.py": {
+      "mode": "100644",
+      "sha256": "87fc07621174ab4333e6f69d26776c3143b1ca245d131218dec2032d25df684d"
+    },
+    "tools/test_load_history_diagnostics.py": {
+      "mode": "100644",
+      "sha256": "5df20bd133afec3e7150c2659d7191ca4302164a39ba31b4a6fc67e74dd2766d"
+    },
+    "tools/test_load_history_recovery.py": {
+      "mode": "100644",
+      "sha256": "1deb62ad1530c0733a8e26c4a4a3cf5e59880ca8210051c66ff628db8cefb925"
+    },
+    "tools/test_load_history_runtime_quality.py": {
+      "mode": "100644",
+      "sha256": "726678ff2f7b4c7702d18918be931535c0494ef48e2afa2dbade5295ecf6cad8"
+    },
+    "tools/test_load_history_store.py": {
+      "mode": "100644",
+      "sha256": "1cc27c85bdea42a52a820a6082bffbb3874892baa51a1ab61f0213c1e22b6225"
+    },
+    "tools/test_load_model.py": {
+      "mode": "100644",
+      "sha256": "86ce91ade964a66e6317b88541cc36fb9a69290a0701a1010ee5194f27b6187b"
+    },
+    "tools/test_load_model_freshness_alignment.py": {
+      "mode": "100644",
+      "sha256": "478da7e484bf729b0d2b0ca4acfc1c5dbaf599f4c9257e7b7056bed3f3862f50"
+    },
+    "tools/test_load_stale_history_fallback.py": {
+      "mode": "100644",
+      "sha256": "225976763c71271ad716c68b696628cb249afdb47d97a2ea292dbf36bd3cf391"
+    },
+    "tools/test_master_stop_deferred_start.py": {
+      "mode": "100644",
+      "sha256": "4305e5b81c6d0f7f3cde399416c5b05646943fb82d0edf8fc6a65e6e2dd34725"
+    },
+    "tools/test_n12_release_contract.py": {
+      "mode": "100644",
+      "sha256": "05f835d810defd67a40ed48c6072f1fd85e481ab8ed7395e14a414271d79f1ee"
+    },
+    "tools/test_optimizer_executor_contract.py": {
+      "mode": "100644",
+      "sha256": "da3cf36f0dc1c4535ef1b300a839a8a4881f4d9c5c5b351a54cf1eb67bb2a560"
+    },
+    "tools/test_optimizer_integer_commands.py": {
+      "mode": "100644",
+      "sha256": "e585d27d776303147f72dad2af49e8ead00ba9a7624fbeeceb7d725bf75ea481"
+    },
+    "tools/test_optimizer_startup_contract.py": {
+      "mode": "100644",
+      "sha256": "c9433a276e3a0f12568da48207826c06bb67155bab791e1b856c44bb40dfda49"
+    },
+    "tools/test_overview_control_poll_contract.py": {
+      "mode": "100644",
+      "sha256": "0e0c17a6ebb88fa757c0441069fc121b5f4c0795661eb2bb5d30c3c4cf32362d"
+    },
+    "tools/test_power_balance.py": {
+      "mode": "100644",
+      "sha256": "a058007793f4deaf390a11e7331fdf1b6e5d9424e11830be90bf00e09fc2f07f"
+    },
+    "tools/test_profit_archive.py": {
+      "mode": "100644",
+      "sha256": "ae71e5d3cae34d4ed1c9cbb7c442dcd60c2e2efe22b39cfc1b0a4d2294ff4617"
+    },
+    "tools/test_profit_http.py": {
+      "mode": "100644",
+      "sha256": "4f06e750db4bfea790af7af6f936be4ec64ca429792d2f562d5514273ee39d85"
+    },
+    "tools/test_profit_ui_playwright.js": {
+      "mode": "100644",
+      "sha256": "a5a042e466565b053b1489c9e13d151976285c4fa63277a4a06b950f28928291"
+    },
+    "tools/test_pstryk_active_run_commitment.py": {
+      "mode": "100644",
+      "sha256": "d90143fcc83f548e5ae5a74ec7b24e76fb1f5c6efbe301537f10049854136e88"
+    },
+    "tools/test_pstryk_adapter.py": {
+      "mode": "100644",
+      "sha256": "35315075283a17f87274a4f82521cb24ce8d2acbc5ec39262a8f4b503f6a7e08"
+    },
+    "tools/test_pstryk_buy_commitment.py": {
+      "mode": "100644",
+      "sha256": "aef0c6334682f45cf378ac33db79612a3280b68ec5279ae5633b909392b9ad75"
+    },
+    "tools/test_pstryk_buy_readiness_ui.js": {
+      "mode": "100644",
+      "sha256": "951e485724be4bba3045b1f2442482aa4a44b8b23d26de4c411651b965a0907a"
+    },
+    "tools/test_pstryk_buy_refinement.py": {
+      "mode": "100644",
+      "sha256": "84b973641cf84899c824ec6b6c7105378848cba8735dae11120e64df28b8f226"
+    },
+    "tools/test_pstryk_buy_reserve.py": {
+      "mode": "100644",
+      "sha256": "2ef617c7e21b70fe5d581aa9ec3897038d55c2a840f1d9d31b26f7ba2fda06fb"
+    },
+    "tools/test_pstryk_charge_chart.js": {
+      "mode": "100644",
+      "sha256": "e6671e17961434cf9646ea6921937c34ef6be89ada9326b595b0783ef32ae303"
+    },
+    "tools/test_pstryk_daily_cache.py": {
+      "mode": "100644",
+      "sha256": "9fff4181c5cd3eb343650ef8854494e6a5700b17fdb1f5fe957d283cd0978082"
+    },
+    "tools/test_pstryk_economic_presentation.py": {
+      "mode": "100644",
+      "sha256": "81ff55f5fe60c3f52d4d419821032301bc4ef74ad93b94d9d19520661dc20c0b"
+    },
+    "tools/test_pstryk_export_settling.py": {
+      "mode": "100644",
+      "sha256": "fb3eeae6ec291a5c180a44a65373b74833dc97ce5c26d983d861fbb563d030ac"
+    },
+    "tools/test_pstryk_idle_readiness_ui.js": {
+      "mode": "100644",
+      "sha256": "b99b5ad3a494522f74551b46750b5bce70c6fcf11f8f253822e1f60f5098c7e3"
+    },
+    "tools/test_pstryk_joint.py": {
+      "mode": "100644",
+      "sha256": "08d1d0418c29df771e4b747853648be2818a29955cbb5f77e3851eb7309ef3d2"
+    },
+    "tools/test_pstryk_offline.py": {
+      "mode": "100644",
+      "sha256": "8354aed5612e839acb577c6e5037df56f798ea1f23d6bc157379a6b8e12ac6ae"
+    },
+    "tools/test_pstryk_price_identity.py": {
+      "mode": "100644",
+      "sha256": "260188abd4acea4784a4eab47dc96597d181001f265dbf5e46c50bcc6a1881d9"
+    },
+    "tools/test_pstryk_rce_parity.py": {
+      "mode": "100644",
+      "sha256": "a35f00f9c9f7ab11dc35aa9c0cc31416e2edd3d7f73b66b486467005e5bb17a9"
+    },
+    "tools/test_pstryk_replay_data.py": {
+      "mode": "100644",
+      "sha256": "617ccf4dc7512409ffdf8e1261f941b3d9e2567655bc1bcfcf49d8ab5f9486c3"
+    },
+    "tools/test_pstryk_runtime.py": {
+      "mode": "100644",
+      "sha256": "683c888001089d4a41e3799b73269550c26e79040c14653b7d03b05f15a63247"
+    },
+    "tools/test_pstryk_sell_run.py": {
+      "mode": "100644",
+      "sha256": "dd8c5a14503c8b3fd6d63c9661d8beb35ff58a925319ab0220294c8d4f4c2a89"
+    },
+    "tools/test_pstryk_settling.py": {
+      "mode": "100644",
+      "sha256": "d64e4048813b58e3a249efb9adcc82f5010c8323940c3a2c2cbb85f2bc65be77"
+    },
+    "tools/test_pstryk_supervisor_continuity.py": {
+      "mode": "100644",
+      "sha256": "82fbd940e4c41aa46501d60230ee4c2ecfe8f738172b72d788baa7b728d2bbde"
+    },
+    "tools/test_pstryk_ui.js": {
+      "mode": "100644",
+      "sha256": "509233924a2b9466bd8b69df4d597846395ae1fcabbdd3df74793c6bbe5dfb3e"
+    },
+    "tools/test_pv_charge_delay.py": {
+      "mode": "100644",
+      "sha256": "e75f80aaa01f213e8ec303b81b93ddc70cf0fb1d9effc07a6256ba6a056ae3b2"
+    },
+    "tools/test_pv_charge_delay_adapter.py": {
+      "mode": "100644",
+      "sha256": "4b571e14a363ee47a0952026cf773fbbac2c147ea8c5e75b3d1528fd12a6665a"
+    },
+    "tools/test_pv_charge_delay_control.py": {
+      "mode": "100644",
+      "sha256": "5d6c7bf20ede2854a7f3e6b5792695f441b60c5ca93bbcaceedb7641d256fc3b"
+    },
+    "tools/test_pv_charge_delay_horizon.py": {
+      "mode": "100644",
+      "sha256": "4fe4c8ac356b3fc1da8086d8bce320af34663b723af7130b10bbb30876cd8fbb"
+    },
+    "tools/test_pv_charge_delay_parallel.py": {
+      "mode": "100644",
+      "sha256": "2a3e0a9586958e29d931a1defae86d1b55eeb7c7c7123842e1db16167064b7b8"
+    },
+    "tools/test_pv_charge_delay_parallel_settling.py": {
+      "mode": "100644",
+      "sha256": "f8b26328a040a816dcb64d21a71d7f363359d566cb82c189a40cf20e638c254f"
+    },
+    "tools/test_pv_charge_delay_projection.py": {
+      "mode": "100644",
+      "sha256": "23c6cf32c22548eeccfcabf7d222e67d58e5d4e42e32d8a78a5af53c61c53242"
+    },
+    "tools/test_pv_charge_delay_sensor.py": {
+      "mode": "100644",
+      "sha256": "0ada836caee63e48d5c98787116b6347530a3c3f4e80ffc9534304c424959ecc"
+    },
+    "tools/test_pv_charge_delay_settling.py": {
+      "mode": "100644",
+      "sha256": "235d4140f0939a9104fa8f91bad70ab95148a56e9c6d16495a87d1ab178074d3"
+    },
+    "tools/test_pv_charge_delay_ui.js": {
+      "mode": "100644",
+      "sha256": "3c2085968caf9f42652af93a5b38f0bba32497ca4903ea859dcc63f7338a99fd"
+    },
+    "tools/test_pv_delay_active_window.py": {
+      "mode": "100644",
+      "sha256": "7693f79d38077d7b5712d82ffb96fa40b3ddde86a332a44b49605a50322633a4"
+    },
+    "tools/test_pv_delay_continuity.py": {
+      "mode": "100644",
+      "sha256": "48c0599c929a5dbfbeec6de9b783f0e4f3fdadee390c5dfd4a7ba65336219f34"
+    },
+    "tools/test_pv_delay_execution_status.js": {
+      "mode": "100644",
+      "sha256": "2d6078b0305eff9fced8b360ce88ff89fe3e01c9d3d1ce4e7759cd0024b2fa3f"
+    },
+    "tools/test_pv_delay_forecast.py": {
+      "mode": "100644",
+      "sha256": "c90e31be1884e0297f684356cb4f56d95640c3199a886a5650ffdf88eb0d322b"
+    },
+    "tools/test_pv_delay_house_flows.py": {
+      "mode": "100644",
+      "sha256": "5d1c4bdfcd999ba225e8ceec7d6086845f709b334e40135dc04ef6fe494e2231"
+    },
+    "tools/test_pv_delay_house_lease.py": {
+      "mode": "100644",
+      "sha256": "ada174e9b208f393e720df1ce3e29bf688d3b37ddbbc9b1e0be67b92f073c9a0"
+    },
+    "tools/test_pv_delay_mode_authority.py": {
+      "mode": "100644",
+      "sha256": "35f3c8dc0779a960d60801610aa360ccfb622cca1af4b719adfb77023a439de0"
+    },
+    "tools/test_pv_delay_planner_handoff.py": {
+      "mode": "100644",
+      "sha256": "9d28962b85117cf52a5e61ecdeeec617d44a8d1496f671c1a155f29e534d6977"
+    },
+    "tools/test_pv_delay_planning_proof.py": {
+      "mode": "100644",
+      "sha256": "5b879b0e74026f6133fa2115df5ae23b955f20a63de33f4083bc5cc21798f999"
+    },
+    "tools/test_pv_delay_reserve_independence.py": {
+      "mode": "100644",
+      "sha256": "3c534543f8faa3f1193e26621d1efe3d08636e053a24fc4430a20b0e9f63b8ee"
+    },
+    "tools/test_pv_delay_start_cutoff.py": {
+      "mode": "100644",
+      "sha256": "1ca8149014cd9a08e6e155274c24ef49cb6e91d7eca0612f35983edc34603576"
+    },
+    "tools/test_pv_forecast_usability.py": {
+      "mode": "100644",
+      "sha256": "db00ea84aefd524414dff334b4371e761225a9b0c6eb0184b3099592b7bc181f"
+    },
+    "tools/test_pv_hold_precommand_recovery.py": {
+      "mode": "100644",
+      "sha256": "e72a1894b33fcf69f1ba72eed65f57d930c48ce73d0281cc784848343c1fbf26"
+    },
+    "tools/test_pv_hold_retry_cooldown.py": {
+      "mode": "100644",
+      "sha256": "d623fdda364bff00e5d40aff5eaaba285df47c8677589920c29c14888a9d9a4d"
+    },
+    "tools/test_pv_hold_startup_loop.py": {
+      "mode": "100644",
+      "sha256": "37565478a1760d2f79956cd6b58b09a3827c4a26ecbe449becdd723b9d4bbe1d"
+    },
+    "tools/test_pv_initial_cohort_wait.py": {
+      "mode": "100644",
+      "sha256": "e23b5831b9bc717350d440a5c47d14d8909bd2b76d6e04513989eb45293be77b"
+    },
+    "tools/test_pv_prewrite_callback_race.py": {
+      "mode": "100644",
+      "sha256": "32e8fb3a6a0b7ffca2dadf9d511b595b4f0728d2c1f92f27a8db3b4f171ce70d"
+    },
+    "tools/test_pv_status_ui_contract.js": {
+      "mode": "100644",
+      "sha256": "edeec4c009ad929c16b4fe6a7bfd9c61c9e31f848271d311f7497acd1909b2dd"
+    },
+    "tools/test_rc1_cross_policy_restart.py": {
+      "mode": "100644",
+      "sha256": "a64de5b4d08c98cd211d74aac2fc974219690ddb54bae0ef19089b3a1d040e4f"
+    },
+    "tools/test_rc2_public_snapshot.py": {
+      "mode": "100644",
+      "sha256": "f6b31ecefe89e5d333a2508bca082fc0e2f2bafeb4161e8a5f2045e20cc16aef"
+    },
+    "tools/test_rc2_release_contract.py": {
+      "mode": "100644",
+      "sha256": "2d9b0f14490779e871b7d68aff71ffb106abef0fd71abb44af9b3b13ec83a8d3"
+    },
+    "tools/test_rce_20l_discharge_calibration.py": {
+      "mode": "100644",
+      "sha256": "903547c5b2bd996e6844f64905ac49a13a27aa16a94db580057186f7bf3fa2b0"
+    },
+    "tools/test_rce_48h_ui_contract.js": {
+      "mode": "100644",
+      "sha256": "7c3b52f9faeb340afda3f52140554021f8b75ce4e06ad44f07c655ecc2c05f8e"
+    },
+    "tools/test_rce_active_run_commitment.py": {
+      "mode": "100644",
+      "sha256": "1690b93692a4769d031ed14b5dd5d6c088e53e523b5cebd241f8001812e70f3d"
+    },
+    "tools/test_rce_active_slot_commitment.py": {
+      "mode": "100644",
+      "sha256": "3f2209d30afa2dde03519e9ed0e79614f3cbb67b5b69fc2d9e2511d875cba448"
+    },
+    "tools/test_rce_active_slot_publication.py": {
+      "mode": "100644",
+      "sha256": "a22d1ddfdd4a1264fb5c314bb87ca2489d4bee14adfe9e79bce9b1181f455601"
+    },
+    "tools/test_rce_bms_retarget.py": {
+      "mode": "100644",
+      "sha256": "1f9b994b0bee95e09a6cc35b4807a12badadce9c7a3a843cbb2897531ad9a069"
+    },
+    "tools/test_rce_daylight_publication.py": {
+      "mode": "100644",
+      "sha256": "d2e1062bb10693e3a26a22376b5320907de136f9837f0a97acee49f40a9b2099"
+    },
+    "tools/test_rce_dynamic_start_gate.py": {
+      "mode": "100644",
+      "sha256": "288955c05ea76ca9e8179d7c7c6578951f61900328b3203daef9649ad9f17421"
+    },
+    "tools/test_rce_enabled_rcm_retention.py": {
+      "mode": "100644",
+      "sha256": "7f6801edac46ef71a366ef7d738022eabd8fbe98af29a50eda1e15ddd649809b"
+    },
+    "tools/test_rce_executable_tail.py": {
+      "mode": "100644",
+      "sha256": "ae94c181b7d56f30670bded904da9b7e71abee3530c417b0a838207549000315"
+    },
+    "tools/test_rce_export_evidence.py": {
+      "mode": "100644",
+      "sha256": "1c5ba28d234e57f35dacc487381ed358e18597584bff51566e9b2e4c468224a5"
+    },
+    "tools/test_rce_field_plan_selection.py": {
+      "mode": "100644",
+      "sha256": "d3f726574496ebc2aff4e3fe47f61e03954d08afa0d1ffc1b72311f27242c7ad"
+    },
+    "tools/test_rce_filtered_aggregates.py": {
+      "mode": "100644",
+      "sha256": "d349a7f4250d1fc8fd80a0fe0af11c4f7414d46a36702030dfc23f27d3d0c248"
+    },
+    "tools/test_rce_forecast_market_scope.py": {
+      "mode": "100644",
+      "sha256": "8d5d07496253522e2fc9bb4c4d866e9ddb18d08538ae9302ef1fde8d93eece3a"
+    },
+    "tools/test_rce_full_run_continuity.py": {
+      "mode": "100644",
+      "sha256": "90c8ee52def292124b1a16707166e4b0ae6760a1022b44b54691a34247a61199"
+    },
+    "tools/test_rce_future_chart_soc.py": {
+      "mode": "100644",
+      "sha256": "1d1c9e97012c16e7957d6904feb632ca3975dda32e7524a66749f563f54663b8"
+    },
+    "tools/test_rce_history.py": {
+      "mode": "100644",
+      "sha256": "4bea5fe78d529a4842089c5e1e57dc74c146f73fbda92c166a56b2f4e1613212"
+    },
+    "tools/test_rce_installation_2_replan.py": {
+      "mode": "100644",
+      "sha256": "e2b188ef0295b918392d5bebf863990d9012cd3bbafcbe045f9570e4902d1456"
+    },
+    "tools/test_rce_lease_real_cadence.py": {
+      "mode": "100644",
+      "sha256": "2a541b953ae60904d2bb18cd6be2f265c26b2b9a03e0cb3bfb0c7272411f157d"
+    },
+    "tools/test_rce_minimum_input_runtime.py": {
+      "mode": "100644",
+      "sha256": "0de07ae441f4f40cd82ffa6add0428372f53c6f61ad104b60a4bcddf3e90c4ff"
+    },
+    "tools/test_rce_minimum_net_export.py": {
+      "mode": "100644",
+      "sha256": "bfc2daa265e9ea0b909310a96b464f51b404799f933675872a74608b84098995"
+    },
+    "tools/test_rce_negative_publication.py": {
+      "mode": "100644",
+      "sha256": "f55976e4f544044abc8c85b55273d1bd1551459878a0817dbf372a33ac4248db"
+    },
+    "tools/test_rce_night_window_quality.py": {
+      "mode": "100644",
+      "sha256": "8535399d2d6b92dad77ce0e3480e851f6bb9ffbbb29a2e53c4b17e2bc35a75f5"
+    },
+    "tools/test_rce_optimizer.py": {
+      "mode": "100644",
+      "sha256": "14c7fa5c7ea277828f067d30441e1d66f8998db9eae342c9bf5c26ec708fba2a"
+    },
+    "tools/test_rce_plan_churn.py": {
+      "mode": "100644",
+      "sha256": "9ea4e9ff8e0ef152ad196a6ca54854c56c22deb0fe15e267d1533f80199cb97c"
+    },
+    "tools/test_rce_plan_revalidation.py": {
+      "mode": "100644",
+      "sha256": "a8f1bf41fe8852378633c39957b2416f9f3be544f03b5f1b89b1518e3fc1e3e2"
+    },
+    "tools/test_rce_post_command_settling.py": {
+      "mode": "100644",
+      "sha256": "044f17ec7ba8e5c45cdb70f5ddfd39d5223c8fa610277c7477f67f5421d8b2fd"
+    },
+    "tools/test_rce_post_command_settling_optimizer.py": {
+      "mode": "100644",
+      "sha256": "76565a0d5ea8a41d69a27b641d0fc88f453e4a4cf9fefe4e2b54832f2cb92bd8"
+    },
+    "tools/test_rce_post_command_settling_sensor.py": {
+      "mode": "100644",
+      "sha256": "fb184152ac547710ec90a9f1758d345ed3fe5479447c01ed2a31030de01f9a52"
+    },
+    "tools/test_rce_price_cache.py": {
+      "mode": "100644",
+      "sha256": "fad07fb2c38fa99b003a29ca4f12d2c1213f2c92d719cd0d97b8f1d8db5d1e7d"
+    },
+    "tools/test_rce_price_runtime.py": {
+      "mode": "100644",
+      "sha256": "5d67757b13307b1e20ee31a60dc34c4ce84d3536c2a16528fe069aac62787146"
+    },
+    "tools/test_rce_pstryk_load_margin.py": {
+      "mode": "100644",
+      "sha256": "2582cb5de8eb09172d144cd7f0b69d49b3ebea1834647734141d944c38dbd09f"
+    },
+    "tools/test_rce_pstryk_load_margin_guards.py": {
+      "mode": "100644",
+      "sha256": "55f396771e26a12d614ef720dca5ec424ccadb2ec7fa74b2f17ad8019921dfda"
+    },
+    "tools/test_rce_publication_continuity.py": {
+      "mode": "100644",
+      "sha256": "69e58ca0cf129af89d00569a56ef2beb182319549ceb1039cec683bc24fb6c3c"
+    },
+    "tools/test_rce_publication_refresh.py": {
+      "mode": "100644",
+      "sha256": "ff7e78e23dd384f9338179d3804918f34b853d65b550117ef7baa7a4bd9ebb86"
+    },
+    "tools/test_rce_revalidation_diagnostics.py": {
+      "mode": "100644",
+      "sha256": "d55334ea6535acdeaa7af2b0379b67789fb236023a04d377eae9fcc43783f0b1"
+    },
+    "tools/test_rce_revalidation_energy_trim.py": {
+      "mode": "100644",
+      "sha256": "c5f8cb2ae261a83f16bd692f653f6b1cd3ac8e6cf33ffd856003b0fcdf5a5dbd"
+    },
+    "tools/test_rce_run_end_extension.py": {
+      "mode": "100644",
+      "sha256": "5f882e7917a4c5101780e6e4370282a495e5697f8237783b35422c2dfede6684"
+    },
+    "tools/test_rce_sale_search.py": {
+      "mode": "100644",
+      "sha256": "04386accccde8aa59ffdd3e71ee0af2b389a42737978eced38a020ef708e64e3"
+    },
+    "tools/test_rce_self_consumption_filter.py": {
+      "mode": "100644",
+      "sha256": "7429943a250da3c54b61808b1eeb7051ff0df3ae48ecd3a39f264c26eba0ed89"
+    },
+    "tools/test_rce_self_consumption_shadow.py": {
+      "mode": "100644",
+      "sha256": "0e7b0a362a513d5e5ab1afa4bc6083aa254ddda553501490f9d58d58d30fbf20"
+    },
+    "tools/test_rce_settling_extended.py": {
+      "mode": "100644",
+      "sha256": "fba18fa3231029ef7c5187dbf0e53f071b486ed8ba281e4b6d788e81963dfaec"
+    },
+    "tools/test_rce_settling_sensor_callback.py": {
+      "mode": "100644",
+      "sha256": "358dca693425a9584c18ab8e1a32534d73a02c446f0ba20dc4343ce51b9c201e"
+    },
+    "tools/test_rce_slot_boundary_refresh.py": {
+      "mode": "100644",
+      "sha256": "de6fa9a3251c1a813622929f6528c3b922a47acf017d8b2e5f300b05e8f6323a"
+    },
+    "tools/test_rce_slot_entity_id_compatibility.py": {
+      "mode": "100644",
+      "sha256": "1da6071198ae56d3ff60984d14b8cc969025de3fe6a4886232e24f076acb3d4b"
+    },
+    "tools/test_rce_slow_replan_lease.py": {
+      "mode": "100644",
+      "sha256": "6816e6255a1ff8d33063e5881d88cc9635755cd9ca6e190088db5cd33e2ee068"
+    },
+    "tools/test_rce_small_power_retarget.py": {
+      "mode": "100644",
+      "sha256": "c2a890976ab96dbc89eae5722791658a4b512f83deeaa15aa0e8f18d16891000"
+    },
+    "tools/test_rce_start_publication_race.py": {
+      "mode": "100644",
+      "sha256": "f6979cf2fde39aa8107d264f023aaa300c70e927fde54e039366bc9902c6dccc"
+    },
+    "tools/test_rce_tariff_lease_continuity.py": {
+      "mode": "100644",
+      "sha256": "3a44b4e9d9595822b67c12e6b9533bb8a20b98feadd0e53e3f0bc23d5fdfd627"
+    },
+    "tools/test_rce_tariff_refresh_stability.py": {
+      "mode": "100644",
+      "sha256": "d00e495ee9689d8abf0aac7691af0f95be72e6453e9cddcf436481c2e730b319"
+    },
+    "tools/test_rce_unsent_retarget_cohort.py": {
+      "mode": "100644",
+      "sha256": "3faa0a2a29eee970359da563df179a8eeb967beb7c4f6169ff7491bf0f94e36b"
+    },
+    "tools/test_rcm_execution_bms_limits.py": {
+      "mode": "100644",
+      "sha256": "a21fa13fd95aa8ad7cce8e24d18aad4ac02937da5d41e9ec93ca7970ea9ef474"
+    },
+    "tools/test_rcm_history.py": {
+      "mode": "100644",
+      "sha256": "be56e69c2c5db98c13a30b6983ca65c23b87843c310e82cd13085a3db4c77cd8"
+    },
+    "tools/test_rcm_live_control_refresh.py": {
+      "mode": "100644",
+      "sha256": "53c3f277dc93583bd848dccb96fba955dcf5b30d988c93eeb3afdbfa9d81e62a"
+    },
+    "tools/test_rcm_optimizer.py": {
+      "mode": "100644",
+      "sha256": "d875452c341f49433b843ffa57bd921a976fd0bb07c65832ed5f08237b48ffb4"
+    },
+    "tools/test_rcm_timeline_model.py": {
+      "mode": "100644",
+      "sha256": "fe5b6b9ea61a2182a357fbfd509e1115a97de39b216decb23dffb0d077b96f05"
+    },
+    "tools/test_recorder_duplication.py": {
+      "mode": "100644",
+      "sha256": "11474a71d681087fe29ce522e59e2f28f3978d098edfe3a1784ed107f1599d31"
+    },
+    "tools/test_recorder_query_deadline.py": {
+      "mode": "100644",
+      "sha256": "7119f124837c38d52e4be60c75eb3627ea1ac2bfa9e01ddfb096edbdfe780021"
+    },
+    "tools/test_retarget_single_budget.py": {
+      "mode": "100644",
+      "sha256": "f08258639bfbbb80369b44cb47386d2707ecb7234bfaf6d98e6e727488f35bdf"
+    },
+    "tools/test_sale_consolidated_cycle.py": {
+      "mode": "100644",
+      "sha256": "79a8ca8d01cc34d98a9132c835cd66de20b2d6170b26a94854369bb91fedb289"
+    },
+    "tools/test_sale_consolidation.py": {
+      "mode": "100644",
+      "sha256": "988a8fdec3fda3c077a613411d010e47be45efbd7656751290c3ec6d1ad0a05c"
+    },
+    "tools/test_sale_soc_range.py": {
+      "mode": "100644",
+      "sha256": "0d7ce3793200470d49d444c0b0b0e5a00bc4bee0eefd0cf33107394d6f38f9bd"
+    },
+    "tools/test_sale_soc_summary.js": {
+      "mode": "100644",
+      "sha256": "d6f34df812e969bbbb073eb82c56662826e033b21600e60d4830f9a876fe8890"
+    },
+    "tools/test_sale_soc_ui_playwright.js": {
+      "mode": "100644",
+      "sha256": "97954170cc604fa1807627601c4c1091af7177051b7c3d6544e9a3e276cdd703"
+    },
+    "tools/test_sale_tail_options.py": {
+      "mode": "100644",
+      "sha256": "dfabcdf16b45207eabce758d590278c8822eae177c68f3bbd72247d219de793c"
+    },
+    "tools/test_shared_forecast_timezone.py": {
+      "mode": "100644",
+      "sha256": "8b035a09ebda0e9ef27893c4b686c92a46835d4d2563a96d7b6c64baae3d3922"
+    },
+    "tools/test_shared_input_parity.py": {
+      "mode": "100644",
+      "sha256": "4dc5bb3d798e523b79575cd2e5c05badff62043df0ea65776c1a57a5425e5414"
+    },
+    "tools/test_shared_load_current_slot.py": {
+      "mode": "100644",
+      "sha256": "dc46a0e4d9c9ca09023b95f4edbf32c9c3df874a0820253c0c766bff5112282c"
+    },
+    "tools/test_shared_load_execution_budget.py": {
+      "mode": "100644",
+      "sha256": "7a54bcdf4e392a7a12ca28ca3797f36661fecb35335db527e1f4a9fa021fe6fa"
+    },
+    "tools/test_shared_load_rcm.py": {
+      "mode": "100644",
+      "sha256": "22e0a47fab7fb4e8a533aeca86b5a60700a7570aabe5de9f2e5cf28eb115f449"
+    },
+    "tools/test_shared_package_asset_sync.py": {
+      "mode": "100644",
+      "sha256": "d36444211d98436f8c4ca7ccfdc3c904c344683e7dfd20aa2ec614266cb524f4"
+    },
+    "tools/test_soc_reserve_scope.py": {
+      "mode": "100644",
+      "sha256": "d37d42dc26a076c7985255c2a1d73b5d842007b63b205741a892e85720f3a014"
+    },
+    "tools/test_solcast_adaptation_contract.py": {
+      "mode": "100644",
+      "sha256": "ceb3bb68aee7b830fd441a7ef7db5dc527e341fa3d078d9479312a37ed5236e4"
+    },
+    "tools/test_source_device_rebind.py": {
+      "mode": "100644",
+      "sha256": "1c68d938d50c1e345ad62a943b51904138f83a09e6f1337a7fb9e33ab2a2bd9d"
+    },
+    "tools/test_stable_public_snapshot.py": {
+      "mode": "100644",
+      "sha256": "dc0c5f3b7823f7239cd1301051597c393762a509ca69d0af4af938eee47918bc"
+    },
+    "tools/test_stable_release_contract.py": {
+      "mode": "100644",
+      "sha256": "c409279d86fc6b8deff3cd03304e5ba7fb1f8df843eb93b5ab6ccf61e8501715"
+    },
+    "tools/test_stale_input_stop_evidence.py": {
+      "mode": "100644",
+      "sha256": "5c806706a4d0ec9944fd8a5fc09a8d50c4cf90c1d554bbcec61d5cf005f6f570"
+    },
+    "tools/test_stop_recorder_sqlite.py": {
+      "mode": "100644",
+      "sha256": "fa3936b05d3da67ea38b034e0d3a11e4f826e6b2cd28d1eef563e1b932124195"
+    },
+    "tools/test_stop_recorder_storage.py": {
+      "mode": "100644",
+      "sha256": "9629c2d65c83fe66ddd014c0a6c84571630d5f5f073fe7b78f9ad67aecd8b602"
+    },
+    "tools/test_supervisor_accounting_runtime.py": {
+      "mode": "100644",
+      "sha256": "7d7b66597f417599d9fafaac4c0f31258ab4dcbf358eaf5d428a6d7ad90e9354"
+    },
+    "tools/test_supervisor_accounting_sensor_contract.py": {
+      "mode": "100644",
+      "sha256": "e9e8b2d968c908b3c3d7c0a13d4a8f4bb24d679cafb3a3b78b78222c1b1c5bef"
+    },
+    "tools/test_supervisor_accounting_v2.py": {
+      "mode": "100644",
+      "sha256": "739d7de4461b59da917e64aeee0b5180f9286bf7eb54092e2b766771e83338cc"
+    },
+    "tools/test_supervisor_active_bridge.py": {
+      "mode": "100644",
+      "sha256": "00968fac0d55b366c230a730434b19286a0fd6050a61067c2ab2846b5b9cc8ed"
+    },
+    "tools/test_supervisor_active_controller.py": {
+      "mode": "100644",
+      "sha256": "c3e01770a117ac5a2c2b91d55024f95eb45284597a542bf4944caecd03c372c8"
+    },
+    "tools/test_supervisor_active_frame_revision.py": {
+      "mode": "100644",
+      "sha256": "9e807102f251995c3bc32ebabf804a22429b5dd4b72c8f5396532b0e8c2e1d61"
+    },
+    "tools/test_supervisor_adapter_response.py": {
+      "mode": "100644",
+      "sha256": "c1d1effe14af7141219b55859b28baa2808c8d9dd96e7fef7601b91e3af68cbd"
+    },
+    "tools/test_supervisor_aurora_ui_contract.js": {
+      "mode": "100644",
+      "sha256": "cf09929779721e44a017b69c7e3b95275732168f9e8b2af098426e94c9b5a6f0"
+    },
+    "tools/test_supervisor_canonical_dual_track.py": {
+      "mode": "100644",
+      "sha256": "0a8ded5c4e2eb2255bc1b08d8c368832f61f3387ac03635acbdacc8e5ace2950"
+    },
+    "tools/test_supervisor_canonical_ledger.py": {
+      "mode": "100644",
+      "sha256": "0a63e7a92909c836e478fde65001e72734fe745b774f2faacf2e261eb855840c"
+    },
+    "tools/test_supervisor_canonical_runtime.py": {
+      "mode": "100644",
+      "sha256": "559388e5dd13b29a40e688a16a5be94a9d3b2d824067c7b28fc3659329a97113"
+    },
+    "tools/test_supervisor_control_lease.py": {
+      "mode": "100644",
+      "sha256": "bbd99ad3f6d0385c28b825502e63de4aa40c3e24048d17a9530164233ed92ea1"
+    },
+    "tools/test_supervisor_executor.py": {
+      "mode": "100644",
+      "sha256": "973a7c3187768e0236dbb91c215c85d6022844218d0734009e5e282fda25e062"
+    },
+    "tools/test_supervisor_executor_codec.py": {
+      "mode": "100644",
+      "sha256": "d15ff9c547cc619ddd15c02af543c0ed5d6727ffc60868cd98f6fe810b4ca200"
+    },
+    "tools/test_supervisor_grid_to_battery_provider_absence.py": {
+      "mode": "100644",
+      "sha256": "1db0391cbc39c5484653dd6e02f54ec853e153ce95b372e0b2fa34741f308dbd"
+    },
+    "tools/test_supervisor_helpers_contract.py": {
+      "mode": "100644",
+      "sha256": "449910e57f02d6b24c4e00c1e13e46366ea8a92f17cda7a64d1fb594f6566183"
+    },
+    "tools/test_supervisor_late_ack.py": {
+      "mode": "100644",
+      "sha256": "686242723f5cdc093b3d488622c7a080bd2ac95185f28585b3e5dac0e5312596"
+    },
+    "tools/test_supervisor_ledger.py": {
+      "mode": "100644",
+      "sha256": "7f43cb1f84ea9618ced19b16d01f2babb0045a707260a675d29afe9489972bb2"
+    },
+    "tools/test_supervisor_master_stop_service_contract.py": {
+      "mode": "100644",
+      "sha256": "be1a5916d5e21a27286fd7a91cc1f915178feb6dcbc14bd8ee613ac07fec34d4"
+    },
+    "tools/test_supervisor_minimum_power.py": {
+      "mode": "100644",
+      "sha256": "776af230cdc0dfed800894deae9697f06f94f19dcc51328770762fed1f3dfb0f"
+    },
+    "tools/test_supervisor_minimum_power_sensor.py": {
+      "mode": "100644",
+      "sha256": "b71559ffadbd67526262d8c6732614c89eaeb2dd848513c98c0c10e72bdcb4e8"
+    },
+    "tools/test_supervisor_not_queued_reprepare.py": {
+      "mode": "100644",
+      "sha256": "e98bd772b34e8594882874ce82d2ba404e059af8cd25d12b7e3e9adfeafd8a50"
+    },
+    "tools/test_supervisor_rce_cadence.py": {
+      "mode": "100644",
+      "sha256": "032d7977f0485e8ee4c1b8e2b9136665133435d68ed11e9c2c3e51087b9761ac"
+    },
+    "tools/test_supervisor_restore_not_queued.py": {
+      "mode": "100644",
+      "sha256": "b2c4af6d1044fc335b7d54b7c5df22eaaa37457ab03e0aa9140b441e3ca0cb59"
+    },
+    "tools/test_supervisor_retarget_physical_phase.py": {
+      "mode": "100644",
+      "sha256": "25571709d5f31ccef83b8b5349c7756057a798cd9303f4060ddc10d53266dac0"
+    },
+    "tools/test_supervisor_runtime_contract.py": {
+      "mode": "100644",
+      "sha256": "32f5b54f6e7cd98978d6b173584879fe04ee95c14e7e507f148d53216be08589"
+    },
+    "tools/test_supervisor_sensor_contract.py": {
+      "mode": "100644",
+      "sha256": "cae99ce02acb5bdd57fc770b9272ab5d12bc587fefda2c08b7dd091fe275565f"
+    },
+    "tools/test_supervisor_terminal_fallback.py": {
+      "mode": "100644",
+      "sha256": "9b36b966666ec7ce21625c8b4ff99182fe4c70b722e329c7b3435ddd3ee665ab"
+    },
+    "tools/test_supervisor_transport_lifecycle_contract.py": {
+      "mode": "100644",
+      "sha256": "7da61c4baf27bdcadfe1745ea53fe9715f635f67df46634704a08714190a9e9a"
+    },
+    "tools/test_supervisor_user_controls.py": {
+      "mode": "100644",
+      "sha256": "2d28336f70dc1d2e37cf76adc59ee137d3dbdc346823e2bce276bff3edfb87e1"
+    },
+    "tools/test_tariff_active_controller.py": {
+      "mode": "100644",
+      "sha256": "206290396ba5497ce1ebecf8e0af9f0b86316737e4e01c6a95471202db8acd4c"
+    },
+    "tools/test_tariff_bms_guard.py": {
+      "mode": "100644",
+      "sha256": "361af8e8b56571d65809da66ec7ef7c4457264d003050fc881142fb843f4b816"
+    },
+    "tools/test_tariff_commitment_cohort.py": {
+      "mode": "100644",
+      "sha256": "674ca277f2309391a149f3922cd2974147f2b7c9417fe03f8f9b1dc900075312"
+    },
+    "tools/test_tariff_consumable_margin.py": {
+      "mode": "100644",
+      "sha256": "2c2eee1a95e5735c58369d90eba8a28b202f45fb8e7273abd98312bbfcf9d065"
+    },
+    "tools/test_tariff_continuous_night_cycle.py": {
+      "mode": "100644",
+      "sha256": "d6cc49f5b4cb2f310a38fa70114f79e5f9a63f5bc12d47844535ed26cff4f1c2"
+    },
+    "tools/test_tariff_event_routing.py": {
+      "mode": "100644",
+      "sha256": "c44a4559c9850967fc4022a084e563a895f43da6d006367ee098ed64f198a3ef"
+    },
+    "tools/test_tariff_grid_support.py": {
+      "mode": "100644",
+      "sha256": "1fe78fa7ea265a9632594a7041a70f5b4ce0e66e1f1ff5b8f93ea1c8754dcf59"
+    },
+    "tools/test_tariff_initial_lease_settling.py": {
+      "mode": "100644",
+      "sha256": "462af89e10106242890c089e188267dea509855bc154b3d646e9a221c0f285a3"
+    },
+    "tools/test_tariff_input_stop_evidence.py": {
+      "mode": "100644",
+      "sha256": "bdb0dedc0a0d9b5f50870e64d482bf2ab62de535c4e4ae56330928ffb8101e96"
+    },
+    "tools/test_tariff_low_power_confirmation.py": {
+      "mode": "100644",
+      "sha256": "719cb98e038931d1a822c32da44d06f957a6d29b65be5fa8797f528c5241219b"
+    },
+    "tools/test_tariff_margin_protected_window.py": {
+      "mode": "100644",
+      "sha256": "74d94f0593604a15c386e546132bffced927438f827a6f5b00e42dd9a32405aa"
+    },
+    "tools/test_tariff_night_continuity.py": {
+      "mode": "100644",
+      "sha256": "c4941e793cd7c9ee4608cbc480b1ebd8551f3d62604fcb3710933bc686d7140f"
+    },
+    "tools/test_tariff_normal_completion.py": {
+      "mode": "100644",
+      "sha256": "b2b9b844025cd5f6916f6678529686fd100b3ac96cef4f8a0367a27170cfb5a7"
+    },
+    "tools/test_tariff_optimizer.py": {
+      "mode": "100644",
+      "sha256": "3567dac82f6468ada2cbcf6776d84157963d8bfdfb70afef58717eb3dbdef30e"
+    },
+    "tools/test_tariff_pending_dispatch_race.py": {
+      "mode": "100644",
+      "sha256": "497b43b60a1b9bde4650fd2cb971b709e38af6adbee41fccfcb8bd862ab9920b"
+    },
+    "tools/test_tariff_power_cohort.py": {
+      "mode": "100644",
+      "sha256": "b60bd6fba42c0df003ccf354b57096210b32b5286193e7397c64ac5378174502"
+    },
+    "tools/test_tariff_price_schedule.py": {
+      "mode": "100644",
+      "sha256": "5d6ac22fb1667f7774f2f705e0a51b55974e131c68466885439888f8cf9268ad"
+    },
+    "tools/test_tariff_profiles.py": {
+      "mode": "100644",
+      "sha256": "f99c76ac9e273b121fd2ee10e1a14427506aaaa97bb5cd123f6c75d0b88404b6"
+    },
+    "tools/test_tariff_pv_contract.py": {
+      "mode": "100644",
+      "sha256": "2158156b0e16981de0d1f018a88c55f7020313cc03b4261ace64f6b6dfa8c8b8"
+    },
+    "tools/test_tariff_pv_unsent_dispatch.py": {
+      "mode": "100644",
+      "sha256": "538d1409fc6fba933e843042f2e43b3c016b8df6f1593669d76e8f1f6fd9673f"
+    },
+    "tools/test_tariff_retarget_publication.py": {
+      "mode": "100644",
+      "sha256": "9e9a0f0cd3cd1927f476e2568aa5f11ab0555735e6729ac357baf06751a04c23"
+    },
+    "tools/test_tariff_retry_budget.py": {
+      "mode": "100644",
+      "sha256": "cb3098eb94d24064ebf314ed13de6ee90e0908adc8a5fbccc5b4605c924f316c"
+    },
+    "tools/test_tariff_sensor_cadence.py": {
+      "mode": "100644",
+      "sha256": "81c41afb1cb02e689ca411f3c4f973dd03cb3016e4552660d9df46d77eaff324"
+    },
+    "tools/test_tariff_stability_night.py": {
+      "mode": "100644",
+      "sha256": "f08dd0a3d3a42b25281d4382541d7ea3458026ac17a282410773d8cda81cb0d7"
+    },
+    "tools/test_tariff_start_publication_race.py": {
+      "mode": "100644",
+      "sha256": "5bd4a2b972d062da49f4c7a2f6670c02127c7d494a3f9bf6681e0422efc16c77"
+    },
+    "tools/test_tariff_start_reason_ui.js": {
+      "mode": "100644",
+      "sha256": "b514bc206045a84c801a47fc7607c42d73fe9f5451a0de2cb588525a4bea4fb0"
+    },
+    "tools/test_tariff_support_flow_filter.py": {
+      "mode": "100644",
+      "sha256": "41d7f1d35a9f0a3e2397df3eacc8ae80e68ebd29c3c4f14dbbac4e2c482340dd"
+    },
+    "tools/test_tariff_window_layout.py": {
+      "mode": "100644",
+      "sha256": "323ab5e2c69d4b1cbc0e865b9e9fcf3ec67287ba1a056a001d6cc7a9d8440c2f"
+    },
+    "tools/test_upgrade_1581_public_snapshot.py": {
+      "mode": "100644",
+      "sha256": "daa4116230eea1c4d9ec256903cfca60b0eb802b5214d23c64da273c6e33da55"
+    },
+    "tools/test_upgrade_1581_release_contract.py": {
+      "mode": "100644",
+      "sha256": "007cbba868f037db4cfc35768abf1438f5c39148ae90569f74ae024f374b5a3a"
+    },
+    "tools/test_upgrade_from_157.py": {
+      "mode": "100644",
+      "sha256": "4e0c365e3d0887fb12196c6b62e904fb9186466f393f4c465008a99d773ca317"
+    },
+    "tools/test_upgrade_from_158.py": {
+      "mode": "100644",
+      "sha256": "9c3e04f2183ae1fc6009b56e988a6f45fd524000f8b3684409a114a4b5817776"
+    },
+    "tools/test_upgrade_from_rc2.py": {
+      "mode": "100644",
+      "sha256": "e76c9ab4bd7148200f7b014445d9ce94ff1db86ece4928d2eb5dbcc7825c10b4"
+    },
+    "tools/upgrade_1581_release_contract.py": {
+      "mode": "100644",
+      "sha256": "530fec0d9ecb33ffac4168d34e6dd4ba66f4fb72026c69cfd85a3545a8f4c781"
+    },
+    "tools/validate_ha_dashboard.py": {
+      "mode": "100644",
+      "sha256": "d151a312b7a50fc7ce23e855750dfed7517c006803ae757664d6ebbf9c763ac8"
+    },
+    "tools/validate_pstryk_rc1_candidate.py": {
+      "mode": "100644",
+      "sha256": "ad90fe5079289422b0314fd3f4a11a5c7566f911f23c3e7516d1d17702744a08"
+    },
+    "tools/validate_rc2_candidate.py": {
+      "mode": "100644",
+      "sha256": "d9a1ff7e2a03bb11623410a9630a1944d646504baeb2c9b14972b408570d1570"
+    },
+    "tools/validate_rce_card.js": {
+      "mode": "100644",
+      "sha256": "73b20c25cf649fe72c262a997940938d647893d6c05687656c5725b45292133d"
+    },
+    "tools/validate_release.py": {
+      "mode": "100644",
+      "sha256": "96368fb8b5a1d034a468db025a7b6fe3adfbb390e4d619eab8f23929f8e58428"
+    }
+  },
+  "branch_paths": [
+    ".github/workflows/validate.yml",
+    ".gitignore",
+    "CHANGELOG.md",
+    "README.md",
+    "README.pl.md",
+    "RELEASING.md",
+    "custom_components/hoymiles_hit_modbus/__init__.py",
+    "custom_components/hoymiles_hit_modbus/assets.py",
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+    "custom_components/hoymiles_hit_modbus/baseline_energy_timeline.py",
+    "custom_components/hoymiles_hit_modbus/baseline_energy_timeline_sensor.py",
+    "custom_components/hoymiles_hit_modbus/bounded_history.py",
+    "custom_components/hoymiles_hit_modbus/charge_forecast.py",
+    "custom_components/hoymiles_hit_modbus/charge_forecast_runtime.py",
+    "custom_components/hoymiles_hit_modbus/const.py",
+    "custom_components/hoymiles_hit_modbus/diagnostic_bundle.py",
+    "custom_components/hoymiles_hit_modbus/diagnostic_redaction.py",
+    "custom_components/hoymiles_hit_modbus/diagnostics.py",
+    "custom_components/hoymiles_hit_modbus/dynamic_price_profile.py",
+    "custom_components/hoymiles_hit_modbus/ems_initial_defaults.py",
+    "custom_components/hoymiles_hit_modbus/ems_notifications.py",
+    "custom_components/hoymiles_hit_modbus/ems_shared_input_migration.py",
+    "custom_components/hoymiles_hit_modbus/ems_shared_inputs.py",
+    "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+    "custom_components/hoymiles_hit_modbus/entity_catalog.json",
+    "custom_components/hoymiles_hit_modbus/esphome_upgrade.py",
+    "custom_components/hoymiles_hit_modbus/esphome_upgrade_http.py",
+    "custom_components/hoymiles_hit_modbus/esphome_upgrade_manifest.json",
+    "custom_components/hoymiles_hit_modbus/ev_load_filter.py",
+    "custom_components/hoymiles_hit_modbus/ev_load_runtime.py",
+    "custom_components/hoymiles_hit_modbus/execution_history.py",
+    "custom_components/hoymiles_hit_modbus/execution_history_http.py",
+    "custom_components/hoymiles_hit_modbus/forecast_model.py",
+    "custom_components/hoymiles_hit_modbus/load_history_store.py",
+    "custom_components/hoymiles_hit_modbus/load_model.py",
+    "custom_components/hoymiles_hit_modbus/manifest.json",
+    "custom_components/hoymiles_hit_modbus/models.py",
+    "custom_components/hoymiles_hit_modbus/number.py",
+    "custom_components/hoymiles_hit_modbus/profit_archive.py",
+    "custom_components/hoymiles_hit_modbus/profit_http.py",
+    "custom_components/hoymiles_hit_modbus/profit_runtime.py",
+    "custom_components/hoymiles_hit_modbus/pstryk_client.py",
+    "custom_components/hoymiles_hit_modbus/pstryk_daily_cache.py",
+    "custom_components/hoymiles_hit_modbus/pstryk_joint.py",
+    "custom_components/hoymiles_hit_modbus/pstryk_origin.py",
+    "custom_components/hoymiles_hit_modbus/pstryk_plan.py",
+    "custom_components/hoymiles_hit_modbus/pstryk_prices.py",
+    "custom_components/hoymiles_hit_modbus/pstryk_runtime.py",
+    "custom_components/hoymiles_hit_modbus/pstryk_settling.py",
+    "custom_components/hoymiles_hit_modbus/pv_charge_delay.py",
+    "custom_components/hoymiles_hit_modbus/pv_charge_delay_adapter.py",
+    "custom_components/hoymiles_hit_modbus/pv_charge_delay_control.py",
+    "custom_components/hoymiles_hit_modbus/pv_forecast_usability.py",
+    "custom_components/hoymiles_hit_modbus/rce_history.py",
+    "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+    "custom_components/hoymiles_hit_modbus/rce_price_cache.py",
+    "custom_components/hoymiles_hit_modbus/rce_price_sensor.py",
+    "custom_components/hoymiles_hit_modbus/rce_self_consumption_shadow.py",
+    "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+    "custom_components/hoymiles_hit_modbus/rcm_optimizer.py",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+    "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_shared_inputs.yaml",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_shared_inputs.yaml",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-update-guide.js",
+    "custom_components/hoymiles_hit_modbus/sale_block_search.py",
+    "custom_components/hoymiles_hit_modbus/select.py",
+    "custom_components/hoymiles_hit_modbus/sensor.py",
+    "custom_components/hoymiles_hit_modbus/services.yaml",
+    "custom_components/hoymiles_hit_modbus/supervisor_accounting_runtime.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_accounting_sensor.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_accounting_v2.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_active_bridge.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_active_controller.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_canonical_ledger.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_canonical_runtime.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_canonical_sensor.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_control_lease.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_executor.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_executor_codec.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_ledger.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+    "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+    "custom_components/hoymiles_hit_modbus/support_http.py",
+    "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+    "custom_components/hoymiles_hit_modbus/tariff_price_schedule.py",
+    "custom_components/hoymiles_hit_modbus/tariff_price_sensor.py",
+    "custom_components/hoymiles_hit_modbus/tariff_profiles.py",
+    "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+    "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+    "custom_components/hoymiles_hit_modbus/translations/en.json",
+    "custom_components/hoymiles_hit_modbus/translations/pl.json",
+    "dashboard_hoymiles.yaml",
+    "docs/AUTOMATION_TEST_REPORT.md",
+    "docs/CANONICAL_CURRENT_SALE_2026-10-01.md",
+    "docs/CANONICAL_DISABLED_RCEM_2026-10-04.md",
+    "docs/CANONICAL_READINESS_2026-10-03.md",
+    "docs/CHARGE_STABILITY_2026-10-05.md",
+    "docs/COMPATIBILITY.md",
+    "docs/DIAGNOSTICS.md",
+    "docs/DIAGNOSTICS_ANALYZER.md",
+    "docs/EMS_CHANGE_CLOSEOUT_PROMPT.md",
+    "docs/EMS_CONTINUITY_CONTROL_20260930.md",
+    "docs/EMS_PROFITS.md",
+    "docs/EMS_READINESS_SELL_2026-10-04.md",
+    "docs/EMS_TIMING_2026-10-02.md",
+    "docs/EMS_UNIFIED_CONTROL_20261001.md",
+    "docs/ESP32_ESPHOME_2026_9.md",
+    "docs/ESP32_VARIANTS.md",
+    "docs/ESP32_WROOM_ACCEPTANCE_2026-10-08.md",
+    "docs/ESP_UPDATE_GUIDE.md",
+    "docs/LOAD_HISTORY_CONTINUITY_2026-10-04.md",
+    "docs/PGE_G12E.md",
+    "docs/PSTRYK_ACTIVE_RUN_2026-10-01.md",
+    "docs/PSTRYK_BUY_RESERVE_2026-10-04.md",
+    "docs/PSTRYK_CHARGE_CHART_2026-10-03.md",
+    "docs/PSTRYK_RCE_CONTINUITY_2026-10-01.md",
+    "docs/PSTRYK_RCE_PARITY_2026-10-01.md",
+    "docs/PSTRYK_SELL_CONTINUITY_2026-10-03.md",
+    "docs/PSTRYK_SELL_START_2026-10-01.md",
+    "docs/PV_CHARGE_HOLD_DISPLAY_2026-10-01.md",
+    "docs/PV_DELAY_HOUSE_SELF_CONSUMPTION_2026-10-05.md",
+    "docs/PV_DELAY_MODE_AUTHORITY_2026-10-05.md",
+    "docs/PV_DELAY_PROFILES_2026-10-02.md",
+    "docs/PV_DELAY_RESERVE_2026-10-04.md",
+    "docs/PV_DELAY_RETRY_2026-10-09.md",
+    "docs/PV_DELAY_TOMORROW_2026-10-01.md",
+    "docs/PV_HOLD_STARTUP_2026-10-03.md",
+    "docs/QUICK_START.md",
+    "docs/RC2_HISTORY_CONTRACTS_2026-10-04.md",
+    "docs/RCE_CONTINUITY_20260926.md",
+    "docs/RCE_CONTINUITY_20260927.md",
+    "docs/RCE_FORECAST_MARKET_SCOPE_20260927.md",
+    "docs/RCE_FUTURE_CHART_20260928.md",
+    "docs/RCE_PRICE_CACHE_20260930.md",
+    "docs/RCE_PSTRYK_COMMITMENT_COHORT_2026-10-01.md",
+    "docs/RCE_PSTRYK_LOAD_MARGIN_OFFLINE.md",
+    "docs/RCE_PSTRYK_SHARED_LOAD_2026-10-06.md",
+    "docs/RCE_RETARGET_CHALLENGE_20260927.md",
+    "docs/RCE_REVALIDATION_ENERGY_20260927.md",
+    "docs/RCE_TAIL_START_PUSH.md",
+    "docs/RECORDER_AND_STORAGE.md",
+    "docs/SELL_CONSOLIDATION_OFFLINE.md",
+    "docs/SOC_SCOPE_READINESS_2026-10-04.md",
+    "docs/STALE_INPUTS_AND_SELL_TAILS_OFFLINE.md",
+    "docs/TARIFF_CONTINUITY_AND_SOC_OFFLINE.md",
+    "docs/TARIFF_PV_CONTINUITY_2026-10-04.md",
+    "docs/TARIFF_SUPPORT_PV_DELAY_2026-10-07.md",
+    "docs/UPGRADE_1_5_7.md",
+    "docs/WIRING_ESP32_S3.md",
+    "docs/WORK_STATE.MD",
+    "docs/images/README.md",
+    "docs/images/dashboard-ems-v1.5.8.png",
+    "docs/images/dashboard-gallery.html",
+    "docs/images/dashboard-overview.png",
+    "docs/images/dashboard-rce-v1.4.4.png",
+    "docs/images/dashboard-rcem-v1.4.4.png",
+    "docs/images/dashboard-rcem-v1.5.8.png",
+    "docs/images/dashboard-start-v1.4.4.png",
+    "docs/images/dashboard-start-v1.5.8.png",
+    "docs/images/dashboard-tariff-v1.4.4.png",
+    "docs/images/dashboard-tariff-v1.5.8.png",
+    "docs/images/esp32-s3-rs485-hoymiles-pl.png",
+    "docs/images/esp32-s3-rs485-hoymiles-pl.svg",
+    "docs/planning/EV_LOAD_FILTER_1_5_8_OFFLINE.md",
+    "docs/planning/PSTRYK_1_5_8_IMPLEMENTATION.md",
+    "docs/planning/PSTRYK_1_5_8_OFFLINE.md",
+    "docs/planning/PSTRYK_1_5_8_RISK_REVIEW.md",
+    "docs/planning/PSTRYK_EV_UNIFIED_20261001.md",
+    "docs/planning/PSTRYK_RC1_OFFLINE_COMPLETION.md",
+    "docs/planning/PV_CHARGE_DELAY_1_5_8_OFFLINE.md",
+    "docs/planning/v1.5.9-TODO.md",
+    "docs/releases/1.5.8/PUBLICATION.md",
+    "docs/releases/1.5.8RC1.md",
+    "docs/releases/1.5.8RC1_BASELINE.json",
+    "docs/releases/1.5.8RC2/FIELD_ACCEPTANCE.md",
+    "docs/releases/1.5.8RC2/HACS_ICON.md",
+    "docs/releases/1.5.8RC2/ISSUES.md",
+    "docs/releases/1.5.8RC2/PUBLICATION.md",
+    "docs/releases/1.5.8RC2/README.md",
+    "docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md",
+    "docs/releases/v1.5.6.md",
+    "docs/releases/v1.5.7.md",
+    "docs/releases/v1.5.8.1.md",
+    "docs/releases/v1.5.8.md",
+    "docs/releases/v1.5.8rc2.md",
+    "examples/esphome/esp32-wroom-diagnostic.yaml",
+    "examples/esphome/hoymiles-hit-g3.yaml",
+    "home_assistant/hoymiles_ems_scheduler.yaml",
+    "home_assistant/hoymiles_ems_shared_inputs.yaml",
+    "home_assistant/www/hoymiles-dashboard-strategy.js",
+    "home_assistant/www/hoymiles-rce-chart-card.js",
+    "home_assistant/www/hoymiles-update-guide.js",
+    "hoymiles-inverter-flow-control.yaml",
+    "hoymiles-inverter-s3.yaml",
+    "hoymiles-inverter.yaml",
+    "packages/README.md",
+    "packages/battery.yaml",
+    "packages/core.yaml",
+    "packages/modbus_connection.yaml",
+    "packages/overview.yaml",
+    "packages/parallel_network.yaml",
+    "packages/settings.yaml",
+    "packages/states_alarms.yaml",
+    "requirements-dev.txt",
+    "secrets.yaml.example",
+    "tests/test_ems_initial_defaults_storage.py",
+    "tests/test_ems_shared_input_migration_storage.py",
+    "tests/test_timeline_platform_registration.py",
+    "tools/.gitignore",
+    "tools/baseline_timeline_ui_fixture.html",
+    "tools/benchmark_ev_load_recorder.py",
+    "tools/benchmark_pstryk_recorder.py",
+    "tools/benchmark_pstryk_storage.py",
+    "tools/benchmark_pv_bms_recorder.py",
+    "tools/benchmark_pv_charge_delay_recorder.py",
+    "tools/build_dashboard_collage.py",
+    "tools/build_esphome_upgrade_manifest.py",
+    "tools/build_hacs_assets.py",
+    "tools/build_rc2_source_archive.py",
+    "tools/build_stable_source_archive.py",
+    "tools/build_upgrade_1581_source_archive.py",
+    "tools/diagnostics_analysis/analyzer.py",
+    "tools/diagnostics_analysis/extractors.py",
+    "tools/diagnostics_analysis/models.py",
+    "tools/diagnostics_analysis/outputs.py",
+    "tools/diagnostics_analysis/privacy.py",
+    "tools/ems_retention_policy.py",
+    "tools/esphome_verify_ci.yaml",
+    "tools/esphome_verify_wroom.yaml",
+    "tools/fixtures/ems_supervisor_shadow_decisions_v1.json",
+    "tools/fixtures/pstryk_buy_search_counterexamples.json",
+    "tools/fixtures/pstryk_high_pv_night_grid_support.json",
+    "tools/fixtures/pv_noc01_installation_1_2026_09_13.json",
+    "tools/fixtures/rce_economics_81_point.json",
+    "tools/fixtures/rce_stability/field_20260927.json",
+    "tools/fixtures/recorder_119b_baseline.py",
+    "tools/fixtures/recorder_6484a82_baseline.py",
+    "tools/fixtures/shared_input_parity_v1.json",
+    "tools/fixtures/soc01_installation_1_2026_09_13.json",
+    "tools/fixtures/supervisor_canonical_ledger_v1.json",
+    "tools/fixtures/tariff_g12w_20261004.json",
+    "tools/inspect_pstryk_replay_data.py",
+    "tools/rc2_regression_baseline.py",
+    "tools/rc2_release_contract.py",
+    "tools/release_fixtures/rc2_baselines/177215b/rce_optimizer.py",
+    "tools/release_fixtures/rc2_baselines/6484a82/execution_history.py",
+    "tools/release_fixtures/rc2_baselines/6484a82/rce_optimizer.py",
+    "tools/release_fixtures/rc2_baselines/6484a82/rce_sensor.py",
+    "tools/release_fixtures/rev28_frontend_layers.tar.gz",
+    "tools/release_manifests/n12_v1_5_8.json",
+    "tools/release_manifests/rc2_anonymous_frontend_fixture.json",
+    "tools/release_manifests/rc2_local_contract.json",
+    "tools/release_manifests/rc2_public_provenance.json",
+    "tools/release_manifests/rc2_regression_baselines.json",
+    "tools/release_manifests/rev28_historical_fixture.json",
+    "tools/release_manifests/stable_1_5_8_contract.json",
+    "tools/release_manifests/upgrade_1_5_8_1_contract.json",
+    "tools/release_manifests/v1_5_8_pv_noc01_delta.json",
+    "tools/release_manifests/v1_5_8_release_delta.json",
+    "tools/release_manifests/v1_5_8_soc01_delta.json",
+    "tools/release_manifests/v1_5_8_task02_candidate.json",
+    "tools/replay_load_model.py",
+    "tools/replay_pstryk_joint.py",
+    "tools/shared_ems_ui_fixture.html",
+    "tools/simulate_winter_tariff_month.py",
+    "tools/stable_release_contract.py",
+    "tools/supervisor_ledger_v2_cases.json",
+    "tools/test_aurora_automation_planner_ui_contract.js",
+    "tools/test_aurora_compact_dashboard_contract.py",
+    "tools/test_aurora_disclosure_embedded_contract.py",
+    "tools/test_aurora_disclosure_embedded_runtime.js",
+    "tools/test_aurora_mobile_ems_playwright.js",
+    "tools/test_aurora_mobile_scroll_playwright.js",
+    "tools/test_aurora_next_block.js",
+    "tools/test_aurora_next_block_playwright.js",
+    "tools/test_aurora_service_manual_ui_contract.py",
+    "tools/test_automation_matrix.py",
+    "tools/test_automation_plan_timeline.py",
+    "tools/test_baseline_energy_timeline.py",
+    "tools/test_baseline_energy_timeline_sensor_contract.py",
+    "tools/test_battery_balancing_contract.py",
+    "tools/test_battery_balancing_ha_runtime.py",
+    "tools/test_c4_final_ui_contract.js",
+    "tools/test_canonical_adapter_errors.py",
+    "tools/test_canonical_disabled_rcm.py",
+    "tools/test_charge_forecast_runtime.py",
+    "tools/test_diagnostic_analyzer.py",
+    "tools/test_diagnostics.py",
+    "tools/test_diagnostics_future.py",
+    "tools/test_ems_confirmed_telemetry_grace.py",
+    "tools/test_ems_initial_defaults.py",
+    "tools/test_ems_lease_timing.py",
+    "tools/test_ems_notifications.py",
+    "tools/test_ems_retention_policy.py",
+    "tools/test_ems_retention_runtime.py",
+    "tools/test_ems_shared_consumer_parity.py",
+    "tools/test_ems_shared_helpers_contract.py",
+    "tools/test_ems_shared_input_migration.py",
+    "tools/test_ems_shared_inputs.py",
+    "tools/test_ems_start_push_limit.py",
+    "tools/test_ems_supervisor.py",
+    "tools/test_ems_supervisor_active_golden.py",
+    "tools/test_esphome_2026_9_migration.py",
+    "tools/test_esphome_entry_points.py",
+    "tools/test_esphome_upgrade.py",
+    "tools/test_esphome_upgrade_config.py",
+    "tools/test_esphome_upgrade_http.py",
+    "tools/test_esphome_upgrade_ui.js",
+    "tools/test_esphome_wroom_profile.py",
+    "tools/test_ev_load_filter.py",
+    "tools/test_ev_load_runtime.py",
+    "tools/test_ev_load_ui.js",
+    "tools/test_execution_history.py",
+    "tools/test_execution_history_http.py",
+    "tools/test_execution_history_ui.js",
+    "tools/test_firmware_readback_contract.py",
+    "tools/test_forecast_history_quality.py",
+    "tools/test_forecast_history_versions.py",
+    "tools/test_forecast_learning_runtime_quality.py",
+    "tools/test_frontend_bootstrap_revision_contract.js",
+    "tools/test_i3_policy_cadence_contract.py",
+    "tools/test_integer_control_targets.py",
+    "tools/test_integer_percent_firmware_contract.py",
+    "tools/test_integer_percent_scheduler_contract.py",
+    "tools/test_lease_acceptance_journal.py",
+    "tools/test_load_diagnostics_buycoffee_playwright.js",
+    "tools/test_load_forecast_parity.py",
+    "tools/test_load_history_continuity.py",
+    "tools/test_load_history_diagnostics.py",
+    "tools/test_load_history_recovery.py",
+    "tools/test_load_history_runtime_quality.py",
+    "tools/test_load_history_store.py",
+    "tools/test_load_model.py",
+    "tools/test_load_model_freshness_alignment.py",
+    "tools/test_load_stale_history_fallback.py",
+    "tools/test_master_stop_deferred_start.py",
+    "tools/test_n12_release_contract.py",
+    "tools/test_optimizer_executor_contract.py",
+    "tools/test_optimizer_integer_commands.py",
+    "tools/test_optimizer_startup_contract.py",
+    "tools/test_overview_control_poll_contract.py",
+    "tools/test_profit_archive.py",
+    "tools/test_profit_http.py",
+    "tools/test_profit_ui_playwright.js",
+    "tools/test_pstryk_active_run_commitment.py",
+    "tools/test_pstryk_adapter.py",
+    "tools/test_pstryk_buy_commitment.py",
+    "tools/test_pstryk_buy_readiness_ui.js",
+    "tools/test_pstryk_buy_refinement.py",
+    "tools/test_pstryk_buy_reserve.py",
+    "tools/test_pstryk_charge_chart.js",
+    "tools/test_pstryk_daily_cache.py",
+    "tools/test_pstryk_economic_presentation.py",
+    "tools/test_pstryk_export_settling.py",
+    "tools/test_pstryk_idle_readiness_ui.js",
+    "tools/test_pstryk_joint.py",
+    "tools/test_pstryk_offline.py",
+    "tools/test_pstryk_price_identity.py",
+    "tools/test_pstryk_rce_parity.py",
+    "tools/test_pstryk_replay_data.py",
+    "tools/test_pstryk_runtime.py",
+    "tools/test_pstryk_sell_run.py",
+    "tools/test_pstryk_settling.py",
+    "tools/test_pstryk_supervisor_continuity.py",
+    "tools/test_pstryk_ui.js",
+    "tools/test_pv_charge_delay.py",
+    "tools/test_pv_charge_delay_adapter.py",
+    "tools/test_pv_charge_delay_control.py",
+    "tools/test_pv_charge_delay_horizon.py",
+    "tools/test_pv_charge_delay_parallel.py",
+    "tools/test_pv_charge_delay_parallel_settling.py",
+    "tools/test_pv_charge_delay_projection.py",
+    "tools/test_pv_charge_delay_sensor.py",
+    "tools/test_pv_charge_delay_settling.py",
+    "tools/test_pv_charge_delay_ui.js",
+    "tools/test_pv_delay_active_window.py",
+    "tools/test_pv_delay_continuity.py",
+    "tools/test_pv_delay_execution_status.js",
+    "tools/test_pv_delay_forecast.py",
+    "tools/test_pv_delay_house_flows.py",
+    "tools/test_pv_delay_house_lease.py",
+    "tools/test_pv_delay_mode_authority.py",
+    "tools/test_pv_delay_planner_handoff.py",
+    "tools/test_pv_delay_planning_proof.py",
+    "tools/test_pv_delay_reserve_independence.py",
+    "tools/test_pv_delay_start_cutoff.py",
+    "tools/test_pv_forecast_usability.py",
+    "tools/test_pv_hold_precommand_recovery.py",
+    "tools/test_pv_hold_retry_cooldown.py",
+    "tools/test_pv_hold_startup_loop.py",
+    "tools/test_pv_initial_cohort_wait.py",
+    "tools/test_pv_prewrite_callback_race.py",
+    "tools/test_pv_status_ui_contract.js",
+    "tools/test_rc1_cross_policy_restart.py",
+    "tools/test_rc2_public_snapshot.py",
+    "tools/test_rc2_release_contract.py",
+    "tools/test_rce_20l_discharge_calibration.py",
+    "tools/test_rce_48h_ui_contract.js",
+    "tools/test_rce_active_run_commitment.py",
+    "tools/test_rce_active_slot_commitment.py",
+    "tools/test_rce_active_slot_publication.py",
+    "tools/test_rce_bms_retarget.py",
+    "tools/test_rce_daylight_publication.py",
+    "tools/test_rce_dynamic_start_gate.py",
+    "tools/test_rce_enabled_rcm_retention.py",
+    "tools/test_rce_executable_tail.py",
+    "tools/test_rce_export_evidence.py",
+    "tools/test_rce_field_plan_selection.py",
+    "tools/test_rce_filtered_aggregates.py",
+    "tools/test_rce_forecast_market_scope.py",
+    "tools/test_rce_full_run_continuity.py",
+    "tools/test_rce_future_chart_soc.py",
+    "tools/test_rce_history.py",
+    "tools/test_rce_installation_2_replan.py",
+    "tools/test_rce_lease_real_cadence.py",
+    "tools/test_rce_minimum_input_runtime.py",
+    "tools/test_rce_minimum_net_export.py",
+    "tools/test_rce_negative_publication.py",
+    "tools/test_rce_night_window_quality.py",
+    "tools/test_rce_optimizer.py",
+    "tools/test_rce_plan_churn.py",
+    "tools/test_rce_plan_revalidation.py",
+    "tools/test_rce_post_command_settling.py",
+    "tools/test_rce_post_command_settling_optimizer.py",
+    "tools/test_rce_post_command_settling_sensor.py",
+    "tools/test_rce_price_cache.py",
+    "tools/test_rce_price_runtime.py",
+    "tools/test_rce_pstryk_load_margin.py",
+    "tools/test_rce_pstryk_load_margin_guards.py",
+    "tools/test_rce_publication_continuity.py",
+    "tools/test_rce_publication_refresh.py",
+    "tools/test_rce_revalidation_diagnostics.py",
+    "tools/test_rce_revalidation_energy_trim.py",
+    "tools/test_rce_run_end_extension.py",
+    "tools/test_rce_sale_search.py",
+    "tools/test_rce_self_consumption_filter.py",
+    "tools/test_rce_self_consumption_shadow.py",
+    "tools/test_rce_settling_extended.py",
+    "tools/test_rce_settling_sensor_callback.py",
+    "tools/test_rce_slot_boundary_refresh.py",
+    "tools/test_rce_slot_entity_id_compatibility.py",
+    "tools/test_rce_slow_replan_lease.py",
+    "tools/test_rce_small_power_retarget.py",
+    "tools/test_rce_start_publication_race.py",
+    "tools/test_rce_tariff_lease_continuity.py",
+    "tools/test_rce_tariff_refresh_stability.py",
+    "tools/test_rce_unsent_retarget_cohort.py",
+    "tools/test_rcm_execution_bms_limits.py",
+    "tools/test_rcm_live_control_refresh.py",
+    "tools/test_rcm_optimizer.py",
+    "tools/test_rcm_timeline_model.py",
+    "tools/test_recorder_duplication.py",
+    "tools/test_recorder_query_deadline.py",
+    "tools/test_retarget_single_budget.py",
+    "tools/test_sale_consolidated_cycle.py",
+    "tools/test_sale_consolidation.py",
+    "tools/test_sale_soc_range.py",
+    "tools/test_sale_soc_summary.js",
+    "tools/test_sale_soc_ui_playwright.js",
+    "tools/test_sale_tail_options.py",
+    "tools/test_shared_forecast_timezone.py",
+    "tools/test_shared_input_parity.py",
+    "tools/test_shared_load_current_slot.py",
+    "tools/test_shared_load_execution_budget.py",
+    "tools/test_shared_load_rcm.py",
+    "tools/test_shared_package_asset_sync.py",
+    "tools/test_soc_reserve_scope.py",
+    "tools/test_solcast_adaptation_contract.py",
+    "tools/test_stable_public_snapshot.py",
+    "tools/test_stable_release_contract.py",
+    "tools/test_stale_input_stop_evidence.py",
+    "tools/test_stop_recorder_sqlite.py",
+    "tools/test_stop_recorder_storage.py",
+    "tools/test_supervisor_accounting_runtime.py",
+    "tools/test_supervisor_accounting_sensor_contract.py",
+    "tools/test_supervisor_accounting_v2.py",
+    "tools/test_supervisor_active_bridge.py",
+    "tools/test_supervisor_active_controller.py",
+    "tools/test_supervisor_active_frame_revision.py",
+    "tools/test_supervisor_adapter_response.py",
+    "tools/test_supervisor_aurora_ui_contract.js",
+    "tools/test_supervisor_canonical_dual_track.py",
+    "tools/test_supervisor_canonical_ledger.py",
+    "tools/test_supervisor_canonical_runtime.py",
+    "tools/test_supervisor_control_lease.py",
+    "tools/test_supervisor_executor.py",
+    "tools/test_supervisor_executor_codec.py",
+    "tools/test_supervisor_grid_to_battery_provider_absence.py",
+    "tools/test_supervisor_helpers_contract.py",
+    "tools/test_supervisor_late_ack.py",
+    "tools/test_supervisor_ledger.py",
+    "tools/test_supervisor_master_stop_service_contract.py",
+    "tools/test_supervisor_minimum_power.py",
+    "tools/test_supervisor_minimum_power_sensor.py",
+    "tools/test_supervisor_not_queued_reprepare.py",
+    "tools/test_supervisor_rce_cadence.py",
+    "tools/test_supervisor_restore_not_queued.py",
+    "tools/test_supervisor_retarget_physical_phase.py",
+    "tools/test_supervisor_runtime_contract.py",
+    "tools/test_supervisor_sensor_contract.py",
+    "tools/test_supervisor_terminal_fallback.py",
+    "tools/test_supervisor_transport_lifecycle_contract.py",
+    "tools/test_supervisor_user_controls.py",
+    "tools/test_tariff_active_controller.py",
+    "tools/test_tariff_bms_guard.py",
+    "tools/test_tariff_commitment_cohort.py",
+    "tools/test_tariff_consumable_margin.py",
+    "tools/test_tariff_continuous_night_cycle.py",
+    "tools/test_tariff_event_routing.py",
+    "tools/test_tariff_grid_support.py",
+    "tools/test_tariff_initial_lease_settling.py",
+    "tools/test_tariff_input_stop_evidence.py",
+    "tools/test_tariff_low_power_confirmation.py",
+    "tools/test_tariff_margin_protected_window.py",
+    "tools/test_tariff_night_continuity.py",
+    "tools/test_tariff_normal_completion.py",
+    "tools/test_tariff_optimizer.py",
+    "tools/test_tariff_pending_dispatch_race.py",
+    "tools/test_tariff_power_cohort.py",
+    "tools/test_tariff_price_schedule.py",
+    "tools/test_tariff_profiles.py",
+    "tools/test_tariff_pv_contract.py",
+    "tools/test_tariff_pv_unsent_dispatch.py",
+    "tools/test_tariff_retarget_publication.py",
+    "tools/test_tariff_retry_budget.py",
+    "tools/test_tariff_sensor_cadence.py",
+    "tools/test_tariff_stability_night.py",
+    "tools/test_tariff_start_publication_race.py",
+    "tools/test_tariff_start_reason_ui.js",
+    "tools/test_tariff_support_flow_filter.py",
+    "tools/test_tariff_window_layout.py",
+    "tools/test_upgrade_1581_public_snapshot.py",
+    "tools/test_upgrade_1581_release_contract.py",
+    "tools/test_upgrade_from_157.py",
+    "tools/test_upgrade_from_158.py",
+    "tools/test_upgrade_from_rc2.py",
+    "tools/upgrade_1581_release_contract.py",
+    "tools/validate_pstryk_rc1_candidate.py",
+    "tools/validate_rc2_candidate.py",
+    "tools/validate_rce_card.js",
+    "tools/validate_release.py"
+  ]
+}

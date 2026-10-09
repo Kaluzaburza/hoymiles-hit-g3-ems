@@ -9,7 +9,7 @@ const assets = read('custom_components/hoymiles_hit_modbus/assets.py');
 const revision = Number(assets.match(/FRONTEND_ASSET_REVISION = (\d+)/)?.[1]);
 const element = 'll-strategy-dashboard-hoymiles-hit-xxl-g3';
 const origin = 'https://ha.example';
-const bundle = `${origin}/local/hoymiles-rce-chart-card.js?v=1.5.8.${revision}&history=48h-executed`;
+const bundle = `${origin}/local/hoymiles-rce-chart-card.js?v=1.5.8.1.${revision}&history=48h-executed`;
 const prefix = canonical.slice(0, canonical.indexOf('const HOYMILES_AURORA_ACCENTS'));
 assert.ok(prefix.includes('customElements.define'));
 

@@ -59,6 +59,7 @@ from .supervisor_sensor import (
     notify_supervisor_guard,
 )
 from .support_http import HoymilesSupportBundleView
+from .esphome_upgrade_http import HoymilesEsphomeUpgradeView
 from .execution_history_http import HoymilesExecutionHistoryView
 from .profit_http import HoymilesProfitView
 from .timeline_sensor import (
@@ -542,6 +543,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             ", ".join(str(path) for path in paths),
         )
     hass.http.register_view(HoymilesSupportBundleView())
+    hass.http.register_view(HoymilesEsphomeUpgradeView())
     hass.http.register_view(HoymilesExecutionHistoryView())
     hass.http.register_view(HoymilesProfitView())
 

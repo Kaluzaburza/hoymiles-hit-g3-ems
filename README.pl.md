@@ -1,4 +1,4 @@
-# EMS dla Hoymiles — 1.5.8
+# EMS dla Hoymiles — 1.5.8.1
 
 [English](README.md) · [Polski](README.pl.md)
 
@@ -31,8 +31,9 @@ również przegląd instalacji i dostępnych funkcji.
 
 ## Przegląd
 
-> **1.5.8 — wydanie stabilne.** Frontend `1.5.8.122`.
-> [Opis i aktualizacja](docs/releases/v1.5.8.md) · [Przejście z 1.5.7](docs/UPGRADE_1_5_7.md).
+> **1.5.8.1 — stabilna poprawka HACS.** Frontend `1.5.8.1.123`.
+> Stała instrukcja aktualizacji ESP; zgodny firmware RC2 nie wymaga nowego OTA.
+> [Opis i aktualizacja](docs/releases/v1.5.8.1.md) · [Przejście z 1.5.7](docs/UPGRADE_1_5_7.md).
 > Dostępna w zwykłym kanale aktualizacji HACS; włączanie wersji beta nie jest potrzebne.
 
 ![Aurora v1.5.8: bieżące przepływy, plan energii EMS, ustawienia taryfy i RCEm](docs/images/dashboard-overview.png)
@@ -499,7 +500,7 @@ aktualizuje się bez ponownego wklejania konfiguracji YAML.
 
 ## Aktualizacja
 
-Dla 1.5.8 wykonaj [numerowane kroki aktualizacji](docs/releases/v1.5.8.md#user-update-steps--kroki-po-aktualizacji).
+Dla 1.5.8.1 wykonaj [numerowane kroki aktualizacji](docs/releases/v1.5.8.1.md#user-update-steps--kroki-po-aktualizacji).
 Wstrzymaj automatyczne wykonanie, potwierdź fizyczny stan neutralny i wykonaj
 kopię zmienionych plików. Zaktualizuj integrację i zarządzany pakiet, sprawdź
 konfigurację HA oraz wykonaj restart lub restarty wskazane przez instalację
@@ -836,6 +837,8 @@ Przed ponownym wgraniem firmware sprawdź
 | Dokument | Zastosowanie |
 |---|---|
 | [Szybki start](docs/QUICK_START.md) | Krótka ścieżka instalacji dla nowych użytkowników |
+| [Instrukcja aktualizacji ESP](docs/ESP_UPDATE_GUIDE.md) | Przygotowanie pliku i kolejne etapy OTA |
+| [Poprawka 1.5.8.1](docs/releases/v1.5.8.1.md) | Stała instrukcja i prostsza aktualizacja ESP |
 | [Opis 1.5.8](docs/releases/v1.5.8.md) | Nowości, aktualizacja i granice odbioru |
 | [Zgodność](docs/COMPATIBILITY.md) | Modele referencyjne, zgłoszenia użytkowników i zakres odbioru |
 | [Schemat połączeń](docs/WIRING_ESP32_S3.md) | ESP32-S3, izolowany konwerter i HIT-G3 COM2 |

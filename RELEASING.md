@@ -1,10 +1,26 @@
 # Release procedure
 
-Current release preparation: **1.5.8 stable**, tag `v1.5.8`.
-Use the [stable publication map](docs/releases/1.5.8/PUBLICATION.md) and
-[public release body](docs/releases/v1.5.8.md). Compatible firmware stays at
-`v1.5.8RC2`; the immutable RC2 tag/assets and historical gates remain intact.
-Preparing these files alone does not authorize push, tagging or publication.
+Current hotfix: **1.5.8.1 stable**, tag `v1.5.8.1`. Use the
+[public release body](docs/releases/v1.5.8.1.md). The new exact candidate contract
+is `tools/upgrade_1581_release_contract.py`; its immutable parent is
+`dccf6629d695bf858ad33d9aa353799348f6621e`. Firmware remains `v1.5.8RC2`.
+The 1.5.8, RC2 and 1.5.7 contracts stay unchanged and run on their own commits.
+Never move an existing tag or replace its assets. Preparation alone does not
+authorize publication. Run these hotfix checks in addition to the full union below:
+
+```text
+python tools/test_upgrade_1581_release_contract.py
+python tools/test_upgrade_1581_public_snapshot.py
+python tools/test_upgrade_from_158.py
+python tools/test_esphome_upgrade.py
+node tools/test_esphome_upgrade_ui.js
+python tools/test_esphome_upgrade_http.py      # actual HA runtime
+python tools/test_esphome_upgrade_config.py    # ESPHome 2026.9.0 and 2026.9.1
+```
+
+These supplement the complete release checks below. The real configuration
+tests include the public 1.5.7 bridge, final encryption, ESP32/S3/flow control and
+preservation of an older chip's settings. Preparation is not OTA acceptance.
 
 For routine task closure before a release freeze, use
 [the version-independent EMS closeout prompt](docs/EMS_CHANGE_CLOSEOUT_PROMPT.md)
@@ -282,8 +298,8 @@ commit exists. M01 documentation cannot authorize product bytes.
    python tools/test_diagnostics_future.py
    python tools/test_pstryk_buy_refinement.py
    python tools/test_lease_acceptance_journal.py
-   python tools/test_stable_release_contract.py
-   python tools/test_stable_public_snapshot.py
+   python tools/test_upgrade_1581_release_contract.py
+   python tools/test_upgrade_1581_public_snapshot.py
    python tools/test_upgrade_from_157.py
    python tools/test_upgrade_from_rc2.py
    python tools/test_diagnostic_analyzer.py
@@ -388,12 +404,13 @@ public profiles, not only a reduced smoke fixture.
 
 ## Public snapshot provenance
 
-The stable public branch continues the public RC2 history rooted at 1.5.7.
-Its exact parent, subject, paths, modes and bytes are pinned by the separate
-stable contract. `rc2_public_provenance.json` retains the original runtime
-hashes; the stable gate allows only five explicit version-metadata changes
-and checks all remaining protected runtime bytes against that source.
-Run `python tools/test_stable_public_snapshot.py` and the RC2 installer
+The public branch continues the public RC2 history rooted at 1.5.7.
+The hotfix contract pins its exact parent, subject, paths, modes and bytes.
+It allows only the reviewed guide, HTTP registration, asset delivery and version
+metadata changes against public stable 1.5.8; control, scheduler and firmware
+bytes must match. The unchanged stable contract separately proves the original
+five version-metadata changes against RC2 on its historical commit.
+Run `python tools/test_upgrade_1581_public_snapshot.py` and the RC2 installer
 regression `python tools/test_upgrade_from_rc2.py` on the exact candidate.
 
 Public CI runs the unchanged RC2 and public 1.5.7 gates on their own historical

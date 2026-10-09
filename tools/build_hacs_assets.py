@@ -6205,6 +6205,7 @@ def build() -> None:
         destination.write_text(content, encoding="utf-8", newline="\n")
 
     for bundled_www_asset in (
+        "hoymiles-update-guide.js",
         "hoymiles-dashboard-strategy.js",
         "hoymiles-rce-chart-card.js",
         "hoymiles-inverter.png",

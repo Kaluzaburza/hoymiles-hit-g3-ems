@@ -16,8 +16,8 @@ const assetsSource = fs.readFileSync(
   "utf8",
 );
 if (
-  !assetsSource.includes("FRONTEND_ASSET_REVISION = 122") ||
-  !source.includes("static hoymilesFrontendRevision = 122;") ||
+  !assetsSource.includes("FRONTEND_ASSET_REVISION = 123") ||
+  !source.includes("static hoymilesFrontendRevision = 123;") ||
   assetsSource.includes("FRONTEND_ASSET_REVISION = 37") ||
   assetsSource.includes("FRONTEND_ASSET_REVISION = 38") ||
   assetsSource.includes("FRONTEND_ASSET_REVISION = 39") ||
@@ -94,9 +94,9 @@ if (
   bootstrapSource.includes("1.5.8.78") ||
   bootstrapSource.includes("1.5.8.87") ||
   bootstrapSource.includes("1.5.8.88") ||
-  !bootstrapSource.includes("const frontendRevision = 122")
+  !bootstrapSource.includes("const frontendRevision = 123")
 ) {
-  throw new Error("Frontend revision/cache contract is not exactly 1.5.8.122");
+  throw new Error("Frontend revision/cache contract is not exactly 1.5.8.1.123");
 }
 if (!source.includes("import.meta.url")) {
   throw new Error("Dashboard strategy no longer resolves assets from its module URL");
@@ -609,6 +609,14 @@ let v158Task02CandidateState = false;
 let rc2CandidateManifest = null;
 const publicSnapshot = fs.existsSync("tools/release_manifests/rc2_public_provenance.json");
 const v158ReleaseCandidateState = (() => {
+  if (fs.existsSync("tools/release_manifests/upgrade_1_5_8_1_contract.json")) {
+    // The guide hotfix has its own exact source gate; old seals remain historical.
+    childProcess.execFileSync(pythonExecutable,
+      ["-B", "-c", "import sys; sys.path.insert(0, 'tools'); import upgrade_1581_release_contract as c; c.validate()"],
+      { encoding: "utf8" });
+    rc2CandidateManifest = JSON.parse(fs.readFileSync("tools/release_manifests/upgrade_1_5_8_1_contract.json", "utf8"));
+    return true;
+  }
   if (fs.existsSync("tools/release_manifests/stable_1_5_8_contract.json")) {
     // Stable promotion retains the RC2 frontend, with its own exact source gate.
     childProcess.execFileSync(pythonExecutable,
@@ -1028,7 +1036,7 @@ if (
 // executes classic scripts, so inject the same deterministic module URL while
 // retaining an explicit assertion above that production code uses import.meta.
 const canonicalModuleUrl =
-  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.8.122";
+  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.8.1.123";
 const executableSource = source.replaceAll(
   "import.meta.url",
   JSON.stringify(canonicalModuleUrl),
@@ -1233,7 +1241,7 @@ const bootstrapFirstContext = {
     currentScript: {
       src: (
         "https://homeassistant.example/local/"
-        + "hoymiles-dashboard-strategy.js?v=1.5.8.122"
+        + "hoymiles-dashboard-strategy.js?v=1.5.8.1.123"
       ),
     },
   },
@@ -1287,7 +1295,7 @@ const scriptFallbackContext = {
       {
         src: (
           "https://homeassistant.example/local/"
-          + "hoymiles-dashboard-strategy.js?v=1.5.8.122"
+          + "hoymiles-dashboard-strategy.js?v=1.5.8.1.123"
         ),
       },
     ],
@@ -1307,7 +1315,7 @@ vm.runInNewContext(inspectableBootstrapSource, scriptFallbackContext, {
 });
 if (
   scriptFallbackWindow.__canonicalModuleUrl !==
-  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.8.122&history=48h-executed"
+  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.8.1.123&history=48h-executed"
 ) {
   throw new Error("Bootstrap lost its cache-busting query when currentScript was absent");
 }
@@ -1327,7 +1335,7 @@ vm.runInNewContext(inspectableBootstrapSource, {
 });
 if (
   noScriptWindow.__canonicalModuleUrl !==
-  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.8.122&history=48h-executed"
+  "https://homeassistant.example/local/hoymiles-rce-chart-card.js?v=1.5.8.1.123&history=48h-executed"
 ) {
   throw new Error("Bootstrap fallback imported an unversioned canonical module");
 }
@@ -1347,7 +1355,7 @@ vm.runInNewContext(inspectableBootstrapSource, {
         src: "https://old.example/local/hoymiles-dashboard-strategy.js?v=1.5.8.78",
       },
       {
-        src: "https://new.example/local/hoymiles-dashboard-strategy.js?v=1.5.8.122",
+        src: "https://new.example/local/hoymiles-dashboard-strategy.js?v=1.5.8.1.123",
       },
     ],
   },
@@ -1357,13 +1365,13 @@ vm.runInNewContext(inspectableBootstrapSource, {
 });
 if (
   unrelatedCurrentScriptWindow.__canonicalModuleUrl !==
-  "https://new.example/local/hoymiles-rce-chart-card.js?v=1.5.8.122&history=48h-executed"
+  "https://new.example/local/hoymiles-rce-chart-card.js?v=1.5.8.1.123&history=48h-executed"
 ) {
   throw new Error("Bootstrap trusted an unrelated currentScript or DOM order");
 }
 
 const staleBootstrapSource = bootstrapSource.replace(
-  "const frontendRevision = 122;",
+  "const frontendRevision = 123;",
   "const frontendRevision = 78;",
 );
 if (staleBootstrapSource === bootstrapSource) throw new Error("Old-bootstrap fixture did not change revision");
@@ -1401,7 +1409,7 @@ function bootstrapOrderFixture(firstSource, secondSource, label) {
   const finalStrategy = orderRegistry.get(
     "ll-strategy-dashboard-hoymiles-hit-xxl-g3",
   );
-  if (finalStrategy !== registered || finalStrategy?.hoymilesFrontendRevision !== 122) {
+  if (finalStrategy !== registered || finalStrategy?.hoymilesFrontendRevision !== 123) {
     throw new Error(`Bootstrap cache order ${label} downgraded or redefined the strategy`);
   }
 }

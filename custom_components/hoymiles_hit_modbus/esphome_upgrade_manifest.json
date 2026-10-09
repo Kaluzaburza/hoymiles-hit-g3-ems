@@ -1,0 +1,75 @@
+{
+  "firmware_sha": "ba91261597420ea3a58a6665fc996d7081f219e2",
+  "accepted_refs": [
+    "v1.5.6",
+    "v1.5.7",
+    "v1.5.8RC2",
+    "v1.5.8",
+    "ba91261597420ea3a58a6665fc996d7081f219e2",
+    "e995f9b730eaecdfd07fd84ccff34108e2799f14"
+  ],
+  "source_commits": [
+    "e995f9b730eaecdfd07fd84ccff34108e2799f14",
+    "ba91261597420ea3a58a6665fc996d7081f219e2"
+  ],
+  "files": {
+    "packages/core.yaml": [
+      "74c6a70cfede815a2ea2ab3a5dfffb3b715082a5271191683c5046ff706c2a18",
+      "f83253cfccfe289f210d7af77c500227d28a657feeac4a75180a7ffcff662eb7"
+    ],
+    "packages/network.yaml": [
+      "9f9866b0080672aafb163b6a9665fa243f488f8ea8f8db1087180345618b220b"
+    ],
+    "packages/modbus_connection.yaml": [
+      "2add6c7d4a0f7b99a3c0e1e8b0b7f39ab9f0f1f54cd1c076af74c81505cf7bf7",
+      "dc1125e2ea5d6ac96b9ad4d38918704e4ec96ee8267a77e3d773b00df547e3b4"
+    ],
+    "packages/parallel_network.yaml": [
+      "0633dff55017132b1d061510f4f0247612a3e279a193c21d7196ec7c1bc8f784",
+      "16bb7f462e512245760e4c6d86ca8723e9e366bef04e570e752fdc4380af0fa1"
+    ],
+    "packages/settings.yaml": [
+      "ef4600dca0bf8ac243e36e8c49419d8c2f138817a3d96792dbf500485e5054ae",
+      "fc83b7234462686eafb8b5d57f276c5c6cc20be258373133b3dd7cb9b4666afb"
+    ],
+    "packages/system.yaml": [
+      "5623bb4227919eb1d848f4fb24b95cbf164def374adfe32fb2899d8ce50c994d"
+    ],
+    "packages/states_alarms.yaml": [
+      "9a9f23180ba0e9cbb81668b2684b23a18aae28a1ec74927369958e6140b562bd",
+      "d75de9dda6c8121994001ab2beda8757bb0c12ce64523e58960d6353a232ce60"
+    ],
+    "packages/inverter.yaml": [
+      "56f81d58f94f7c8734353d7e3beecca4ab4976ec5d94bee64e40633e4b125005"
+    ],
+    "packages/grid.yaml": [
+      "eebf1d81f4c747d1b7ec028e775901e9bdeb201b3e2ed1ced1cdd9659a4c0423"
+    ],
+    "packages/backup_load.yaml": [
+      "639c6ffb559b5bd0fb997fa215306bb06dcd93d5312bfb03dd203828384fc0bc"
+    ],
+    "packages/generator.yaml": [
+      "01a2dbbe8d819e320524be211c2da590584cc1544a9c30301dc5df8ca27e3f4f"
+    ],
+    "packages/pv.yaml": [
+      "d8f629073b11a47a0f471791feaed8f07c704315fe73d1838fe13ffd020df2e1"
+    ],
+    "packages/battery.yaml": [
+      "2cc26105948ad4d63fd211d78cc5cfcef2eadf0ebb19efbb2a8cbce6ed7d6ec4",
+      "a7d91190187c8721aded9f8349a846f5fd9d18806432b3a201176ef48c33b18b"
+    ],
+    "packages/energy_flow.yaml": [
+      "c23e4b5331c47515b2961a0e0903fb8a115aa008943a81c46f5f591cbfeeaf13"
+    ],
+    "packages/meters.yaml": [
+      "adfdfad9915e11710ad94c6d3ef6ed1d9ddc1ffd3ec6af351051551603e36d49"
+    ],
+    "packages/overview.yaml": [
+      "77422e1fa810111ad97b96840fdbdbb3360fb36bf911a3a7fbfdc617cb208b31",
+      "be25be763a1aeea1ab1ebda169ebe01804ecba1396ea3bad47dde1d8adb4a45f"
+    ],
+    "packages/diagnostics.yaml": [
+      "93aeafc809607f364ddde0d42f0b932adeffba099982d0012421613381fdd7c1"
+    ]
+  }
+}

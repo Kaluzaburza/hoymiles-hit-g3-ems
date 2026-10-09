@@ -2,6 +2,64 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.5.8.1] — 2026-10-09
+
+Stable HACS hotfix, **9 October 2026**. Integration **1.5.8.1**, frontend
+**1.5.8.1.123**, EMS package **1.5.8**, compatible firmware **1.5.8rc2 / lease 2**.
+
+## Co się zmienia?
+
+- Instrukcja i changelog są stale dostępne w EMS: **Start** i **Ustawienia →
+  Instrukcja i aktualizacja ESP**, także po zainstalowaniu wydania przez HACS.
+- Kreator przygotowuje plik ESP na podstawie Twojego YAML-a i logu urządzenia.
+  Zachowuje nazwę, płytkę, pamięć, piny, parametry RS485 i istniejące klucze.
+- Przy starych pakietach z 1.5.7 nie trzeba ręcznie usuwać `register_count`
+  w wielu plikach. Rozpoznane oficjalne pakiety są zastępowane kompletem
+  przypiętym do konkretnej, zgodnej wersji.
+- Starsze OTA otrzymuje instrukcję dwóch etapów. Kopię oryginału pobierasz
+  przed nowym YAML-em. Własne lub nierozpoznane pakiety wymagają przeglądu.
+
+**Zgodne ESP z RC2 nie wymaga kolejnego OTA.** Ten hotfix nie zmienia algorytmów,
+firmware'u, nastaw ani częstotliwości odczytów. HACS aktualizuje integrację HA;
+kompilację i wgranie ESP wykonujesz osobno w Builderze. Kreator przygotowuje plik,
+nie wgrywa go automatycznie. Dane są przetwarzane przez Twój HA, a log pozostaje
+w przeglądarce. Przygotowanie pliku jest dostępne dla administratora HA.
+
+### User update steps / Kroki po aktualizacji
+
+1. **HACS:** wykonaj kopię HA i zainstaluj **1.5.8.1** w zwykłym kanale
+   stabilnym. / Back up HA and install **1.5.8.1**; beta versions are not needed.
+2. **Home Assistant:** uruchom HA ponownie, sprawdź **Ustawienia → System →
+   Naprawy** i odśwież stronę EMS bez pamięci podręcznej. Nie usuwaj integracji.
+   / Restart HA, check Repairs and hard-refresh EMS. Keep the existing integration.
+3. **ESP32 / ESPHome:** jeśli ESP działa już na zgodnym RC2, pomiń OTA. Przy
+   aktualizacji starszego ESP otwórz **Instrukcja i aktualizacja ESP**; użyj
+   własnego YAML-a i logu uruchomionego urządzenia. Pobierz kopię oryginału,
+   potem przygotowany plik. Builder musi mieć co najmniej **2026.9.0**.
+   Przed OTA wstrzymaj automatyki i poczekaj na koniec bieżącego działania.
+   / Compatible RC2 needs no OTA. For older ESP, use the guide with your actual
+   YAML and device log. Download the backup first; use Builder 2026.9.0 or newer.
+   Pause automation and let active execution finish before uploading.
+4. **Verification / Weryfikacja:** w Builderze najpierw **Zweryfikuj**, następnie
+   kompilacja i wgranie zgodnie z pokazanym etapem. Po końcowym OTA sprawdź świeże
+   dane, gotowość EMS i własne ustawienia przed przywróceniem automatyk.
+   / Validate and compile before upload. After the final stage verify fresh
+   telemetry, EMS readiness and settings before restoring your previous automations.
+
+## English
+
+This hotfix adds persistent bilingual instructions and release notes, plus
+administrator-only preparation of matching ESP YAML. It retains device hardware,
+identity, keys and polling settings. Recognized official packages can be updated
+as a complete set; unknown or customized inputs stop for review. Password-only
+OTA uses an explicit bridge followed by encrypted OTA after a new boot log.
+Preparation neither uploads firmware nor controls the inverter. Control algorithms
+and firmware are unchanged; compatible RC2 devices require no new OTA.
+
+[Detailed guide / Pełna instrukcja](docs/ESP_UPDATE_GUIDE.md) ·
+[Upgrade from 1.5.7 / Aktualizacja z 1.5.7](docs/UPGRADE_1_5_7.md) ·
+[1.5.8 features / Funkcje 1.5.8](docs/releases/v1.5.8.md)
+
 ## [1.5.8] — 2026-10-09
 
 **9 October / 9 października 2026** · tag **`v1.5.8`** · integration/package

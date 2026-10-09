@@ -1,4 +1,22 @@
-# Public work state — 1.5.8
+# Public work state — 1.5.8.1
+
+## HACS upgrade-guide hotfix
+
+Integration **1.5.8.1**, frontend **1.5.8.1.123**, EMS package **1.5.8**.
+Parent: `dccf6629d695bf858ad33d9aa353799348f6621e` (public stable baseline).
+The bounded administrator-only YAML preparation and persistent PL/EN guide
+are described in [release notes](releases/v1.5.8.1.md). The exact contract pins
+every tracked byte/mode and limits runtime changes to the guide, HTTP registration,
+asset delivery and integration version metadata. Publication is confirmed by the
+GitHub release/tag and attached source manifest, not by this document alone.
+
+Firmware, scheduling, control and user settings remain unchanged. Prepared
+configs use firmware SHA `ba91261597420ea3a58a6665fc996d7081f219e2`.
+Existing 1.5.8, RC2 and 1.5.7 gates run separately on their original commits.
+No private installation records or field-acceptance decisions belong here.
+Future 1.5.9 development remains a separate line.
+
+## Published baseline (unchanged)
 
 Stable integration/package **1.5.8**, frontend **1.5.8.122**, ESP lease **2**.
 This release promotes the published RC2 functionality. Control algorithms and

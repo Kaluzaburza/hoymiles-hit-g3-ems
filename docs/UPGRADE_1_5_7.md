@@ -1,4 +1,4 @@
-# Upgrade 1.5.7 → 1.5.8 / Aktualizacja
+# Upgrade 1.5.7 → 1.5.8.1 / Aktualizacja
 
 This is an in-place update: keep the existing HA integration, ESPHome device,
 entity registry, Recorder and `.storage`. Do not remove/re-add the integration
@@ -7,6 +7,12 @@ to update it. HACS updates the HA component; it does not update the ESP firmware
 To aktualizacja istniejącej instalacji. Zachowaj integrację, urządzenie ESPHome,
 encje, Recorder i `.storage`. Nie usuwaj integracji i nie twórz jej ponownie.
 Aktualizacja w HACS nie wgrywa firmware'u ESP.
+
+**Since 1.5.8.1 / Od 1.5.8.1:** the [ESP update guide](ESP_UPDATE_GUIDE.md)
+prepares matching device YAML and explains the OTA stages. In EMS select
+**Instructions and ESP update**. **PL:** wybierz „Instrukcja i aktualizacja ESP”;
+kreator zachowa ustawienia i pomoże przejść poniższą ścieżkę bez ręcznej edycji
+pojedynczych pakietów.
 
 ## Before updating / Przed aktualizacją
 
@@ -32,8 +38,8 @@ Aktualizacja w HACS nie wgrywa firmware'u ESP.
 
 ## Update order / Kolejność
 
-1. In HACS choose stable **1.5.8**; beta versions need not be enabled. Restart HA fully.
-   **PL:** wybierz stabilne 1.5.8 w HACS i wykonaj pełny restart HA.
+1. In HACS choose stable **1.5.8.1**; beta versions need not be enabled. Restart HA fully.
+   **PL:** wybierz stabilne 1.5.8.1 w HACS i wykonaj pełny restart HA.
 2. Open **Settings → System → Repairs** and the integration's installation
    status. The integration installs `hoymiles_ems_scheduler.yaml` and the new
    `hoymiles_ems_shared_inputs.yaml` in `/config/packages/`.
@@ -57,8 +63,8 @@ Aktualizacja w HACS nie wgrywa firmware'u ESP.
    New proxies can remain unavailable and execution blocked until ESP catches up.
    **PL:** zachowaj tożsamość i parametry sprzętu. Brak nowych funkcji starego ESP
    nie naprawi się przez odświeżenie przeglądarki — potrzebne jest firmware.
-6. Reload the dashboard without cache. Confirm integration/package **1.5.8**,
-   frontend **1.5.8.122**, ready installation, current plans, complete fresh
+6. Reload the dashboard without cache. Confirm integration **1.5.8.1**, package **1.5.8**,
+   frontend **1.5.8.1.123**, ready installation, current plans, complete fresh
    physical FC03, topology, BMS/SOC and no active/conflicting writer. Review the
    copied settings before restoring only your previous permissions/policies.
    **PL:** sprawdź wersje, Naprawy, nastawy i fizyczny odczyt. Dopiero wtedy

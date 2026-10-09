@@ -51,10 +51,17 @@ jobs:
       - name: Test stable evidence and exact candidate contract
         run: |
           python tools/test_lease_acceptance_journal.py
-          python tools/test_stable_release_contract.py
-          python tools/test_stable_public_snapshot.py
+          python tools/test_upgrade_1581_release_contract.py
+          python tools/test_upgrade_1581_public_snapshot.py
           python tools/test_upgrade_from_157.py
           python tools/test_upgrade_from_rc2.py
+          python tools/test_upgrade_from_158.py
+      - name: Test ESP upgrade preparation and guide
+        run: |
+          python tools/test_esphome_upgrade.py
+          node tools/test_esphome_upgrade_ui.js
+          python tools/test_shared_package_asset_sync.py
+          node tools/test_aurora_automation_planner_ui_contract.js
       - name: Test RCE optimizer
         run: python tools/test_rce_optimizer.py
       - name: Test PV history qualification and shared sales minimum
@@ -187,6 +194,8 @@ jobs:
           "PyYAML==6.0.3" "pytest==8.4.2" "homeassistant==2026.8.2"
       - name: Test exact battery-balancing transaction runtime
         run: python tools/test_battery_balancing_ha_runtime.py
+      - name: Test administrator-only ESP preparation endpoint
+        run: python tools/test_esphome_upgrade_http.py
       - name: Test RCE publication and predecessor retention contracts
         run: |
           python tools/test_rce_publication_refresh.py
@@ -267,6 +276,8 @@ jobs:
         profile: [esp32, flow-control, s3]
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -276,6 +287,7 @@ jobs:
         run: |
           python tools/test_esphome_entry_points.py
           python tools/test_esphome_2026_9_migration.py
+          python tools/test_esphome_upgrade_config.py
       - name: Validate complete local firmware configuration
         run: esphome config tools/esphome_verify_ci.yaml
       - name: Compile complete public ESP-IDF firmware

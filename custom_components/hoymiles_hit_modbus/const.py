@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 
 DOMAIN = "hoymiles_hit_modbus"
 NAME = "EMS for Hoymiles HIT-(5–20)L-G3"
-VERSION = "1.5.8"
+VERSION = "1.5.8.1"
 
 # Version of the managed Home Assistant EMS package schema. It changes only
 # when the package YAML changes, independently from dashboard-only releases.

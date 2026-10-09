@@ -1,4 +1,4 @@
-# EMS for Hoymiles — 1.5.8
+# EMS for Hoymiles — 1.5.8.1
 
 [English](README.md) · [Polski](README.pl.md)
 
@@ -31,8 +31,9 @@ An installation and feature overview is also included below.
 
 ## Overview
 
-> **1.5.8 — stable release.** Frontend `1.5.8.122`.
-> [Release and update steps](docs/releases/v1.5.8.md) · [Upgrade from 1.5.7](docs/UPGRADE_1_5_7.md).
+> **1.5.8.1 — stable HACS hotfix.** Frontend `1.5.8.1.123`.
+> Persistent ESP update guide; compatible RC2 firmware needs no new OTA.
+> [Release and update steps](docs/releases/v1.5.8.1.md) · [Upgrade from 1.5.7](docs/UPGRADE_1_5_7.md).
 > Available in the normal HACS update channel; enabling beta versions is unnecessary.
 
 ![Aurora v1.5.8: live overview, EMS energy plan, tariff settings and RCEm](docs/images/dashboard-overview.png)
@@ -488,7 +489,7 @@ Assistant restart without requiring users to paste YAML again.
 
 ## Updating
 
-For 1.5.8, follow the [numbered update steps](docs/releases/v1.5.8.md#user-update-steps--kroki-po-aktualizacji).
+For 1.5.8.1, follow the [numbered update steps](docs/releases/v1.5.8.1.md#user-update-steps--kroki-po-aktualizacji).
 Pause automatic execution, confirm a neutral physical state and back up
 customized files. Update the integration and managed package, check HA
 configuration and perform the restart(s) requested by the installation or
@@ -807,6 +808,8 @@ entities continue to update, close duplicate log streams, wait approximately
 | Document | Purpose |
 |---|---|
 | [Quick start](docs/QUICK_START.md) | Short installation path for new users |
+| [ESP update guide](docs/ESP_UPDATE_GUIDE.md) | Prepare device YAML and follow the OTA steps |
+| [1.5.8.1 hotfix](docs/releases/v1.5.8.1.md) | Persistent instructions and simpler ESP updates |
 | [1.5.8 release notes](docs/releases/v1.5.8.md) | New features, update steps and acceptance limits |
 | [Compatibility](docs/COMPATIBILITY.md) | Reference models, community reports and commissioning scope |
 | [Wiring example](docs/WIRING_ESP32_S3.md) | ESP32-S3, isolated converter and HIT-G3 COM2 |
