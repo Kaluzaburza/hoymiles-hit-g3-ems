@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "base": "6617bc4de6592439ea2c64889b0a25bbe5bfa45e",
-  "parent": "ba91261597420ea3a58a6665fc996d7081f219e2",
-  "subject": "docs: restore accepted ESP32-S3 wiring illustration",
+  "parent": "738ab86ef21ac72225747d39fd0671b0de9bd526",
+  "subject": "docs: restore coffee support link at top of both READMEs",
   "version": "1.5.8rc2",
   "frontend_revision": 122,
   "files": {
@@ -64,11 +64,11 @@
     },
     "README.md": {
       "mode": "100644",
-      "sha256": "3c3195530d0f4cbf2b548014303fa1c5c507fe5f82a2fddfd61bb659985316bb"
+      "sha256": "14dc3844231f9d73e00829278ff743075600d3cf7c3484aa8028b466a46b3e38"
     },
     "README.pl.md": {
       "mode": "100644",
-      "sha256": "f1a72025056ab05e897e316dc722bfead584b3549fb675f60582760e33b4e487"
+      "sha256": "569caa853d15924796e1cad3badbd499752481b41a111cb7a5c7a38f4597bb8b"
     },
     "RELEASING.md": {
       "mode": "100644",
@@ -1220,7 +1220,7 @@
     },
     "tools/rc2_release_contract.py": {
       "mode": "100644",
-      "sha256": "507c97d4eae7afd58ef61712ad75ab5484e316570a5f734e93b4f1648056d833"
+      "sha256": "adb9fb751d5aa4019fffe237fc5e176a6fee483f9c7096457a9eef8399aabbbc"
     },
     "tools/release_fixtures/rc2_baselines/177215b/rce_optimizer.py": {
       "mode": "100644",

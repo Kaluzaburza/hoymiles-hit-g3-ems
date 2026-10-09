@@ -2,6 +2,8 @@
 
 [English](README.md) · [Polski](README.pl.md)
 
+[☕ Postaw kawę autorowi](https://buycoffee.to/kaluzaaa)
+
 ![Hoymiles EMS](https://raw.githubusercontent.com/Kaluzaburza/hoymiles-hit-g3-ems/v1.5.8RC2/custom_components/hoymiles_hit_modbus/brand/logo.png)
 
 Nieoficjalny, lokalny EMS dla instalacji magazynowania energii Hoymiles,

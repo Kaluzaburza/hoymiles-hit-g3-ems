@@ -2,6 +2,8 @@
 
 [English](README.md) · [Polski](README.pl.md)
 
+[☕ Support development](https://buycoffee.to/kaluzaaa)
+
 ![Hoymiles EMS](https://raw.githubusercontent.com/Kaluzaburza/hoymiles-hit-g3-ems/v1.5.8RC2/custom_components/hoymiles_hit_modbus/brand/logo.png)
 
 Unofficial local EMS for Hoymiles energy-storage installations, built with

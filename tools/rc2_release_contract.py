@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = 'tools/release_manifests/rc2_local_contract.json'
 SELF_PATH = 'tools/rc2_release_contract.py'
 BASE_SHA = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
-PARENT_SHA = 'ba91261597420ea3a58a6665fc996d7081f219e2'
-SUBJECT = 'docs: restore accepted ESP32-S3 wiring illustration'
-MANIFEST_SHA256 = 'b3ce1e5f79b949fba25f5f2be5684d302a13478b66075ecd16a056c1d2802fec'
+PARENT_SHA = '738ab86ef21ac72225747d39fd0671b0de9bd526'
+SUBJECT = 'docs: restore coffee support link at top of both READMEs'
+MANIFEST_SHA256 = '88ae743bfc10cfcb1373f85dfc007e3bf42f216e473bba6dec94e5fbf8a3160f'
 PUBLIC_BASE = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
 HISTORICAL_PUBLIC = PUBLIC_BASE
 
