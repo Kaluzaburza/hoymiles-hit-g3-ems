@@ -2,6 +2,84 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.5.8] — 2026-10-09
+
+**9 October / 9 października 2026** · tag **`v1.5.8`** · integration/package
+**`1.5.8`** · frontend **`1.5.8.122`** · ESP lease protocol **2**.
+
+This is the stable publication of the RC2 feature set. It is offered in the normal
+HACS update channel. Promotion changes version metadata, generated package version
+markers and release documentation; the control algorithms and ESP firmware are
+unchanged. The compatible firmware remains pinned to **`v1.5.8RC2`**, project
+version **`1.5.8rc2`**. That different firmware label is intentional.
+
+**PL:** to stabilne wydanie funkcji RC2, dostępne bez włączania wersji beta w HACS.
+Algorytmy i firmware pozostają bez zmian. Numer firmware'u `1.5.8rc2` przy
+integracji `1.5.8` jest prawidłowy; zgodne ESP nie wymaga ponownego OTA.
+
+## Changes since 1.5.7 / Zmiany od 1.5.7
+
+- **Earnings / Zyski:** separate purchase and sale, kWh and money, tariff-zone
+  and provider breakdowns, monthly view and expandable details. / Czytelny zakup
+  i sprzedaż, podział na tanią/drogą strefę oraz dostawcę.
+- **RCE/Pstryk:** shared household LOAD, current-plan publication, qualified
+  continuity, consolidated small sale tails and bounded Pstryk BUY improvements.
+  / Wspólny LOAD, stabilniejsze plany i ograniczenie drobnych końcówek sprzedaży.
+- **PV Delay:** provider parity, profiles **20/50/55%**, qualified retry after
+  **180 s** with the original deadline. / Spójna obsługa RCE/Pstryk i ponowień.
+- **Tariff / Taryfa:** transaction continuity, a bounded **60 s** grid-support
+  spike filter, **2 pp** SOC guard and shared LOAD tolerance down to **−300 W**.
+- **SOC:** additional protection **0–90%**, with an explanation of reserve plus
+  additional SOC and the remaining maximum sellable capacity.
+- **History / Historia:** compatible HA history queries, clearer diagnostic
+  evidence and an accepted-lease journal without extra Modbus polling.
+- **ESPHome 2026.9:** maintained **ESP32**, **S3 N16R8** and **ESP32 DE + /RE**
+  YAML profiles, encrypted OTA and removal of obsolete configuration options.
+
+### User update steps / Kroki po aktualizacji
+
+1. **Backup and stop / Kopia i zatrzymanie:** save HA, device YAML, secrets and
+   custom packages. Record settings, stop automatic writers and wait for their
+   confirmed end. Do not force Self-Use over physical Off-Grid.
+   **PL:** zachowaj kopię i nastawy; zatrzymaj automatyki na czas aktualizacji.
+2. **HACS and HA:** choose **1.5.8** in HACS and restart HA. Check **Repairs** and
+   configuration; a second restart may be needed to load the updated scheduler.
+   From 1.5.7, the new shared-input package must also be included. Customized YAML
+   remains preserved and follows the explicit Repair procedure.
+   **PL:** wybierz 1.5.8 bez wersji beta. Po restarcie sprawdź Naprawy; przy
+   ręcznym include dodaj wspólne wejścia i zrestartuj ponownie, jeśli wskazuje HA.
+3. **ESP32 / ESPHome:** from the published **RC2**, no firmware rebuild or OTA is
+   required for this promotion. From **1.5.7**, install compatible **lease-2**
+   firmware using the complete correct-board YAML and package ref **`v1.5.8RC2`**.
+   Preserve board, pins, hostname, secrets and partition layout. HACS does not
+   flash ESP. Older password-only OTA may require an intermediate encrypted-OTA
+   migration; follow the [1.5.7 guide](docs/UPGRADE_1_5_7.md).
+   **PL:** z RC2 nie wgrywaj ponownie ESP tylko z powodu numeru stabilnej wersji.
+   Z 1.5.7 aktualizacja zgodnego firmware'u jest konieczna; nie zmieniaj jedynie
+   etykiety wersji, zachowując stare pakiety.
+4. **Verify / Sprawdź:** integration/package **1.5.8**, frontend **1.5.8.122**
+   after a cache-free reload, resolved installation Repairs, complete fresh FC03,
+   topology, BMS/SOC, current plan and unchanged user settings. Restore only prior
+   permissions after those checks. Firmware **1.5.8rc2**, lease **2**, is correct.
+   **PL:** potwierdź odczyty, wersje i nastawy przed przywróceniem własnych zgód.
+
+## Limits / Ograniczenia
+
+History and earnings retain gaps where old measurements or prices are missing;
+estimated benefit is not a supplier bill. PV Delay's diagnostic power contract
+does not relax RCE SELL or charging response requirements. Master FC03 is not an
+individual Slave acknowledgement. Model compatibility reports for 1.5.7 do not
+establish acceptance of every later function/model. RCEm remains experimental.
+
+**PL:** historia nie dopisuje brakujących danych, korzyść jest szacunkiem, a
+odczyt Mastera nie potwierdza każdego Slave'a. Zobacz [zgodność](docs/COMPATIBILITY.md),
+[granice bezpieczeństwa](docs/SAFETY_AND_COMPLIANCE.md) i [warianty ESP](docs/ESP32_VARIANTS.md).
+
+The stable-channel label describes distribution, not physical commissioning.
+Offline tests and compilation are distinct from validation on an actual inverter.
+HACS may still omit the custom icon in its repository list; supplied brand assets
+do not change HACS itself. [Icon status](docs/releases/1.5.8RC2/HACS_ICON.md).
+
 ## [1.5.8RC2] — 2026-10-09
 
 **Release candidate / Wersja przedpremierowa · 9 October / 9 października 2026.**

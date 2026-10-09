@@ -1,10 +1,10 @@
 # Release procedure
 
-Current local preparation: **1.5.8RC2**, planned tag `v1.5.8RC2`.
-Use the [RC2 publication map](docs/releases/1.5.8RC2/PUBLICATION.md) and
-[public release body](docs/releases/v1.5.8rc2.md). Earlier freeze manifests
-remain historical evidence; the complete gate list below still applies.
-No tag, push or publication is authorized by preparing these files.
+Current release preparation: **1.5.8 stable**, tag `v1.5.8`.
+Use the [stable publication map](docs/releases/1.5.8/PUBLICATION.md) and
+[public release body](docs/releases/v1.5.8.md). Compatible firmware stays at
+`v1.5.8RC2`; the immutable RC2 tag/assets and historical gates remain intact.
+Preparing these files alone does not authorize push, tagging or publication.
 
 For routine task closure before a release freeze, use
 [the version-independent EMS closeout prompt](docs/EMS_CHANGE_CLOSEOUT_PROMPT.md)
@@ -282,7 +282,10 @@ commit exists. M01 documentation cannot authorize product bytes.
    python tools/test_diagnostics_future.py
    python tools/test_pstryk_buy_refinement.py
    python tools/test_lease_acceptance_journal.py
-   python tools/test_rc2_release_contract.py
+   python tools/test_stable_release_contract.py
+   python tools/test_stable_public_snapshot.py
+   python tools/test_upgrade_from_157.py
+   python tools/test_upgrade_from_rc2.py
    python tools/test_diagnostic_analyzer.py
    python tools/test_automation_matrix.py --exhaustive
    node tools/test_supervisor_aurora_ui_contract.js
@@ -385,13 +388,16 @@ public profiles, not only a reduced smoke fixture.
 
 ## Public snapshot provenance
 
-The RC2 public branch starts at the published 1.5.7 commit. Its exact
-parent, subject, path set, modes and bytes are pinned by the current RC2
-contract. `rc2_public_provenance.json` additionally pins every runtime file
-against the reviewed source snapshot. Run `python tools/test_rc2_public_snapshot.py`.
+The stable public branch continues the public RC2 history rooted at 1.5.7.
+Its exact parent, subject, paths, modes and bytes are pinned by the separate
+stable contract. `rc2_public_provenance.json` retains the original runtime
+hashes; the stable gate allows only five explicit version-metadata changes
+and checks all remaining protected runtime bytes against that source.
+Run `python tools/test_stable_public_snapshot.py` and the RC2 installer
+regression `python tools/test_upgrade_from_rc2.py` on the exact candidate.
 
-Public CI runs the unchanged public 1.5.7 structural baseline and the full
-current behavioral suite. Workstation-only N12/Task02 Git-lineage validators
+Public CI runs the unchanged RC2 and public 1.5.7 gates on their own historical
+commits, plus the full current behavioral suite. Workstation-only N12/Task02 Git-lineage validators
 remain historical tools for their original checkouts; their original results
 are retained separately and are not relabelled as tests of the public parent.
 Current Recorder/RCE comparisons use exact, SHA256-verified source fixtures,

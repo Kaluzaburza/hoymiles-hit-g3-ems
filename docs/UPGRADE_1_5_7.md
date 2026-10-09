@@ -1,4 +1,4 @@
-# Upgrade 1.5.7 → 1.5.8RC2 / Aktualizacja
+# Upgrade 1.5.7 → 1.5.8 / Aktualizacja
 
 This is an in-place update: keep the existing HA integration, ESPHome device,
 entity registry, Recorder and `.storage`. Do not remove/re-add the integration
@@ -32,8 +32,8 @@ Aktualizacja w HACS nie wgrywa firmware'u ESP.
 
 ## Update order / Kolejność
 
-1. In HACS allow prereleases and explicitly choose **1.5.8RC2**. Restart HA fully.
-   **PL:** włącz widoczność wersji przedpremierowych, wybierz RC2 i zrestartuj HA.
+1. In HACS choose stable **1.5.8**; beta versions need not be enabled. Restart HA fully.
+   **PL:** wybierz stabilne 1.5.8 w HACS i wykonaj pełny restart HA.
 2. Open **Settings → System → Repairs** and the integration's installation
    status. The integration installs `hoymiles_ems_scheduler.yaml` and the new
    `hoymiles_ems_shared_inputs.yaml` in `/config/packages/`.
@@ -57,8 +57,8 @@ Aktualizacja w HACS nie wgrywa firmware'u ESP.
    New proxies can remain unavailable and execution blocked until ESP catches up.
    **PL:** zachowaj tożsamość i parametry sprzętu. Brak nowych funkcji starego ESP
    nie naprawi się przez odświeżenie przeglądarki — potrzebne jest firmware.
-6. Reload the dashboard without cache. Confirm integration/package **1.5.8rc2**,
-   frontend **1.5.8rc2.122**, ready installation, current plans, complete fresh
+6. Reload the dashboard without cache. Confirm integration/package **1.5.8**,
+   frontend **1.5.8.122**, ready installation, current plans, complete fresh
    physical FC03, topology, BMS/SOC and no active/conflicting writer. Review the
    copied settings before restoring only your previous permissions/policies.
    **PL:** sprawdź wersje, Naprawy, nastawy i fizyczny odczyt. Dopiero wtedy

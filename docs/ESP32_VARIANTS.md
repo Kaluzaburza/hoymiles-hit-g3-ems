@@ -1,5 +1,9 @@
 # ESPHome device variants / Warianty urządzenia
 
+Compatible with stable integration **1.5.8**. Firmware is unchanged from RC2;
+existing users of these exact packages do not need to flash again.
+**PL:** przejście z RC2 na stabilną integrację 1.5.8 nie wymaga nowego OTA.
+
 All three files use the same complete register packages from **`v1.5.8RC2`**,
 lease protocol **2**, UART `115200 8N1` and inverter address `1` by default.
 Change pins/address only to match your existing installation. HACS does not

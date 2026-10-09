@@ -1,11 +1,12 @@
-# Quick start / Szybki start — 1.5.8RC2
+# Quick start / Szybki start — 1.5.8
 
 [English](#english--five-steps) · [Polski](#polski--pięć-kroków) · [README EN](../README.md) · [README PL](../README.pl.md)
 
-> **1.5.8RC2 — release candidate / wersja przedpremierowa.**
-> Select RC2 in HACS with prereleases visible. Use the matching `v1.5.8RC2`
-> firmware packages. Existing installations: [upgrade from 1.5.7](UPGRADE_1_5_7.md).
-> Wybierz RC2 w HACS i zgodny wariant ESP. Nie mieszaj nowych YAML ze starymi pakietami.
+> **1.5.8 — stable release / wydanie stabilne.**
+> Select 1.5.8 in HACS. Compatible firmware stays at immutable `v1.5.8RC2`;
+> existing RC2 firmware needs no new OTA for this promotion.
+> Wybierz 1.5.8 w zwykłym kanale HACS; zgodne firmware RC2 pozostaje bez zmian.
+> Existing installations / Istniejące instalacje: [upgrade from 1.5.7](UPGRADE_1_5_7.md).
 
 ## English — five steps
 
@@ -214,7 +215,7 @@ execution. See the [safety and acceptance guide](SAFETY_AND_COMPLIANCE.md).
 
 ### Updating an existing installation
 
-Follow the [RC2 update steps](releases/v1.5.8rc2.md#user-update-steps--kroki-po-aktualizacji),
+Follow the [1.5.8 update steps](releases/v1.5.8.md#user-update-steps--kroki-po-aktualizacji),
 not the fresh-install steps. Pause automatic writers, confirm the physical
 neutral state, back up customizations, update HA/managed assets and complete
 the requested configuration check/restart flow. An upgrade from 1.5.7 needs
@@ -448,7 +449,7 @@ Szczegóły zawiera [instrukcja bezpieczeństwa i odbioru](SAFETY_AND_COMPLIANCE
 
 ### Aktualizacja istniejącej instalacji
 
-Wykonaj [kroki aktualizacji RC2](releases/v1.5.8rc2.md#user-update-steps--kroki-po-aktualizacji),
+Wykonaj [kroki aktualizacji 1.5.8](releases/v1.5.8.md#user-update-steps--kroki-po-aktualizacji),
 a nie ścieżkę świeżej instalacji. Wstrzymaj automatycznych wykonawców,
 potwierdź fizyczny stan neutralny, zabezpiecz własne pliki, zaktualizuj HA
 i zarządzane zasoby, sprawdź konfigurację i wykonaj wymagane restarty.

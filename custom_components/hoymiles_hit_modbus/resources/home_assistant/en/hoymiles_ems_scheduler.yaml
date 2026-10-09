@@ -1047,7 +1047,7 @@ template:
       - name: "Hoymiles EMS Package Version"
         unique_id: hoymiles_ems_package_version
         icon: mdi:package-variant-closed-check
-        state: "1.5.8rc2"
+        state: "1.5.8"
         attributes:
           # One changing attribute per local day gives Recorder a recent
           # boundary report even when the package version itself is stable.

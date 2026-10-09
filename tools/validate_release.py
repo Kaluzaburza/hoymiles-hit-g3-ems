@@ -5467,6 +5467,11 @@ def _classify_n12_exact_local_base() -> str:
 
 
 def validate_current_integrated_manifests() -> str:
+    if (ROOT / "tools/release_manifests/stable_1_5_8_contract.json").is_file():
+        sys.path.insert(0, str(ROOT / "tools"))
+        from stable_release_contract import validate
+        validate(ROOT)
+        return "STABLE_1_5_8_CANDIDATE"
     """Select the explicit integration state without weakening historical gates."""
 
     if ((ROOT / "tools/release_manifests/rc2_public_provenance.json").is_file()
@@ -8478,6 +8483,10 @@ def entity_translation_keys(translations: dict) -> dict[str, set[str]]:
 
 
 def main() -> int:
+    if (ROOT / "tools/release_manifests/stable_1_5_8_contract.json").is_file():
+        sys.path.insert(0, str(ROOT / "tools"))
+        from stable_release_contract import structural
+        return structural(sys.modules[__name__])
     """Validate HACS layout, translations, Python and bundled assets."""
     if ((ROOT / "tools/release_manifests/rc2_public_provenance.json").is_file()
         or _git_try("merge-base", "--is-ancestor", "e1ffdc2494ebfb53b5e8c692acac012f11f954c3", "HEAD").returncode == 0):

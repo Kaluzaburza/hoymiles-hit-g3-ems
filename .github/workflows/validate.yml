@@ -48,12 +48,13 @@ jobs:
         run: git diff --exit-code
       - name: Run structural tests
         run: python tools/validate_release.py
-      - name: Test current RC2 evidence and exact candidate contract
+      - name: Test stable evidence and exact candidate contract
         run: |
           python tools/test_lease_acceptance_journal.py
-          python tools/test_rc2_release_contract.py
-          python tools/test_rc2_public_snapshot.py
+          python tools/test_stable_release_contract.py
+          python tools/test_stable_public_snapshot.py
           python tools/test_upgrade_from_157.py
+          python tools/test_upgrade_from_rc2.py
       - name: Test RCE optimizer
         run: python tools/test_rce_optimizer.py
       - name: Test PV history qualification and shared sales minimum

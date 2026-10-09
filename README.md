@@ -1,4 +1,4 @@
-# EMS for Hoymiles — 1.5.8RC2
+# EMS for Hoymiles — 1.5.8
 
 [English](README.md) · [Polski](README.pl.md)
 
@@ -31,9 +31,9 @@ An installation and feature overview is also included below.
 
 ## Overview
 
-> **1.5.8RC2 — release candidate.** Frontend `1.5.8rc2.122`.
-> [Release and update steps](docs/releases/v1.5.8rc2.md) · [Upgrade from 1.5.7](docs/UPGRADE_1_5_7.md).
-> Enable prereleases in HACS to select RC2.
+> **1.5.8 — stable release.** Frontend `1.5.8.122`.
+> [Release and update steps](docs/releases/v1.5.8.md) · [Upgrade from 1.5.7](docs/UPGRADE_1_5_7.md).
+> Available in the normal HACS update channel; enabling beta versions is unnecessary.
 
 ![Aurora v1.5.8: live overview, EMS energy plan, tariff settings and RCEm](docs/images/dashboard-overview.png)
 
@@ -54,7 +54,7 @@ Settings, PV, Battery, Energy and Earnings**. Settings groups dynamic sales, tar
 voltage management and balancing; **Service** contains technical diagnostics
 and manual controls. Desktop and mobile use the same data.
 
-### What is new in 1.5.8RC2
+### What is new in 1.5.8
 
 - **Earnings:** day/week/month/year views use an entry-scoped local archive.
   Purchase and sale show separate kWh, amounts and tariff-zone/provider breakdowns;
@@ -105,7 +105,7 @@ cap; the tariff minimum saving is **1 PLN/kWh**. Existing settings are preserved
 A high saving threshold can legitimately leave no profitable charging plan.
 
 Technical deployment checks and offline tests do not complete field acceptance.
-See the [release status](docs/releases/v1.5.8rc2.md#validation-and-known-limits).
+See the [release status](docs/releases/v1.5.8.md#limits--ograniczenia).
 
 The PV-profile percentage is the P10 weight in `P50 × (1 − w) + P10 × w`;
 it is neither a probability nor a fixed production reduction. See
@@ -488,7 +488,7 @@ Assistant restart without requiring users to paste YAML again.
 
 ## Updating
 
-For 1.5.8RC2, follow the [numbered update steps](docs/releases/v1.5.8rc2.md#user-update-steps--kroki-po-aktualizacji).
+For 1.5.8, follow the [numbered update steps](docs/releases/v1.5.8.md#user-update-steps--kroki-po-aktualizacji).
 Pause automatic execution, confirm a neutral physical state and back up
 customized files. Update the integration and managed package, check HA
 configuration and perform the restart(s) requested by the installation or
@@ -807,7 +807,7 @@ entities continue to update, close duplicate log streams, wait approximately
 | Document | Purpose |
 |---|---|
 | [Quick start](docs/QUICK_START.md) | Short installation path for new users |
-| [RC2 release notes](docs/releases/v1.5.8rc2.md) | New features, update steps and acceptance limits |
+| [1.5.8 release notes](docs/releases/v1.5.8.md) | New features, update steps and acceptance limits |
 | [Compatibility](docs/COMPATIBILITY.md) | Reference models, community reports and commissioning scope |
 | [Wiring example](docs/WIRING_ESP32_S3.md) | ESP32-S3, isolated converter and HIT-G3 COM2 |
 | [Diagnostics](docs/DIAGNOSTICS.md) | Report collection, anonymization, and troubleshooting |

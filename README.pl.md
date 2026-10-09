@@ -1,4 +1,4 @@
-# EMS dla Hoymiles — 1.5.8RC2
+# EMS dla Hoymiles — 1.5.8
 
 [English](README.md) · [Polski](README.pl.md)
 
@@ -31,9 +31,9 @@ również przegląd instalacji i dostępnych funkcji.
 
 ## Przegląd
 
-> **1.5.8RC2 — wersja przedpremierowa.** Frontend `1.5.8rc2.122`.
-> [Opis i aktualizacja](docs/releases/v1.5.8rc2.md) · [Przejście z 1.5.7](docs/UPGRADE_1_5_7.md).
-> W HACS włącz wersje przedpremierowe, aby wybrać RC2.
+> **1.5.8 — wydanie stabilne.** Frontend `1.5.8.122`.
+> [Opis i aktualizacja](docs/releases/v1.5.8.md) · [Przejście z 1.5.7](docs/UPGRADE_1_5_7.md).
+> Dostępna w zwykłym kanale aktualizacji HACS; włączanie wersji beta nie jest potrzebne.
 
 ![Aurora v1.5.8: bieżące przepływy, plan energii EMS, ustawienia taryfy i RCEm](docs/images/dashboard-overview.png)
 
@@ -54,7 +54,7 @@ Ustawienia, PV, Magazyn, Energia i Zyski**. Ustawienia grupują sprzedaż dynami
 zarządzanie napięciem i balansowanie. **Serwis** zawiera diagnostykę techniczną
 oraz sterowanie ręczne. Komputer i telefon korzystają z tych samych danych.
 
-### Nowości w 1.5.8RC2
+### Nowości w 1.5.8
 
 - **Zyski:** widoki dnia, tygodnia, miesiąca i roku korzystają z lokalnego archiwum.
   Zakup i sprzedaż mają osobne kWh, kwoty oraz podział na strefy i dostawców;
@@ -106,7 +106,7 @@ dla taryfy. Początkowe nastawy mocy wynoszą **50%** dla rozładowania dynamicz
 oszczędności może prawidłowo wykluczyć wszystkie nieopłacalne cykle ładowania.
 
 Kontrola techniczna wdrożenia i testy offline nie kończą odbioru terenowego.
-Zobacz [stan wydania](docs/releases/v1.5.8rc2.md#validation-and-known-limits).
+Zobacz [stan wydania](docs/releases/v1.5.8.md#limits--ograniczenia).
 
 Procent profilu PV oznacza wagę P10 we wzorze `P50 × (1 − w) + P10 × w`,
 a nie prawdopodobieństwo lub stałą redukcję produkcji. Zobacz
@@ -499,7 +499,7 @@ aktualizuje się bez ponownego wklejania konfiguracji YAML.
 
 ## Aktualizacja
 
-Dla 1.5.8RC2 wykonaj [numerowane kroki aktualizacji](docs/releases/v1.5.8rc2.md#user-update-steps--kroki-po-aktualizacji).
+Dla 1.5.8 wykonaj [numerowane kroki aktualizacji](docs/releases/v1.5.8.md#user-update-steps--kroki-po-aktualizacji).
 Wstrzymaj automatyczne wykonanie, potwierdź fizyczny stan neutralny i wykonaj
 kopię zmienionych plików. Zaktualizuj integrację i zarządzany pakiet, sprawdź
 konfigurację HA oraz wykonaj restart lub restarty wskazane przez instalację
@@ -836,7 +836,7 @@ Przed ponownym wgraniem firmware sprawdź
 | Dokument | Zastosowanie |
 |---|---|
 | [Szybki start](docs/QUICK_START.md) | Krótka ścieżka instalacji dla nowych użytkowników |
-| [Opis RC2](docs/releases/v1.5.8rc2.md) | Nowości, aktualizacja i granice odbioru |
+| [Opis 1.5.8](docs/releases/v1.5.8.md) | Nowości, aktualizacja i granice odbioru |
 | [Zgodność](docs/COMPATIBILITY.md) | Modele referencyjne, zgłoszenia użytkowników i zakres odbioru |
 | [Schemat połączeń](docs/WIRING_ESP32_S3.md) | ESP32-S3, izolowany konwerter i HIT-G3 COM2 |
 | [Diagnostyka](docs/DIAGNOSTICS.md) | Tworzenie raportów, anonimizacja i rozwiązywanie problemów |
