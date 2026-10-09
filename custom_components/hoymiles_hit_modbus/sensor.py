@@ -13,6 +13,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
+from .baseline_energy_timeline_sensor import HoymilesBaselineEnergyTimelineSensor
 from .const import (
     DOMAIN,
     EMS_PACKAGE_SENTINEL,
@@ -21,6 +22,8 @@ from .const import (
     VERSION,
 )
 from .entity import HoymilesProxyEntity
+from .ems_shared_inputs import EMSSharedInputsCoordinator, HoymilesEMSSharedInputsSensor
+from .ems_notifications import HoymilesEmsNotificationManager
 from .energy_data import numeric_state_sample
 from .localization import localized_text_state
 from .models import MatchedEntity, RuntimeData
@@ -37,7 +40,17 @@ from .power_balance import (
 )
 from .rcm_sensor import HoymilesRCMOptimizerSensor
 from .rce_sensor import HoymilesRCEOptimizerSensor
+from .rce_price_sensor import (
+    HoymilesRCEPriceSensor, RCEPriceCoordinator, prepare_price_entities,
+)
+from .supervisor_accounting_sensor import HoymilesSupervisorAccountingV2Sensor
+from .supervisor_canonical_sensor import HoymilesSupervisorCanonicalPlanSensor
+from .supervisor_sensor import HoymilesSupervisorSensor
 from .tariff_sensor import HoymilesTariffOptimizerSensor
+from .tariff_price_sensor import HoymilesTariffPriceScheduleSensor
+from .pstryk_runtime import PstrykRuntime, prepare_price_entity
+from .profit_runtime import ProfitRuntime
+from .timeline_sensor import HoymilesAutomationPlanTimelineSensor
 
 
 async def async_setup_entry(
@@ -47,15 +60,129 @@ async def async_setup_entry(
 ) -> None:
     """Set up localized sensors."""
     runtime: RuntimeData = hass.data[DOMAIN][entry.entry_id]
+    prepare_price_entity(hass, entry)
+    price_source = None
+    if prepare_price_entities(hass, entry):
+        price_source = RCEPriceCoordinator(hass)
+        await price_source.async_initialize()
+        runtime.rce_prices = price_source
+    if runtime.shared_inputs is None:
+        runtime.shared_inputs = EMSSharedInputsCoordinator(
+            hass,
+            config_entry_id=entry.entry_id,
+            source_device_model=runtime.source_device.model,
+        )
     entities = [
         HoymilesSensor(hass, entry, runtime, matched)
         for matched in runtime.entities["sensor"]
     ]
-    entities.append(HoymilesRCEOptimizerSensor(hass, entry, runtime))
-    entities.append(HoymilesTariffOptimizerSensor(hass, entry, runtime))
-    entities.append(HoymilesRCMOptimizerSensor(hass, entry, runtime))
+    accounting_v2 = HoymilesSupervisorAccountingV2Sensor(hass, entry, runtime)
+    supervisor = HoymilesSupervisorSensor(hass, entry, runtime)
+    notifications = HoymilesEmsNotificationManager(hass, entry)
+    await notifications.async_initialize()
+    runtime.notifications = notifications
+    notifications.attach_status_sink(supervisor.update_notification_degradation)
+    entry.async_on_unload(notifications.close)
+    supervisor.attach_accounting_sink(accounting_v2.async_process_active_frame)
+    supervisor.attach_notification_sink(notifications.process_active_frame)
+    entities.append(supervisor)
+    # The sink also initializes lazily, so an early Supervisor frame still
+    # establishes the epoch durably before it can be accounted.
+    entities.append(accounting_v2)
+    tariff_price = HoymilesTariffPriceScheduleSensor(hass, entry, runtime)
+    rce_plan = HoymilesRCEOptimizerSensor(hass, entry, runtime)
+    rce_plan.attach_supervisor_commitment_source(supervisor)
+    rce_plan.attach_tariff_price_source(tariff_price)
+    supervisor.attach_rce_settling_source(
+        rce_plan.current_post_command_settling_market_fingerprint,
+        rce_plan.async_recalculate_post_command_settling,
+    )
+    tariff_plan = HoymilesTariffOptimizerSensor(hass, entry, runtime)
+    tariff_plan.attach_supervisor_commitment_source(supervisor)
+    rcm_plan = HoymilesRCMOptimizerSensor(hass, entry, runtime)
+    rcm_plan.attach_rce_plan_source(rce_plan)
+    accounting_v2.attach_feedback_sink(
+        tariff_plan.observe_supervisor_accounting_feedback
+    )
+    tariff_plan.attach_rce_plan_source(rce_plan)
+    rce_plan.attach_tariff_plan_source(tariff_plan)
+    pstryk = PstrykRuntime(hass, entry, runtime, rce_plan, tariff_plan)
+    await pstryk.initialize()
+    rce_plan._pstryk = tariff_plan._pstryk = pstryk
+    tariff_price._pstryk = pstryk
+    pstryk.price_schedule_sensor = tariff_price
+    runtime.profits = ProfitRuntime(hass, entry, runtime, tariff_price, pstryk)
+    await runtime.profits.initialize()
+    # Both source plans are registered before either observation-only timeline.
+    entities.append(rce_plan)
+    entities.append(tariff_plan)
+    rce_timeline = HoymilesAutomationPlanTimelineSensor(
+        hass,
+        entry,
+        runtime,
+        policy_id="rce",
+        source_sensor=rce_plan,
+    )
+    entities.append(rce_timeline)
+    tariff_timeline = HoymilesAutomationPlanTimelineSensor(
+        hass,
+        entry,
+        runtime,
+        policy_id="tariff",
+        source_sensor=tariff_plan,
+    )
+    entities.append(tariff_timeline)
+    entities.append(rcm_plan)
+    rcm_timeline = HoymilesAutomationPlanTimelineSensor(
+        hass,
+        entry,
+        runtime,
+        policy_id="rcm",
+        source_sensor=rcm_plan,
+    )
+    entities.append(rcm_timeline)
+    # Build the neutral P50 baseline before the canonical projection so the
+    # latter can consume its already initialized, output-only payload even
+    # though platform registration keeps the established entity order below.
+    baseline_timeline = HoymilesBaselineEnergyTimelineSensor(
+        hass,
+        entry,
+        runtime,
+        runtime.shared_inputs,
+    )
+    entities.append(
+        HoymilesSupervisorCanonicalPlanSensor(
+            hass,
+            entry,
+            runtime,
+            supervisor=supervisor,
+            timelines={
+                "rce": rce_timeline,
+                "tariff": tariff_timeline,
+                "rcm": rcm_timeline,
+            },
+            expected_timeline=baseline_timeline,
+        )
+    )
     entities.append(HoymilesSetupStatusSensor(hass, entry, runtime))
+    # Neutral diagnostics are appended after the established execution and
+    # plan entities so adding A0 cannot perturb their platform ordering.
+    entities.append(
+        HoymilesEMSSharedInputsSensor(
+            hass,
+            entry,
+            runtime.shared_inputs,
+            runtime.source_device,
+        )
+    )
+    entities.append(baseline_timeline)
+    entities.append(tariff_price)
+    if price_source is not None:
+        entities.extend(HoymilesRCEPriceSensor(price_source, entry.entry_id, offset) for offset in (0, 1))
+    entities.append(pstryk.sensor)
     async_add_entities(entities)
+    if price_source is not None:
+        price_source.start()
 
 
 class HoymilesSetupStatusSensor(SensorEntity):

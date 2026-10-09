@@ -8,7 +8,7 @@ because they do not change when a battery charge is moved between time zones.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 
 PROFILE_YEAR = 2026
@@ -17,7 +17,7 @@ PROFILE_VALID_FROM = date(PROFILE_YEAR, 1, 1)
 PROFILE_VALID_UNTIL = date(PROFILE_YEAR, 12, 31)
 MANUAL_OPERATOR = "Manual"
 SUPPORTED_OPERATORS = ("PGE", "TAURON", "ENEA", "ENERGA", "STOEN")
-SUPPORTED_GROUPS = ("G11", "G12", "G12w", "G13")
+SUPPORTED_GROUPS = ("G11", "G12", "G12w", "G12e", "G13")
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +39,7 @@ class TariffProfile:
     valid_from: date
     valid_until: date
     data_version: str
+    price_source_urls: tuple[str, ...] = ()
 
 
 def _profile(
@@ -55,6 +56,9 @@ def _profile(
     *,
     weekend_low: bool = False,
     holiday_low: bool = False,
+    valid_from: date = PROFILE_VALID_FROM,
+    data_version: str = PROFILE_DATA_VERSION,
+    price_source_urls: tuple[str, ...] = (),
 ) -> TariffProfile:
     return TariffProfile(
         operator=operator,
@@ -69,9 +73,10 @@ def _profile(
         weekend_low_price=weekend_low,
         polish_holidays_low_price=holiday_low,
         source_url=source_url,
-        valid_from=PROFILE_VALID_FROM,
+        valid_from=valid_from,
         valid_until=PROFILE_VALID_UNTIL,
-        data_version=PROFILE_DATA_VERSION,
+        data_version=data_version,
+        price_source_urls=price_source_urls,
     )
 
 
@@ -86,6 +91,14 @@ _TAURON_SOURCE = (
 _ENEA_SOURCE = "https://www.operator.enea.pl/uslugidystrybucyjne/taryfa"
 _ENERGA_SOURCE = "https://energa-operator.pl/uslugi/taryfa"
 _STOEN_SOURCE = "https://www.stoen.pl/strona/taryfa"
+_PGE_G12E_SOURCE = (
+    "https://pgedystrybucja.pl/uslugi-dystrybucyjne/"
+    "taryfa-i-cenniki/taryfa-elastyczna"
+)
+_PGE_G12E_PRICE_SOURCES = (
+    "https://www.gkpge.pl/content/download/33731b58d959b9d5a7df60579844f80e/file/cennik-podstawowy-g12e.pdf",
+    "https://www.gkpge.pl/content/download/9d2e5e9068ef4f63ff716a5562d8df20/file/a5_wyciag_z_taryfy_osd_02_2026_web.pdf",
+)
 
 
 # Gross all-in marginal prices for 2026, PLN/kWh.  The energy component uses
@@ -105,6 +118,20 @@ _PROFILES: dict[tuple[str, str], TariffProfile] = {
         "PGE", "PGE Dystrybucja S.A.", "PGE Obrót S.A.", "G12w",
         1.0991, 0.6845, 1.3015, 1.3015, "pge_g12", _PGE_SOURCE,
         weekend_low=True, holiday_low=True,
+    ),
+    # PGE Obrót G12e price list (2026-01-01), table 1, gross energy:
+    # low 0.5005 / peak 0.8363. PGE DSO (2026-02-01), sections 7.9-7.12:
+    # net network 0.0349 / 0.3851 + quality 0.0332 + RES 0.0073 + CHP 0.0030.
+    # Add 23% VAT to distribution only; energy already includes VAT/excise.
+    # Applies to the seven PGE branches listed at _PGE_G12E_SOURCE, with
+    # an LZO meter maintaining the published local-time zones across DST.
+    # Fixed commercial/network/capacity/subscription fees are not marginal.
+    ("PGE", "G12e"): _profile(
+        "PGE", "PGE Dystrybucja S.A.", "PGE Obrót S.A.", "G12e",
+        1.0991, 0.5969, 1.3635, 1.3635, "pge_g12e", _PGE_G12E_SOURCE,
+        weekend_low=True, holiday_low=True,
+        valid_from=date(2026, 2, 1), data_version="2026.2",
+        price_source_urls=_PGE_G12E_PRICE_SOURCES,
     ),
     ("TAURON", "G11"): _profile(
         "TAURON", "TAURON Dystrybucja S.A.", "TAURON Sprzedaż Sp. z o.o.",
@@ -197,6 +224,16 @@ def _windows(profile: TariffProfile, value: date) -> tuple[
 ]:
     """Return low and medium windows for the date."""
     key = profile.schedule_key
+    if key == "pge_g12e":
+        if value.month in {1, 2, 11, 12}:
+            daytime = (13 * 60, 15 * 60)
+        elif value.month in {3, 10}:
+            daytime = (11 * 60, 15 * 60)
+        elif value.month in {4, 9}:
+            daytime = (10 * 60, 17 * 60)
+        else:
+            daytime = (9 * 60, 17 * 60)
+        return (daytime, (22 * 60, 6 * 60)), ()
     if key == "pge_g12":
         low = ((15 * 60, 17 * 60), (22 * 60, 6 * 60)) if _summer(value) else (
             (13 * 60, 15 * 60), (22 * 60, 6 * 60)
@@ -286,5 +323,106 @@ def profile_summary(
         "tariff_profile_current_zone": current_zone,
         "tariff_profile_current_price": current_price,
         "tariff_profile_source_url": profile.source_url,
+        "tariff_profile_price_source_urls": list(profile.price_source_urls),
         "tariff_profile_fixed_fees_excluded": True,
     }
+
+
+def _easter_sunday(year: int) -> date:
+    """Return Gregorian Easter Sunday using Meeus/Jones/Butcher."""
+
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    length = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * length) // 451
+    month = (h + length - 7 * m + 114) // 31
+    day = (h + length - 7 * m + 114) % 31 + 1
+    return date(year, month, day)
+
+
+def is_polish_public_holiday(value: date) -> bool:
+    """Return whether ``value`` is a statutory Polish public holiday."""
+
+    if (value.month, value.day) in {
+        (1, 1),
+        (1, 6),
+        (5, 1),
+        (5, 3),
+        (8, 15),
+        (11, 1),
+        (11, 11),
+        (12, 24),
+        (12, 25),
+        (12, 26),
+    }:
+        return True
+    easter = _easter_sunday(value.year)
+    return value in {
+        easter,
+        easter + timedelta(days=1),
+        easter + timedelta(days=49),
+        easter + timedelta(days=60),
+    }
+
+
+def configured_tariff_rate(
+    start: datetime,
+    *,
+    operator: str,
+    tariff_type: str,
+    g11_price_pln_kwh: float,
+    low_price_pln_kwh: float,
+    medium_price_pln_kwh: float,
+    peak_price_pln_kwh: float,
+    cheap_windows: tuple[tuple[int, int], ...],
+    medium_windows: tuple[tuple[int, int], ...] = (),
+    weekend_low_price: bool = False,
+    polish_holidays_low_price: bool = False,
+) -> tuple[float, str]:
+    """Return the configured marginal price without any planner state."""
+
+    if operator != MANUAL_OPERATOR:
+        profile = get_tariff_profile(operator, tariff_type)
+        if profile is None and tariff_type.strip().casefold() == "g12e":
+            raise ValueError("G12e official profile is supported only for PGE")
+        if profile is not None:
+            if not profile_is_valid(profile, start.date()):
+                raise ValueError(
+                    "official tariff profile does not cover pricing interval "
+                    f"{start.date().isoformat()}"
+                )
+            return profile_rate(
+                start,
+                profile,
+                is_public_holiday=is_polish_public_holiday(start.date()),
+            )
+    normalized_type = tariff_type.casefold().replace(" ", "")
+    if normalized_type == "g11":
+        return g11_price_pln_kwh, "g11"
+
+    low_day = (
+        weekend_low_price and start.weekday() >= 5
+    ) or (
+        polish_holidays_low_price
+        and is_polish_public_holiday(start.date())
+    )
+    minute = start.hour * 60 + start.minute
+    if low_day or any(
+        _in_window(minute, window_start, window_end)
+        for window_start, window_end in cheap_windows
+    ):
+        return low_price_pln_kwh, "low"
+    if normalized_type == "g13" and any(
+        _in_window(minute, window_start, window_end)
+        for window_start, window_end in medium_windows
+    ):
+        return medium_price_pln_kwh, "medium"
+    return peak_price_pln_kwh, "peak"

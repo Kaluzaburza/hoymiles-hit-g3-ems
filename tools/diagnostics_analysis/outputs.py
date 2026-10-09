@@ -224,6 +224,10 @@ def build_output_payloads(summary: Mapping[str, Any]) -> dict[str, bytes]:
             "last_changed",
             "last_updated",
             "archive_key",
+            "event_schema_version",
+            "attribute_profile",
+            "attributes_available",
+            "attributes",
         ),
     )
     control_runs = _mapping_rows(summary.get("control_history_metrics"))

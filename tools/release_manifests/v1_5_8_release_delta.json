@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "identity": "ems-1.5.8-reviewed-release-delta-v1",
+  "accepted_n12": {
+    "commit": "c736b69d985d6f2a75015abdacb8839a461ac7f1",
+    "parent": "96fc91b7bc6c4b258e654958c2ecf2400438ae74",
+    "tree": "5c15dae9b4b429a22442de1b2fec953c3f89be2d",
+    "subject": "test: close and pin N12 local release gates",
+    "manifest_path": "tools/release_manifests/n12_v1_5_8.json",
+    "manifest_sha256": "320a5efc56686e200e101745d3281c4221eec7fedd0baaf51c0adb6a41481c0a"
+  },
+  "protected_scopes": [
+    "custom_components/hoymiles_hit_modbus",
+    "packages",
+    "home_assistant",
+    "examples/esphome",
+    "hoymiles-inverter.yaml",
+    "dashboard_hoymiles.yaml"
+  ],
+  "release_delta": [
+    {"status": "M", "paths": ["CHANGELOG.md"]},
+    {"status": "M", "paths": ["README.md"]},
+    {"status": "M", "paths": ["README.pl.md"]},
+    {"status": "M", "paths": ["RELEASING.md"]},
+    {"status": "M", "paths": ["docs/AUTOMATION_TEST_REPORT.md"]},
+    {"status": "M", "paths": ["docs/QUICK_START.md"]},
+    {"status": "M", "paths": ["docs/WORK_STATE.MD"]},
+    {"status": "M", "paths": ["docs/images/README.md"]},
+    {"status": "M", "paths": ["docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md"]},
+    {"status": "M", "paths": ["docs/releases/v1.5.8.md"]},
+    {"status": "A", "paths": ["tools/release_fixtures/rev28_frontend_layers.tar.gz"]},
+    {"status": "A", "paths": ["tools/release_manifests/rev28_historical_fixture.json"]},
+    {"status": "A", "paths": ["tools/release_manifests/v1_5_8_release_delta.json"]},
+    {"status": "M", "paths": ["tools/test_battery_balancing_contract.py"]},
+    {"status": "M", "paths": ["tools/test_n12_release_contract.py"]},
+    {"status": "M", "paths": ["tools/test_supervisor_adapter_response.py"]},
+    {"status": "M", "paths": ["tools/validate_rce_card.js"]},
+    {"status": "M", "paths": ["tools/validate_release.py"]}
+  ],
+  "release_file_sha256": {
+    "CHANGELOG.md": "a36c35478f544ee7be93c0a5a1828d3dc946abfe80b4cb0de766864c7d4b58bb",
+    "README.md": "2e590e94efaa8b4cde141920ce52c6052a4cec8e4776136fc01ac67a464a32fa",
+    "README.pl.md": "73fd3fb8f05e2d1ab75ea8ac2935d22b2581545792b5b99bca35c4cf7eb6f7b6",
+    "RELEASING.md": "749a722e249a24274b314881a57e408e00c774fcf0e246ecd5ffc6d0157e337b",
+    "docs/AUTOMATION_TEST_REPORT.md": "880ee9c0271a8cac465d5b6c88af9534efff1383c6cad0b5ff18cd425e6da8eb",
+    "docs/QUICK_START.md": "95ea5df1c5dd1157283db6183f8bb3efee1e408e617829375a84de2d98062a9e",
+    "docs/WORK_STATE.MD": "a8732da84a176c7935b199b690f374b9ab2010e275ca265b97679c4a45e1b15f",
+    "docs/images/README.md": "0a9223b37fd9fea120742af43b1dc1e5deef0b966788ef08e879f23e597e63ca",
+    "docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md": "6c5164c4b8015bb66fed7a5065df5e93c5c00d408443c90b256dbc701e724495",
+    "docs/releases/v1.5.8.md": "f8ace3f5d6b4331e2b71c1cf2f055afc96ddc3484709c712a6670cd30efc2eda",
+    "tools/release_fixtures/rev28_frontend_layers.tar.gz": "c0a02d7637305aa9ac0c1839977d2295168717a63225e9d769a7de7b1151e567",
+    "tools/release_manifests/rev28_historical_fixture.json": "9bc192e3e6e6710e9b01e0bcffe9f30fe9ca26972e6812c79e6d40d449303e9f",
+    "tools/test_battery_balancing_contract.py": "e9aa06634885bdf2421d4c1c85e09f6d4c192e604cd0d800155bdbcf80232499",
+    "tools/test_n12_release_contract.py": "0785b3ea6c4c6ae39998588a1c7244e3b65ca12bbe08d925c32d2a88dcc86d62",
+    "tools/test_supervisor_adapter_response.py": "c1d1effe14af7141219b55859b28baa2808c8d9dd96e7fef7601b91e3af68cbd",
+    "tools/validate_rce_card.js": "7c9b3fcf9690455fd0646ea9b6574a4f748762770ab442ac7a12d877204ee7f0"
+  },
+  "counts": {
+    "protected_product_files": 114,
+    "release_delta_files": 18,
+    "hashed_release_files": 16
+  }
+}

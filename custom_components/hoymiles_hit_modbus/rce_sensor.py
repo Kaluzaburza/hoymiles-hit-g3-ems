@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Mapping
-from dataclasses import replace
+from copy import deepcopy
+from dataclasses import fields, is_dataclass, replace
 from datetime import date, datetime, time, timedelta
 import logging
+from math import isfinite
 import re
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -19,26 +23,61 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
-    async_track_state_report_event,
     async_track_time_interval,
 )
 from homeassistant.helpers.sun import get_astral_event_date
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .bounded_history import async_get_bounded_state_reports
-from .const import DOMAIN, NAME
-from .energy_data import numeric_state_sample, state_age_seconds
+from .bounded_history import (
+    RecorderHistoryLimitExceeded,
+    RecorderHistoryQueryTimeout,
+    async_get_bounded_state_reports,
+)
+from .const import (
+    CONF_RESOLVED_SOURCE_DEVICE_ID,
+    CONF_SOURCE_DEVICE_ID,
+    DOMAIN,
+    NAME,
+)
+from .energy_data import numeric_state_sample, state_age_seconds, state_reported_at
+from .ems_shared_inputs import (
+    load_model_generated_at_is_fresh,
+    qualified_load_history_is_usable,
+)
 from .forecast_model import (
     ForecastLearningPolicy,
     adaptive_forecast_factor,
     blend_low_expected,
+    day_uncertainty_weight,
     forecast_factor_for_policy,
+    forecast_policy_for_source,
     forecast_learning_history_day_eligible,
+    qualified_cumulative_energy_day,
     resolve_forecast_learning_policy,
     robust_weighted_factor,
     uncertainty_risk_weight,
 )
+from .ev_load_filter import HELPERS as EV_LOAD_HELPERS
+from .ev_load_runtime import EvLoadRuntime
+from .pv_charge_delay import PROFILE_HELPER as PV_DELAY_PROFILE_HELPER, profile_weight
 from .models import RuntimeData
+from .load_model import (
+    LOAD_MODEL_SCHEMA,
+    current_day_profile_correction,
+    daily_ages_days,
+    expected_load_by_slot,
+    persistent_load_delta_kw,
+    robust_weighted_estimate,
+)
+from .load_history_store import (
+    decode_cache,
+    encode_cache,
+    history_in_window,
+    merge_history,
+    qualification_diagnostics,
+    source_identity,
+)
 from .optimizer_revision import (
     INPUT_RECALCULATION_DELAY_SECONDS,
     MAX_IMMEDIATE_RECALCULATIONS,
@@ -46,18 +85,38 @@ from .optimizer_revision import (
     TARIFF_PRICE_BROKER_ATTRIBUTES,
     optimizer_input_fingerprint,
 )
+from .pv_forecast_usability import (
+    SCHEDULED_PAUSE_MAX_SOURCE_AGE_SECONDS,
+    SOLCAST_UPDATE_ENTITY_CANDIDATES,
+    evaluate_pv_forecast_usefulness,
+    resolve_solcast_update_state,
+)
 from .rce_history import (
+    LOAD_HISTORY_ENTITIES,
     LOAD_PHASE_ENERGY_ENTITIES,
+    LOAD_PROFILE_ENERGY_ENTITY,
     LoadHistorySummary,
+    is_load_history_observation,
+    parse_load_history_state,
     summarize_load_history,
 )
+from .rce_price_cache import SOURCE as RCE_CACHE_SOURCE, cached_state_valid, utc_time
 from .rce_optimizer import (
     OptimizerInput,
     OptimizerResult,
+    RceActiveCommitment,
     floor_half_hour,
     optimize_rce,
     parse_rce_rows,
+    post_command_settling_market_fingerprint,
+    revalidate_rce_plan,
+    retain_active_rce_slot,
+    active_load_only_export_suppressed,
     robust_weighted_upper_estimate,
+)
+from .tariff_optimizer import TariffSchedule, tariff_rate
+from .tariff_profiles import (
+    MANUAL_OPERATOR, SUPPORTED_GROUPS, get_tariff_profile, profile_is_valid,
 )
 
 
@@ -71,6 +130,31 @@ _ENTITY_ID = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 _FORECAST_GCF_SUPPORT_MAX_AGE_SECONDS = 10.0
 _FORECAST_GCF_READBACK_MAX_AGE_SECONDS = 180.0
 _FORECAST_GCF_READBACK_MAX_SKEW_SECONDS = 5.0
+_LAST_COMPLETE_PLAN_GRACE_SECONDS = 15 * 60.0
+RCE_STALE_RESULT_RETRY_DELAY_SECONDS = 5.0
+LOAD_SHORT_LOOKBACK_DAYS = 5
+LOAD_EXTENDED_LOOKBACK_DAYS = 31
+LOAD_EXTENDED_CHUNK_DAYS = 7
+LOAD_EXTENDED_TOTAL_BUDGET_SECONDS = 30.0
+LOAD_HISTORY_RETRY_LIMIT = 3
+LOAD_HISTORY_RETRY_BACKOFF = timedelta(hours=1)
+LOAD_HISTORY_RETRY_COOLDOWN = timedelta(hours=6)
+LOAD_HISTORY_STORE_VERSION = 1
+LOAD_HISTORY_STORE_KEY_PREFIX = f"{DOMAIN}.qualified_load_history_v1"
+
+# The HIT-20L-G3 nameplate describes total inverter AC capability.  Its
+# battery-only Grid Discharge base used by RCE is 16 kW per inverter; PV,
+# LOAD, charging, and every other configured inverter profile stay separate.
+_HIT_20L_BATTERY_DISCHARGE_POWER_KW = 16.0
+
+
+def _rce_inverter_discharge_power_kw(rated_power_kw: float) -> float:
+    """Return the model-specific battery-only discharge base for RCE."""
+
+    if abs(rated_power_kw - 20.0) < 0.01:
+        return _HIT_20L_BATTERY_DISCHARGE_POWER_KW
+    return rated_power_kw
+
 
 FORECAST_GCF_ENABLE_ENTITY = (
     "sensor.hoymiles_hit_gcf_enable_readback_code"
@@ -89,15 +173,18 @@ FORECAST_EMS_PACKAGE_VERSION_ENTITY = "sensor.hoymiles_ems_package_version"
 FORECAST_GCF_POLICY_TRIGGER_ENTITIES = (
     FORECAST_GCF_ENABLE_ENTITY,
     FORECAST_GCF_LIMIT_ENTITY,
-    FORECAST_GCF_GENERATION_ENTITY,
     FORECAST_GCF_SUPPORT_ENTITY,
 )
-FORECAST_GCF_COHORT_REPORT_ENTITIES = (
-    FORECAST_GCF_ENABLE_ENTITY,
-    FORECAST_GCF_LIMIT_ENTITY,
-    FORECAST_GCF_GENERATION_ENTITY,
-)
 
+EMS_TODAY_FORECAST_ENTITY_HELPER = (
+    "input_text.hoymiles_ems_pv_forecast_today_entity"
+)
+EMS_TOMORROW_FORECAST_ENTITY_HELPER = (
+    "input_text.hoymiles_ems_pv_forecast_tomorrow_entity"
+)
+EMS_DAY3_FORECAST_ENTITY_HELPER = (
+    "input_text.hoymiles_ems_pv_forecast_day_3_entity"
+)
 TODAY_FORECAST_ENTITY_HELPER = (
     "input_text.hoymiles_solcast_forecast_today_entity"
 )
@@ -108,9 +195,25 @@ DAY3_FORECAST_ENTITY_HELPER = (
     "input_text.hoymiles_solcast_forecast_day_3_entity"
 )
 FORECAST_ENTITY_HELPERS = (
+    EMS_TODAY_FORECAST_ENTITY_HELPER,
+    EMS_TOMORROW_FORECAST_ENTITY_HELPER,
+    EMS_DAY3_FORECAST_ENTITY_HELPER,
     TODAY_FORECAST_ENTITY_HELPER,
     TOMORROW_FORECAST_ENTITY_HELPER,
     DAY3_FORECAST_ENTITY_HELPER,
+)
+
+EMS_FALLBACK_DAILY_LOAD_HELPER = (
+    "input_number.hoymiles_ems_fallback_daily_home_load"
+)
+LEGACY_FALLBACK_DAILY_LOAD_HELPER = (
+    "input_number.hoymiles_rce_fallback_daily_load"
+)
+EMS_INVERTER_RATED_POWER_HELPER = (
+    "input_select.hoymiles_ems_inverter_rated_power_each"
+)
+LEGACY_INVERTER_RATED_POWER_HELPER = (
+    "input_select.hoymiles_rce_inverter_rated_power"
 )
 
 TODAY_FORECAST_CANDIDATES = (
@@ -140,6 +243,7 @@ REMAINING_TODAY_CANDIDATES = (
 )
 
 WATCHED_ENTITIES = {
+    *EV_LOAD_HELPERS,
     "sensor.hoymiles_rce_day",
     "sensor.hoymiles_rce_day_tomorrow",
     "sensor.hoymiles_hit_battery_capacity",
@@ -158,8 +262,6 @@ WATCHED_ENTITIES = {
     "sensor.hoymiles_hit_load_power_l2n",
     "sensor.hoymiles_hit_load_power_l3n",
     "sensor.hoymiles_hit_overview_load_active_power",
-    "sensor.hoymiles_load_average_4_days",
-    "sensor.hoymiles_night_load_average_4_days",
     "sensor.hoymiles_hit_battery_voltage_bms",
     "sensor.hoymiles_hit_maximum_charge_current",
     "sensor.hoymiles_hit_maximum_discharge_current",
@@ -171,20 +273,26 @@ WATCHED_ENTITIES = {
     "sensor.hoymiles_rce_learned_export_power",
     "sensor.hoymiles_hit_tariff_charge_plan",
     "input_boolean.hoymiles_rce_discharge_enabled",
+    "input_boolean.hoymiles_pv_charge_delay_enabled",
+    PV_DELAY_PROFILE_HELPER,
     "input_boolean.hoymiles_rce_dynamic_soc_enabled",
     "input_boolean.hoymiles_sale_block_enabled",
     "input_datetime.hoymiles_sale_block_start",
     "input_datetime.hoymiles_sale_block_end",
     "input_number.hoymiles_rce_soc_safety_margin",
     "input_number.hoymiles_rce_export_efficiency",
-    "input_number.hoymiles_rce_fallback_daily_load",
+    EMS_FALLBACK_DAILY_LOAD_HELPER,
+    LEGACY_FALLBACK_DAILY_LOAD_HELPER,
     "input_number.hoymiles_rce_requested_discharge_power",
     "input_number.hoymiles_rce_battery_wear_cost",
+    "input_number.hoymiles_rce_minimum_net_export_power",
     "input_number.hoymiles_tariff_g11_price",
     "input_number.hoymiles_tariff_charge_efficiency",
     "input_number.hoymiles_tariff_discharge_efficiency",
-    "input_select.hoymiles_rce_inverter_rated_power",
+    EMS_INVERTER_RATED_POWER_HELPER,
+    LEGACY_INVERTER_RATED_POWER_HELPER,
     *FORECAST_ENTITY_HELPERS,
+    *SOLCAST_UPDATE_ENTITY_CANDIDATES,
     "sun.sun",
     *TODAY_FORECAST_CANDIDATES,
     *TOMORROW_FORECAST_CANDIDATES,
@@ -192,14 +300,14 @@ WATCHED_ENTITIES = {
     *REMAINING_TODAY_CANDIDATES,
 }
 
-# These continuously changing physical values are sampled by the existing
-# one-minute optimizer timer instead of withdrawing plan authority on every
+# These continuously changing physical values are sampled by the bounded
+# full-plan timer instead of withdrawing plan authority on every
 # ESPHome state change.  The scheduler keeps its independent live SOC, BMS,
 # export-permission and hardware-readback gates, so a real safety loss still
 # stops execution immediately.  In particular, the Force Discharge readback
 # is written by the RCE transaction itself and must not invalidate that same
 # transaction before its mode write can be acknowledged.
-RCE_MINUTE_COALESCED_ENTITIES = {
+RCE_FIVE_MINUTE_COALESCED_ENTITIES = {
     "sensor.hoymiles_hit_overview_battery_soc",
     "sensor.hoymiles_hit_pv_total_energy_today",
     "sensor.hoymiles_hit_pv_to_load_energy_today",
@@ -217,11 +325,21 @@ RCE_MINUTE_COALESCED_ENTITIES = {
     "sensor.hoymiles_hit_battery_voltage_bms",
     "sensor.hoymiles_hit_maximum_charge_current",
     "sensor.hoymiles_hit_maximum_discharge_current",
+    "sensor.hoymiles_hit_ems_self_use_soc_readback",
     "sensor.hoymiles_hit_ems_force_discharge_soc_readback",
     "sensor.hoymiles_rce_effective_export_power",
     "sensor.hoymiles_rce_learned_export_power",
     "sun.sun",
+    *TODAY_FORECAST_CANDIDATES,
+    *TOMORROW_FORECAST_CANDIDATES,
+    *DAY3_FORECAST_CANDIDATES,
+    *REMAINING_TODAY_CANDIDATES,
 }
+# The full export planner is deliberately slower than the physical safety
+# gates in the scheduler.  Live telemetry is sampled as one snapshot at this
+# cadence; explicit user/market/forecast events remain on the existing short
+# debounce path below.
+RCE_FULL_OPTIMIZER_INTERVAL = timedelta(seconds=120)
 RCE_GCF_OPTIMIZER_ENTITIES = frozenset(
     {
         FORECAST_GCF_ENABLE_ENTITY,
@@ -230,44 +348,211 @@ RCE_GCF_OPTIMIZER_ENTITIES = frozenset(
 )
 RCE_EVENT_DRIVEN_ENTITIES = (
     WATCHED_ENTITIES
-    - RCE_MINUTE_COALESCED_ENTITIES
+    - RCE_FIVE_MINUTE_COALESCED_ENTITIES
     - RCE_GCF_OPTIMIZER_ENTITIES
 )
+
+# These sampled numeric inputs may move while the optimizer is working. Their
+# source, attributes and freshness remain guarded; their newest values must
+# pass synchronous fixed-plan revalidation before publication. This is never
+# permission to publish the original solver result after telemetry drift.
+_RCE_REVALIDATED_NUMERIC_INPUTS = {
+    "sensor.hoymiles_hit_overview_battery_soc": (120.0, 0.0, 100.0),
+    "sensor.hoymiles_hit_battery_voltage_bms": (300.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_maximum_charge_current": (300.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_maximum_discharge_current": (300.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_ems_self_use_soc_readback": (300.0, 10.0, 100.0),
+    "sensor.hoymiles_hit_ems_force_discharge_soc_readback": (180.0, 0.0, 100.0),
+    "sensor.hoymiles_hit_number_of_machines_master_and_slave": (300.0, 1.0, 10.0),
+    "sensor.hoymiles_hit_gcf_enable_readback_code": (180.0, 0.0, 1.0),
+    "sensor.hoymiles_hit_gcf_maximum_export_power_readback": (180.0, -10.0, 200.0),
+    "sensor.hoymiles_actual_load_power": (120.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_load_power_l1n": (120.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_load_power_l2n": (120.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_load_power_l3n": (120.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_overview_load_active_power": (120.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_overview_pv_total_power": (120.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_load_from_pv_power": (120.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_actual_load_energy_today": (300.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_pv_total_energy_today": (300.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_pv_to_load_energy_today": (300.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_energy_from_battery_today": (300.0, 0.0, 1_000_000_000.0),
+    "sensor.hoymiles_hit_energy_from_grid_today": (300.0, 0.0, 1_000_000_000.0),
+    **{entity_id: (300.0, 0.0, 1_000_000_000.0) for entity_id in LOAD_PHASE_ENERGY_ENTITIES},
+}
+
+
+def _rce_report_fingerprint(
+    hass: HomeAssistant,
+    fingerprint: tuple[Any, ...],
+    now: datetime,
+) -> tuple[Any, ...]:
+    """Keep report provenance and capture whether its sample was usable."""
+
+    result = []
+    for entity_id, value in fingerprint:
+        bounds = _RCE_REVALIDATED_NUMERIC_INPUTS.get(entity_id)
+        if bounds is not None and value is not None:
+            sample = numeric_state_sample(
+                hass.states.get(entity_id), now,
+                max_age_seconds=bounds[0], minimum=bounds[1], maximum=bounds[2],
+            )
+            value = (*value, sample.fresh)
+        result.append((entity_id, value))
+    return tuple(result)
+
+
+def _rce_publication_fingerprints_match(
+    captured: tuple[Any, ...], current: tuple[Any, ...], *, now: datetime,
+) -> bool:
+    """Guard identity/quality while allowing fresh inputs for revalidation."""
+
+    if len(captured) != len(current):
+        return False
+    for (old_id, old), (new_id, new) in zip(captured, current, strict=True):
+        if old_id != new_id:
+            return False
+        if old_id == "__rce_execution_gcf__":
+            if not _rce_publication_fingerprints_match(old, new, now=now):
+                return False
+            continue
+        if old_id == "__shared_ems_inputs__" and old is not None and new is not None:
+            if old[0] != "revalidated_samples_v1" or new[0] != "revalidated_samples_v1":
+                if old != new:
+                    return False
+                continue
+            if old[1] != new[1] or len(old[2]) != len(new[2]):
+                return False
+            for before, after in zip(old[2], new[2], strict=True):
+                path, old_report, fresh, ttl, timestamp_required = before
+                if (path, fresh, ttl, timestamp_required) != (after[0], *after[2:]):
+                    return False
+                new_report = after[1]
+                if not fresh:
+                    if old_report != new_report:
+                        return False
+                    continue
+                if old_report is None or new_report is None:
+                    if timestamp_required or old_report != new_report:
+                        return False
+                    continue
+                try:
+                    if (
+                        old_report.utcoffset() is None or new_report.utcoffset() is None
+                        or new_report < old_report
+                        or not all(
+                            (now - report).total_seconds() >= -5.0
+                            and (ttl is None or (now - report).total_seconds() <= ttl)
+                            for report in (old_report, new_report)
+                        )
+                    ):
+                        return False
+                except (AttributeError, TypeError, ValueError):
+                    return False
+            continue
+        bounds = _RCE_REVALIDATED_NUMERIC_INPUTS.get(old_id)
+        if bounds is None or old is None or new is None:
+            if old != new:
+                return False
+            continue
+        if old == new and old[3] is not True:
+            # Unusable/missing optional inputs keep their existing fallback
+            # semantics. They cannot enter the equivalent-refresh exception.
+            continue
+        if old[1] != new[1] or old[3] is not True or new[3] is not True:
+            return False
+        if (
+            old_id in {
+                "sensor.hoymiles_hit_ems_self_use_soc_readback",
+                "sensor.hoymiles_hit_ems_force_discharge_soc_readback",
+                "sensor.hoymiles_hit_number_of_machines_master_and_slave",
+                "sensor.hoymiles_hit_gcf_enable_readback_code",
+                "sensor.hoymiles_hit_gcf_maximum_export_power_readback",
+            }
+            and old[0] != new[0]
+        ):
+            return False
+        try:
+            before = datetime.fromisoformat(old[2])
+            after = datetime.fromisoformat(new[2])
+            if (
+                before.tzinfo is None or after.tzinfo is None
+                or before.utcoffset() is None or after.utcoffset() is None
+                or after < before
+            ):
+                return False
+            for raw, reported in ((old[0], before), (new[0], after)):
+                sample = numeric_state_sample(
+                    SimpleNamespace(state=raw, last_reported=reported), now,
+                    max_age_seconds=bounds[0], minimum=bounds[1], maximum=bounds[2],
+                )
+                if not sample.fresh:
+                    return False
+        except (TypeError, ValueError, IndexError):
+            return False
+    return True
 
 
 def _forecast_learning_policy_snapshot(
     hass: HomeAssistant,
     now: datetime,
+    runtime: RuntimeData | None = None,
 ) -> tuple[ForecastLearningPolicy, dict[str, Any]]:
     """Read one coherent, physically verified GCF learning policy."""
 
-    support = numeric_state_sample(
-        hass.states.get(FORECAST_GCF_SUPPORT_ENTITY),
-        now,
-        max_age_seconds=_FORECAST_GCF_SUPPORT_MAX_AGE_SECONDS,
-        minimum=0.0,
-        maximum=1.0,
+    def sample(
+        field_name: str,
+        entity_id: str,
+        max_age_seconds: float,
+        minimum: float,
+        maximum: float,
+    ) -> Any:
+        if runtime is None:
+            return numeric_state_sample(
+                hass.states.get(entity_id),
+                now,
+                max_age_seconds=max_age_seconds,
+                minimum=minimum,
+                maximum=maximum,
+            )
+        return _policy_numeric_sample(
+            runtime,
+            "gcf",
+            field_name,
+            hass.states.get(entity_id),
+            now,
+            max_age_seconds=max_age_seconds,
+            minimum=minimum,
+            maximum=maximum,
+        )
+
+    support = sample(
+        "hardware_readback_supported",
+        FORECAST_GCF_SUPPORT_ENTITY,
+        _FORECAST_GCF_SUPPORT_MAX_AGE_SECONDS,
+        0.0,
+        1.0,
     )
-    generation = numeric_state_sample(
-        hass.states.get(FORECAST_GCF_GENERATION_ENTITY),
-        now,
-        max_age_seconds=_FORECAST_GCF_READBACK_MAX_AGE_SECONDS,
-        minimum=1.0,
-        maximum=16_000_000.0,
+    generation = sample(
+        "generation",
+        FORECAST_GCF_GENERATION_ENTITY,
+        _FORECAST_GCF_READBACK_MAX_AGE_SECONDS,
+        1.0,
+        16_000_000.0,
     )
-    enable = numeric_state_sample(
-        hass.states.get(FORECAST_GCF_ENABLE_ENTITY),
-        now,
-        max_age_seconds=_FORECAST_GCF_READBACK_MAX_AGE_SECONDS,
-        minimum=0.0,
-        maximum=1.0,
+    enable = sample(
+        "enable_code",
+        FORECAST_GCF_ENABLE_ENTITY,
+        _FORECAST_GCF_READBACK_MAX_AGE_SECONDS,
+        0.0,
+        1.0,
     )
-    export_limit = numeric_state_sample(
-        hass.states.get(FORECAST_GCF_LIMIT_ENTITY),
-        now,
-        max_age_seconds=_FORECAST_GCF_READBACK_MAX_AGE_SECONDS,
-        minimum=-10.0,
-        maximum=200.0,
+    export_limit = sample(
+        "maximum_export_power_percent",
+        FORECAST_GCF_LIMIT_ENTITY,
+        _FORECAST_GCF_READBACK_MAX_AGE_SECONDS,
+        -10.0,
+        200.0,
     )
 
     reason: str | None = None
@@ -346,18 +631,55 @@ def _forecast_gcf_optimizer_signature(
     policy: ForecastLearningPolicy,
     diagnostics: Mapping[str, Any],
 ) -> tuple[bool, str, str | None, float | None, float | None, float | None]:
-    """Return the stable physical GCF values consumed by RCE planning.
-
-    The FC03 generation proves freshness and cohort coherence, but advances on
-    every unchanged physical report. Excluding it here prevents a periodic
-    provenance heartbeat from becoming a new mathematical optimizer input.
-    """
+    """Return the stable physical GCF values consumed by RCE planning."""
 
     return (
         *_forecast_learning_policy_signature(policy),
         diagnostics.get("forecast_learning_gcf_enable_code"),
         diagnostics.get("forecast_learning_gcf_export_limit_percent"),
     )
+
+
+def _forecast_gcf_publication_signature(
+    policy: ForecastLearningPolicy,
+    diagnostics: Mapping[str, Any],
+) -> tuple[
+    bool,
+    str,
+    str | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+]:
+    """Bind solver publication to one coherent physical FC03 generation."""
+
+    return (
+        *_forecast_gcf_optimizer_signature(policy, diagnostics),
+        diagnostics.get("forecast_learning_gcf_generation"),
+    )
+
+
+def _live_forecast_gcf_optimizer_signature(
+    hass: HomeAssistant,
+    runtime: RuntimeData | None,
+) -> tuple[
+    bool,
+    str,
+    str | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+]:
+    """Read one coherent GCF signature for an executor publication guard."""
+
+    policy, diagnostics = _forecast_learning_policy_snapshot(
+        hass,
+        dt_util.now(),
+        runtime,
+    )
+    return _forecast_gcf_publication_signature(policy, diagnostics)
 
 
 STATUS_TEXT = {
@@ -367,6 +689,7 @@ STATUS_TEXT = {
         "home_protected": "Zasilanie domu zabezpieczone — brak energii na sprzedaż",
         "home_energy_shortage": "Za mało energii na potrzeby domu — sprzedaż zablokowana",
         "missing_data": "Brak wymaganych danych — sprzedaż zablokowana",
+        "plan_revalidation_failed": "Plan wymaga ponownej weryfikacji — sprzedaż zablokowana",
         "optimizer_error": "Błąd obliczeń — sprzedaż zablokowana",
         "zero_export": "Eksport zablokowany — aktywny limit GCF 0%",
     },
@@ -376,6 +699,7 @@ STATUS_TEXT = {
         "home_protected": "Home supply protected — no energy available for export",
         "home_energy_shortage": "Insufficient home energy — export blocked",
         "missing_data": "Required data missing — export blocked",
+        "plan_revalidation_failed": "Plan revalidation required — export blocked",
         "optimizer_error": "Calculation error — export blocked",
         "zero_export": "Export blocked — active GCF limit is 0%",
     },
@@ -418,6 +742,280 @@ def _state_text(hass: HomeAssistant, entity_id: str) -> str:
     return state.state.strip()
 
 
+_SHARED_INPUT_MISSING = object()
+
+
+def _shared_inputs_snapshot(runtime: RuntimeData) -> Any | None:
+    """Return the immutable same-entry broker snapshot when it is installed."""
+    return getattr(getattr(runtime, "shared_inputs", None), "snapshot", None)
+
+
+def _shared_input_field(
+    runtime: RuntimeData,
+    section_name: str,
+    field_name: str,
+) -> Any:
+    """Read one broker field without treating an explicit ``None`` as absent."""
+
+    return getattr(
+        getattr(
+            _shared_inputs_snapshot(runtime),
+            section_name,
+            _SHARED_INPUT_MISSING,
+        ),
+        field_name,
+        _SHARED_INPUT_MISSING,
+    )
+
+
+def _shared_sample_value(
+    runtime: RuntimeData,
+    section_name: str,
+    field_name: str,
+) -> Any:
+    """Return a validated broker sample value or the absent-field sentinel."""
+
+    sample = _shared_input_field(runtime, section_name, field_name)
+    if sample is _SHARED_INPUT_MISSING:
+        return _SHARED_INPUT_MISSING
+    return getattr(sample, "value", sample)
+
+
+def _policy_numeric_sample(
+    runtime: RuntimeData,
+    section_name: str,
+    field_name: str,
+    legacy_state: State | None,
+    now: datetime,
+    *,
+    max_age_seconds: float,
+    shared_scale: float = 1.0,
+    legacy_scale: float = 1.0,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    future_tolerance_seconds: float = 5.0,
+) -> Any:
+    """Apply one policy's legacy bounds to an entry-local broker sample."""
+
+    shared = _shared_input_field(runtime, section_name, field_name)
+    if shared is _SHARED_INPUT_MISSING:
+        return numeric_state_sample(
+            legacy_state,
+            now,
+            max_age_seconds=max_age_seconds,
+            scale=legacy_scale,
+            minimum=minimum,
+            maximum=maximum,
+            future_tolerance_seconds=future_tolerance_seconds,
+        )
+    reported_at = getattr(shared, "reported_at", None)
+    proxy = SimpleNamespace(
+        state=getattr(shared, "value", None),
+        last_reported=reported_at,
+        last_updated=reported_at,
+    )
+    return numeric_state_sample(
+        proxy,
+        now,
+        max_age_seconds=max_age_seconds,
+        scale=shared_scale,
+        minimum=minimum,
+        maximum=maximum,
+        future_tolerance_seconds=future_tolerance_seconds,
+    )
+
+
+def _policy_stable_number(
+    runtime: RuntimeData,
+    section_name: str,
+    field_name: str,
+    hass: HomeAssistant,
+    legacy_entity_id: str,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    shared_scale: float = 1.0,
+    legacy_scale: float = 1.0,
+) -> float | None:
+    """Prefer the broker while preserving a policy's no-age stable setting."""
+
+    shared = _shared_sample_value(runtime, section_name, field_name)
+    candidates = ((shared, shared_scale),) if shared is not _SHARED_INPUT_MISSING else ()
+    candidates += ((_state_number(hass, legacy_entity_id), legacy_scale),)
+    for raw_value, scale in candidates:
+        if type(raw_value) not in {int, float}:
+            continue
+        value = float(raw_value) * float(scale)
+        if not isfinite(value):
+            continue
+        if minimum is not None and value < minimum:
+            continue
+        if maximum is not None and value > maximum:
+            continue
+        return value
+    return None
+
+
+def _shared_optimizer_signature(runtime: RuntimeData) -> tuple[Any, ...] | None:
+    """Guard Shared identity/configuration/quality, revalidate live values."""
+
+    snapshot = _shared_inputs_snapshot(runtime)
+    if snapshot is None:
+        return None
+    if not is_dataclass(snapshot):
+        # Unknown broker contracts cannot receive the sampled-value exception.
+        return (
+            getattr(snapshot, "schema_version", None),
+            getattr(snapshot, "config_entry_id", None),
+            getattr(snapshot, "revision", None),
+        )
+
+    samples = []
+
+    def freeze(value: Any, path: tuple[str, ...] = ()) -> Any:
+        if is_dataclass(value):
+            result = []
+            sampled = hasattr(value, "reported_at") and hasattr(value, "fresh")
+            if sampled:
+                # Broker samples carry entry-local source IDs. Guard their
+                # actual report clocks as well as canonical compatibility IDs.
+                ttl = 300.0
+                if path[:1] == ("forecast",):
+                    ttl = 18.0 * 3600.0
+                    usefulness = getattr(value, "usefulness", None)
+                    if (
+                        isinstance(usefulness, Mapping)
+                        and usefulness.get("mode") == "scheduled_pause"
+                        and usefulness.get("usable") is True
+                        and usefulness.get("source_fresh") is False
+                    ):
+                        # Broker freshness means bounded usefulness overnight,
+                        # not that an old forecast acquired a new report clock.
+                        try:
+                            deadline = datetime.fromisoformat(usefulness["valid_until"])
+                            if deadline.utcoffset() is None:
+                                raise ValueError("naive forecast deadline")
+                            ttl = min(
+                                SCHEDULED_PAUSE_MAX_SOURCE_AGE_SECONDS,
+                                (deadline - value.reported_at).total_seconds(),
+                            )
+                        except (KeyError, TypeError, ValueError):
+                            ttl = 0.0
+                elif path[:1] == ("power",) or path == ("system", "battery_soc_percent"):
+                    ttl = 120.0
+                elif path[:1] == ("gcf",):
+                    ttl = 10.0 if path[-1] == "hardware_readback_supported" else 180.0
+                elif path in {
+                    ("system", "inverter_rated_power_each_kw"),
+                    ("system", "system_rated_power_kw"),
+                    ("load", "fallback_daily_home_load_kwh"),
+                    ("efficiency", "pv_to_battery_efficiency"),
+                    ("efficiency", "battery_to_home_efficiency"),
+                }:
+                    # Shared _setting_sample keeps valid user settings fresh
+                    # indefinitely. The derived system rating includes that
+                    # helper clock; its physical count is guarded separately.
+                    ttl = None
+                samples.append((
+                    path, value.reported_at, value.fresh, ttl,
+                    ttl is not None and bool(
+                        getattr(value, "entity_id", None)
+                        or getattr(value, "source_entity_ids", ())
+                    ),
+                ))
+            for field in fields(value):
+                key = field.name
+                if sampled and key in {"reported_at", "age_seconds"}:
+                    continue
+                if not path and key in {"captured_at", "revision"}:
+                    continue
+                if key == "value" and (
+                    path[:1] in {("bms",), ("power",)}
+                    or path == ("system", "battery_soc_percent")
+                ):
+                    continue
+                if path == ("load",) and key in {
+                    "current_day_energy_kwh", "current_day_observed_at",
+                    "persistence_delta_kw", "persistence_observed_at",
+                    "persistence_sample_count",
+                }:
+                    continue
+                result.append((key, freeze(getattr(value, key), (*path, key))))
+            return tuple(result)
+        if isinstance(value, Mapping):
+            return tuple(sorted(
+                (key, freeze(item, (*path, str(key))))
+                for key, item in value.items()
+                if not (path[:1] == ("forecast",) and path[-1:] == ("usefulness",)
+                        and key == "age_seconds")
+            ))
+        if isinstance(value, (list, tuple)):
+            return tuple(freeze(item, path) for item in value)
+        return value
+
+    semantic = freeze(snapshot)
+    return ("revalidated_samples_v1", semantic, tuple(samples))
+
+
+def _preferred_text_helper(
+    hass: HomeAssistant,
+    new_entity_id: str,
+    legacy_entity_id: str,
+) -> str:
+    """Use the neutral helper when set, otherwise retain the legacy fallback."""
+
+    value = _state_text(hass, new_entity_id).strip()
+    return value if value else _state_text(hass, legacy_entity_id).strip()
+
+
+def _preferred_number_helper(
+    hass: HomeAssistant,
+    new_entity_id: str,
+    legacy_entity_id: str,
+) -> float | None:
+    """Resolve a numeric neutral helper before its legacy compatibility alias."""
+
+    state = hass.states.get(new_entity_id)
+    if state is not None and state.state not in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+        return _state_number(hass, new_entity_id)
+    return _state_number(hass, legacy_entity_id)
+
+
+def _preferred_select_number(
+    hass: HomeAssistant,
+    new_entity_id: str,
+    legacy_entity_id: str,
+) -> float | None:
+    """Resolve a neutral select, preserving ``Automatycznie`` as no override."""
+
+    state = hass.states.get(new_entity_id)
+    if state is not None and state.state not in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+        return _select_number(hass, new_entity_id)
+    return _select_number(hass, legacy_entity_id)
+
+
+def _resolved_forecast_entity_id(
+    hass: HomeAssistant,
+    runtime: RuntimeData,
+    *,
+    broker_field: str,
+    new_helper: str,
+    legacy_helper: str,
+) -> str:
+    """Resolve a forecast source from the same-entry broker or helper fallback."""
+
+    sample = _shared_input_field(runtime, "forecast", broker_field)
+    if sample is not _SHARED_INPUT_MISSING:
+        entity_id = getattr(sample, "entity_id", None)
+        return (
+            entity_id.strip().lower()
+            if isinstance(entity_id, str) and _ENTITY_ID.fullmatch(entity_id.strip().lower())
+            else ""
+        )
+    configured = _preferred_text_helper(hass, new_helper, legacy_helper).lower()
+    return configured if _ENTITY_ID.fullmatch(configured) else ""
+
+
 def _helper_minutes(hass: HomeAssistant, entity_id: str) -> int | None:
     value = _state_text(hass, entity_id)
     parts = value.split(":")
@@ -456,7 +1054,10 @@ def _first_numeric_state(
     return "", None
 
 
-def _configured_forecast_entity_ids(hass: HomeAssistant) -> frozenset[str]:
+def _configured_forecast_entity_ids(
+    hass: HomeAssistant,
+    runtime: RuntimeData | None = None,
+) -> frozenset[str]:
     """Return valid source entity IDs selected through forecast helpers.
 
     The helpers may point at user-created template sensors whose IDs cannot be
@@ -464,25 +1065,95 @@ def _configured_forecast_entity_ids(hass: HomeAssistant) -> frozenset[str]:
     subscription and optimizer fingerprint prevents a published plan from
     remaining execution-current after its real source changes.
     """
+    if runtime is not None and _shared_inputs_snapshot(runtime) is not None:
+        return frozenset(
+            entity_id
+            for field_name in ("today", "tomorrow", "day3")
+            if (
+                isinstance(
+                    entity_id := getattr(
+                        _shared_input_field(runtime, "forecast", field_name),
+                        "entity_id",
+                        None,
+                    ),
+                    str,
+                )
+                and _ENTITY_ID.fullmatch(entity_id)
+            )
+        )
     return frozenset(
         entity_id
-        for helper in FORECAST_ENTITY_HELPERS
+        for new_helper, legacy_helper in (
+            (EMS_TODAY_FORECAST_ENTITY_HELPER, TODAY_FORECAST_ENTITY_HELPER),
+            (EMS_TOMORROW_FORECAST_ENTITY_HELPER, TOMORROW_FORECAST_ENTITY_HELPER),
+            (EMS_DAY3_FORECAST_ENTITY_HELPER, DAY3_FORECAST_ENTITY_HELPER),
+        )
         if (
-            (entity_id := _state_text(hass, helper).strip().lower())
+            (
+                entity_id := _preferred_text_helper(
+                    hass,
+                    new_helper,
+                    legacy_helper,
+                ).strip().lower()
+            )
             and _ENTITY_ID.fullmatch(entity_id)
         )
     )
 
 
 def _parse_datetime(value: Any, timezone: ZoneInfo) -> datetime | None:
-    if not isinstance(value, str):
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        parsed = dt_util.parse_datetime(value)
+    else:
         return None
-    parsed = dt_util.parse_datetime(value)
     if parsed is None:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone)
     return parsed.astimezone(timezone)
+
+
+def _rce_rows_for_local_date(
+    rows: Any,
+    target_date: date,
+    timezone: ZoneInfo,
+) -> list[Mapping[str, Any]]:
+    """Return only market quarters that belong to one local business day."""
+
+    if not isinstance(rows, list):
+        return []
+    matched: list[Mapping[str, Any]] = []
+    for item in rows:
+        if not isinstance(item, Mapping):
+            continue
+        raw_business_date = str(item.get("business_date", "")).strip()
+        if raw_business_date == target_date.isoformat():
+            matched.append(item)
+            continue
+        if raw_business_date:
+            continue
+        # PSE ``dtime_utc`` is the end of the 15-minute settlement interval.
+        # Resolve the absolute quarter start before assigning a local date;
+        # ``period_utc`` alone is only a clock range and cannot prove a day.
+        raw_interval_end = item.get("dtime_utc")
+        if isinstance(raw_interval_end, datetime):
+            interval_end = raw_interval_end
+        elif isinstance(raw_interval_end, str) and raw_interval_end.strip():
+            interval_end = dt_util.parse_datetime(raw_interval_end.strip())
+        else:
+            interval_end = None
+        if interval_end is None:
+            continue
+        if interval_end.tzinfo is None:
+            interval_end = interval_end.replace(tzinfo=dt_util.UTC)
+        quarter_start = (
+            interval_end.astimezone(dt_util.UTC) - timedelta(minutes=15)
+        ).astimezone(timezone)
+        if quarter_start.date() == target_date:
+            matched.append(item)
+    return matched
 
 
 def _complete_rce_half_hours_for_local_date(
@@ -526,6 +1197,86 @@ def _complete_rce_half_hours_for_local_date(
     return actual == expected, len(actual), len(expected)
 
 
+def _select_current_rce_price_rows(
+    *,
+    primary_rows: Any,
+    primary_age_seconds: float | None,
+    rollover_rows: Any,
+    rollover_age_seconds: float | None,
+    target_date: date,
+    timezone: ZoneInfo,
+    primary_daily_valid: bool = False,
+    rollover_daily_valid: bool = False,
+) -> tuple[
+    list[Mapping[str, Any]],
+    bool,
+    int,
+    int,
+    bool,
+    float | None,
+    str,
+]:
+    """Select a complete current day, including the prior tomorrow payload."""
+
+    candidates = []
+    for source_role, rows, age_seconds, daily_valid in (
+        ("today", primary_rows, primary_age_seconds, primary_daily_valid),
+        ("previous_tomorrow_rollover", rollover_rows, rollover_age_seconds, rollover_daily_valid),
+    ):
+        matched = _rce_rows_for_local_date(rows, target_date, timezone)
+        complete, half_hours, expected_half_hours = (
+            _complete_rce_half_hours_for_local_date(
+                matched,
+                target_date,
+                timezone,
+            )
+        )
+        fresh = bool(
+            complete
+            and (daily_valid or (
+                age_seconds is not None
+                and -5.0 <= age_seconds <= _RCE_PRICE_MAX_AGE_SECONDS
+            ))
+        )
+        candidates.append(
+            (
+                matched,
+                complete,
+                half_hours,
+                expected_half_hours,
+                fresh,
+                age_seconds,
+                source_role,
+            )
+        )
+    return next(
+        (candidate for candidate in candidates if candidate[4]),
+        next(
+            (candidate for candidate in candidates if candidate[0]),
+            candidates[0],
+        ),
+    )
+
+
+def _rce_state_rows_and_age(
+    state: State | None,
+    now: datetime,
+) -> tuple[Any, float | None]:
+    """Return available rows and actual fetch age; cached days validate by date."""
+
+    if state is None or state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+        return [], None
+    if state.attributes.get("source") == RCE_CACHE_SOURCE:
+        try:
+            day = date.fromisoformat(state.attributes["business_date"])
+            if not cached_state_valid(state, day, now):
+                return [], None
+            return state.attributes["value"], (now - utc_time(state.attributes["fetched_at"])).total_seconds()
+        except (KeyError, TypeError, ValueError):
+            return [], None
+    return state.attributes.get("value", []), state_age_seconds(state, now)
+
+
 def _state_age_minutes(state: State | None, now: datetime) -> float | None:
     """Return age of the latest HA state report without assuming its version."""
     age = state_age_seconds(state, now)
@@ -544,14 +1295,30 @@ def _fresh_power_sample(
     now: datetime,
     *,
     max_age_seconds: float = 120.0,
+    runtime: RuntimeData | None = None,
+    shared_field: str | None = None,
 ) -> tuple[float | None, float | None, str]:
     """Return a fresh non-negative live power in kW and diagnostics."""
-    sample = numeric_state_sample(
-        hass.states.get(entity_id),
-        now,
-        max_age_seconds=max_age_seconds,
-        scale=0.001,
-        minimum=0.0,
+    sample = (
+        _policy_numeric_sample(
+            runtime,
+            "power",
+            shared_field,
+            hass.states.get(entity_id),
+            now,
+            max_age_seconds=max_age_seconds,
+            shared_scale=1.0,
+            legacy_scale=0.001,
+            minimum=0.0,
+        )
+        if runtime is not None and shared_field is not None
+        else numeric_state_sample(
+            hass.states.get(entity_id),
+            now,
+            max_age_seconds=max_age_seconds,
+            scale=0.001,
+            minimum=0.0,
+        )
     )
     if not sample.fresh:
         reason = {
@@ -749,6 +1516,31 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    # The plan/profile arrays are available live. Re-recording them can exceed
+    # HA's attribute-size limit and discard even the small lifecycle evidence.
+    _unrecorded_attributes = frozenset({
+        "planned_slots", "recorder_load_daily_kwh", "recorder_load_recent_4d_kwh",
+        "recorder_load_profile_30m_kwh", "recorder_load_average_profile_30m_kwh",
+        "recorder_load_weekday_profile_30m_kwh", "recorder_load_weekend_profile_30m_kwh",
+        "recorder_load_daily_quality", "recorder_load_profile_quality",
+        "recorder_load_phase_quality", "recorder_load_phase_diagnostics",
+        "recorder_load_availability_diagnostics",
+        "recorder_night_quality",
+        "recorder_night_daily_kwh", "recorder_night_daily_kwh_28d",
+        "bms_discharge_data_age_seconds", "bms_charge_data_age_seconds",
+        "current_live_load_power_age_seconds", "current_live_pv_power_age_seconds",
+        "inverter_count_age_seconds", "self_use_soc_age_seconds", "soc_data_age_seconds",
+        "rce_today_age_seconds", "rce_today_age_minutes",
+        "rce_tomorrow_age_seconds", "rce_tomorrow_age_minutes",
+        "battery_soc_age_minutes", "solver_runtime_ms", "shadow_runtime_ms",
+        "joint_plan_revision", "joint_benefit_pln", "joint_profile_revision",
+        "pstryk_blocker", "current_slot_execution_discharge_power_percent",
+        "pv_charge_delay_start", "pv_charge_delay_end", "pv_charge_delay_recovered_at", "pv_charge_delay_windows",
+        "pv_charge_delay_benefit_pln", "pv_charge_delay_deferred_kwh",
+        "pv_charge_delay_current", "pv_charge_delay_execution_ready",
+        "pv_charge_delay_planner_power_basis", "pv_charge_delay_planner_settling_active",
+        "pv_charge_delay_planner_settling_until",
+    })
     _attr_translation_key = "rce_optimized_plan"
     _attr_icon = "mdi:chart-timeline-variant"
 
@@ -764,10 +1556,36 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         self._runtime = runtime
         self._attr_unique_id = f"{entry.entry_id}_rce_optimized_plan"
         self._result: OptimizerResult | None = None
+        self._post_command_settling_market_settings: OptimizerInput | None = None
+        # Keep the accepted run for the same physical transaction across
+        # half-hour boundaries. Cleared on a new transaction or its deadline.
+        self._active_run_basis: tuple[str, OptimizerInput, OptimizerResult] | None = None
         self._load_history = _empty_load_summary()
         self._extended_load_history = _empty_load_summary()
+        self._load_history_store: Store[dict[str, Any]] = Store(
+            hass,
+            LOAD_HISTORY_STORE_VERSION,
+            f"{LOAD_HISTORY_STORE_KEY_PREFIX}.{entry.entry_id}",
+        )
+        self._load_history_store_payload: dict[str, Any] | None = None
         self._full_history_refresh_date: date | None = None
         self._load_profile_generated_at: datetime | None = None
+        self._load_history_last_attempt_at: datetime | None = None
+        self._load_history_last_success_at: datetime | None = None
+        self._load_history_retry_count = 0
+        self._load_history_next_retry_at: datetime | None = None
+        self._load_history_retry_epoch_date: date | None = None
+        self._load_history_read_status = "not_started"
+        self._load_history_read_error: str | None = None
+        self._load_history_short_range: tuple[datetime, datetime] | None = None
+        self._load_history_extended_range: tuple[datetime, datetime] | None = None
+        self._load_history_extended_partial = False
+        self._load_power_observations: deque[
+            tuple[datetime, float, float]
+        ] = deque(maxlen=240)
+        self._load_persistence_delta_kw = 0.0
+        self._load_persistence_observed_at: datetime | None = None
+        self._load_persistence_sample_count = 0
         self._history_refresh_running = False
         self._forecast_accuracy_factor = 0.90
         self._forecast_accuracy_uncertainty = 0.15
@@ -778,6 +1596,9 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         self._startup_warmup_task: asyncio.Task[None] | None = None
         self._forecast_policy_refresh_task: asyncio.Task[None] | None = None
         self._recalculate_cancel = None
+        self._stale_result_retry_cancel = None
+        self._shared_inputs_dirty = False
+        self._shared_inputs_seen = False
         self._dynamic_forecast_entities: frozenset[str] = frozenset()
         self._dynamic_forecast_unsub = None
         self._forecast_gcf_policy_signature: (
@@ -799,8 +1620,18 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         self._lifecycle_stopped = False
         self._optimizer_lock = asyncio.Lock()
         self._input_revision = OptimizerInputRevision()
+        self._full_plan_rejected_for_input_drift = False
+        self._full_plan_solver_calls = 0
+        self._last_full_plan_at: datetime | None = None
+        self._full_plan_trigger = "startup"
         self._current_slot_continue_eligible: bool | None = None
         self._current_slot_continue_changed_at: datetime | None = None
+        self._tariff_plan_source: SensorEntity | None = None
+        self._active_commitment_source = None
+        self._tariff_price_source: SensorEntity | None = None
+        self._pstryk = None
+        self._timeline_sensor: Any | None = None
+        self._timeline_metadata: dict[str, Any] = {}
         self._attributes: dict[str, Any] = {
             "status_code": "missing_data",
             "missing_entities": [],
@@ -808,7 +1639,638 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             "result_current": False,
             "recalculation_pending": True,
             "input_revision": 0,
+            "full_plan_solver_calls": 0,
+            "current_slot_load_exhausts_requested_discharge_budget": False,
+            "current_slot_load_only_export_suppressed": False,
+            "post_command_settling_market_fingerprint": None,
+            "last_full_plan_at": None,
+            "last_full_plan_trigger": "startup",
         }
+
+    def attach_timeline_sensor(self, timeline_sensor: Any) -> None:
+        """Bind the one entry-local observation-only timeline publisher."""
+
+        if self._timeline_sensor is not None and self._timeline_sensor is not timeline_sensor:
+            raise RuntimeError("RCE timeline sensor already attached")
+        self._timeline_sensor = timeline_sensor
+
+    def attach_tariff_plan_source(self, tariff_plan_source: SensorEntity) -> None:
+        """Bind the exact same-entry tariff price broker."""
+
+        source_entry = getattr(tariff_plan_source, "_entry", None)
+        if source_entry is None or source_entry.entry_id != self._entry.entry_id:
+            raise RuntimeError("RCE tariff broker belongs to another entry")
+        self._tariff_plan_source = tariff_plan_source
+
+    def attach_supervisor_commitment_source(self, supervisor: SensorEntity) -> None:
+        """Bind the authoritative same-entry execution source, as tariff does."""
+        source_entry = getattr(supervisor, "_entry", None)
+        reader = getattr(supervisor, "current_rce_active_commitment", None)
+        if (source_entry is None or source_entry.entry_id != self._entry.entry_id
+            or not callable(reader) or self._active_commitment_source is not None):
+            raise RuntimeError("invalid or duplicate RCE commitment source")
+        self._active_commitment_source = reader
+        self._active_pv_delay_source = getattr(supervisor, 'current_pv_delay_commitment', None)
+        self._active_commitment_cohort_source = getattr(supervisor, 'rce_commitment_cohort_pending', None)
+
+    async def _async_wait_active_rce_commitment_cohort(self) -> bool:
+        """Wait at most 0.5 s for the existing FC03 coalescer, then reread inputs.
+
+        A missing proof during delivery is not an ended transaction. This
+        grants no authority; the caller must obtain a fresh proof afterwards.
+        """
+        pending = getattr(self, '_active_commitment_cohort_source', None)
+        if pending is None:
+            return True
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 0.5
+        while pending():
+            if self._lifecycle_stopped or loop.time() >= deadline:
+                return False
+            await asyncio.sleep(min(0.05, deadline-loop.time()))
+        return True
+
+    def _active_rce_commitment(self, now: datetime) -> RceActiveCommitment | None:
+        reader = getattr(self, "_active_commitment_source", None)
+        try:
+            value = reader(now) if reader is not None else None
+            return value if isinstance(value, RceActiveCommitment) else None
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    def _active_pv_delay_commitment(self, now):
+        from .pv_charge_delay import PvDelayCommitment
+        reader = getattr(self, '_active_pv_delay_source', None)
+        try:
+            value = reader(now) if callable(reader) else None
+            return value if isinstance(value, PvDelayCommitment) else None
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    def attach_tariff_price_source(self, tariff_price_source: SensorEntity) -> None:
+        """Bind the exact same-entry R07 price publication for R08 only."""
+
+        source_entry = getattr(tariff_price_source, "_entry", None)
+        if source_entry is None or source_entry.entry_id != self._entry.entry_id:
+            raise RuntimeError("RCE tariff price source belongs to another entry")
+        self._tariff_price_source = tariff_price_source
+
+    def _ev_filter(self) -> EvLoadRuntime:
+        if not hasattr(self, "_ev_load"):
+            self._ev_load = EvLoadRuntime(self.hass)
+        self._ev_load.configure()
+        if getattr(self, "_ev_persistence_epoch", None) != self._ev_load.epoch:
+            self._ev_persistence_epoch = self._ev_load.epoch
+            observations = getattr(self, "_load_power_observations", None)
+            if observations is not None:
+                observations.clear()
+            self._load_persistence_delta_kw = 0.0
+            self._load_persistence_observed_at = None
+            self._load_persistence_sample_count = 0
+        return self._ev_load
+
+    def _load_model_values(
+        self,
+        now: datetime,
+        *,
+        use_shared_inputs: bool = True,
+    ) -> dict[str, Any]:
+        """Return one 28-day, gap-aware LOAD baseline without Recorder I/O."""
+        recorded_profile_history = (
+            self._extended_load_history
+            if self._extended_load_history.daily_history_days
+            else self._load_history
+        )
+        recorded_profile_history = history_in_window(
+            recorded_profile_history, as_of=now.date()
+        )
+        unfiltered_history = recorded_profile_history
+        recorded_profile_history = self._ev_filter().project(recorded_profile_history)
+        ev_enabled = self._ev_filter().configure()[0].enabled
+        daily_keys = tuple(recorded_profile_history.daily_energy_kwh)
+        daily_values = tuple(recorded_profile_history.daily_energy_kwh.values())
+        ages = daily_ages_days(daily_keys, as_of=now.date())
+        history_load, uncertainty, history_days = robust_weighted_estimate(
+            daily_values,
+            ages_days=ages,
+        )
+        load_history_source = "recorder_phase_counters_28d"
+        if history_load is None:
+            # A statistics sensor using ``sum_differences_nonnegative`` on a
+            # daily-reset counter can count restored/startup jumps as energy.
+            # It is useful for diagnostics, but it is not safe control input.
+            history_days = 0
+            load_history_source = "no_valid_recorder_history"
+
+        shared_fallback = (
+            _shared_sample_value(
+                getattr(self, "_runtime", None),
+                "load",
+                "fallback_daily_home_load_kwh",
+            )
+            if use_shared_inputs
+            else _SHARED_INPUT_MISSING
+        )
+        if shared_fallback is _SHARED_INPUT_MISSING:
+            fallback_load = _preferred_number_helper(
+                self.hass,
+                EMS_FALLBACK_DAILY_LOAD_HELPER,
+                LEGACY_FALLBACK_DAILY_LOAD_HELPER,
+            )
+        else:
+            fallback_load = (
+                float(shared_fallback)
+                if type(shared_fallback) in {int, float}
+                and isfinite(float(shared_fallback))
+                else None
+            )
+        history_data_fresh = load_model_generated_at_is_fresh(
+            self._load_profile_generated_at,
+            now=now,
+        )
+        history_data_usable = bool(
+            history_data_fresh
+            or qualified_load_history_is_usable(
+                self._load_profile_generated_at, daily_keys, now=now
+            )
+        )
+        history_complete = history_days >= 3 and history_data_usable
+        if ev_enabled and history_days < 3:
+            # Detection is uncertain and optional EV history may be absent.
+            # Until three accepted household days exist, never lower the
+            # reserve forecast merely because the filter removed all evidence.
+            raw_load, _, _ = robust_weighted_estimate(
+                tuple(unfiltered_history.daily_energy_kwh.values()),
+                ages_days=daily_ages_days(tuple(unfiltered_history.daily_energy_kwh), as_of=now.date()),
+            )
+            if raw_load is not None:
+                fallback_load = max(raw_load, fallback_load or 0.0)
+        if history_load is not None and history_complete:
+            average_load = history_load
+            source = "history_28d_gap_weighted"
+        elif (history_load is None or not history_data_usable) and fallback_load is not None:
+            # History outside its usable window is diagnostic only. It must not
+            # mask the explicit current fallback and block the shared model.
+            # Keep the original history timestamp and qualification unchanged.
+            average_load = fallback_load
+            source = "configured_daily_fallback"
+        else:
+            candidates = [
+                value
+                for value in (history_load, fallback_load)
+                if value is not None and isfinite(value) and value >= 0.0
+            ]
+            average_load = max(candidates) if candidates else None
+            source = (
+                "stale_history_or_fallback"
+                if history_load is not None and not history_data_usable
+                else "provisional_history_or_fallback"
+            )
+
+        recent_history = history_in_window(self._load_history, as_of=now.date())
+        if (
+            history_data_usable
+            and not ev_enabled
+            and recent_history.average_night_kwh is not None
+        ):
+            night_load = recent_history.average_night_kwh
+            night_days = recent_history.night_history_days
+        else:
+            # Do not import the same reset-sensitive statistics aggregate for
+            # the protected night window. The optimizer will derive its safe
+            # provisional night demand from the configured daily fallback.
+            night_load = None
+            night_days = 0
+
+        actual_state = self.hass.states.get(
+            "sensor.hoymiles_actual_load_energy_today"
+        )
+        actual_energy: float | None = None
+        actual_observed_at: datetime | None = None
+        if actual_state is not None:
+            try:
+                parsed = float(actual_state.state)
+            except (TypeError, ValueError, OverflowError):
+                parsed = float("nan")
+            if isfinite(parsed) and parsed >= 0.0:
+                actual_energy = parsed
+                actual_observed_at = state_reported_at(actual_state)
+                if actual_observed_at is not None:
+                    actual_observed_at = actual_observed_at.astimezone(now.tzinfo)
+
+        # Daily counters still include the EV; never feed their residual into
+        # an EV-filtered household forecast. Physical LOAD is read separately.
+        if ev_enabled:
+            actual_energy = None
+            actual_observed_at = None
+
+        profile_history = (
+            recorded_profile_history
+            if history_data_usable
+            else _empty_load_summary()
+        )
+        diagnostic_history = merge_history(
+            self._extended_load_history,
+            self._load_history,
+            limit=LOAD_EXTENDED_LOOKBACK_DAYS,
+        )
+        return {
+            "history_load": history_load,
+            "load_history_days": float(history_days),
+            "load_history_source": load_history_source,
+            "load_uncertainty_ratio": uncertainty,
+            "average_night_load": night_load,
+            "night_history_days": float(night_days),
+            "fallback_load": fallback_load,
+            "actual_load_today": actual_energy,
+            "actual_load_observed_at": actual_observed_at,
+            "live_daily_projection": None,
+            "history_complete": history_complete,
+            "history_data_fresh": history_data_fresh,
+            "history_data_usable": history_data_usable,
+            "average_load": average_load,
+            "load_model_source": source,
+            "profile_history": profile_history,
+            "diagnostic_history": diagnostic_history,
+            "daily_total_dates": daily_keys,
+        }
+
+    def _load_night_window(self) -> tuple[int, int]:
+        """One same-installation fallback shape for every LOAD consumer."""
+        zone = ZoneInfo(self.hass.config.time_zone)
+        sun = self.hass.states.get("sun.sun")
+        attrs = sun.attributes if sun is not None else {}
+        rising = _parse_datetime(attrs.get("next_rising"), zone)
+        setting = _parse_datetime(attrs.get("next_setting"), zone)
+        if rising is None or setting is None:
+            return 22 * 60, 6 * 60
+        return ((setting.hour * 60 + setting.minute - 90) % 1440,
+                (rising.hour * 60 + rising.minute + 90) % 1440)
+
+    def _update_load_persistence(
+        self,
+        now: datetime,
+        values: Mapping[str, Any],
+    ) -> None:
+        """Update a bounded causal power-deviation window from fresh telemetry."""
+        ev = self._ev_filter()
+        average_load = values.get("average_load")
+        if average_load is None:
+            return
+        state = self.hass.states.get("sensor.hoymiles_actual_load_power")
+        if state is None:
+            return
+        try:
+            actual_kw = float(state.state) / 1000.0
+        except (TypeError, ValueError, OverflowError):
+            return
+        observed_at = state_reported_at(state)
+        if (
+            observed_at is None
+            or not isfinite(actual_kw)
+            or actual_kw < 0.0
+            or abs((now - observed_at.astimezone(now.tzinfo)).total_seconds()) > 180.0
+        ):
+            return
+        profile: LoadHistorySummary = values["profile_history"]
+        slot = floor_half_hour(observed_at.astimezone(now.tzinfo))
+        night_start, night_end = self._load_night_window()
+        base = expected_load_by_slot(
+            (slot,),
+            now=now,
+            daily_energy_kwh=float(average_load),
+            average_profile_30m_kwh=profile.average_profile_kwh,
+            weekday_profile_30m_kwh=profile.weekday_profile_kwh,
+            weekend_profile_30m_kwh=profile.weekend_profile_kwh,
+            night_energy_kwh=values.get("average_night_load"),
+            night_start_minute=night_start,
+            night_end_minute=night_end,
+        ).by_slot_kwh.get(slot, 0.0) * 2.0
+        actual_kw = ev.forecast_power(actual_kw, base, observed_at, now)
+        if actual_kw is None:
+            self._load_power_observations.clear()
+            self._load_persistence_delta_kw = 0.0
+            self._load_persistence_observed_at = None
+            self._load_persistence_sample_count = 0
+            return
+        stamp = observed_at.astimezone(now.tzinfo)
+        if not self._load_power_observations or self._load_power_observations[-1][0] != stamp:
+            self._load_power_observations.append((stamp, actual_kw, base))
+        cutoff = now - timedelta(minutes=20)
+        while self._load_power_observations and self._load_power_observations[0][0] < cutoff:
+            self._load_power_observations.popleft()
+        (
+            self._load_persistence_delta_kw,
+            self._load_persistence_observed_at,
+            self._load_persistence_sample_count,
+        ) = persistent_load_delta_kw(tuple(self._load_power_observations), now=now)
+
+    def shared_load_model_snapshot(self, now: datetime) -> Mapping[str, Any]:
+        """Publish the single policy-neutral LOAD model through the broker."""
+        timezone = ZoneInfo(self.hass.config.time_zone)
+        local_now = now.astimezone(timezone)
+        values = self._load_model_values(local_now, use_shared_inputs=False)
+        self._update_load_persistence(local_now, values)
+        profile: LoadHistorySummary = values["profile_history"]
+        generated_at = self._load_profile_generated_at
+        night_start, night_end = self._load_night_window()
+        return {
+            "night_start_minute": night_start,
+            "night_end_minute": night_end,
+            "average_daily_home_load_kwh": values["average_load"],
+            "average_night_home_load_kwh": values["average_night_load"],
+            "provisional_daily_load_projection_kwh": None,
+            "daily_history_days": profile.daily_history_days,
+            "night_history_days": values["night_history_days"],
+            "daily_totals_kwh": tuple(profile.daily_energy_kwh.values()),
+            "daily_total_dates": tuple(profile.daily_energy_kwh),
+            "average_profile_30m_kwh": tuple(profile.average_profile_kwh),
+            "weekday_profile_30m_kwh": tuple(profile.weekday_profile_kwh),
+            "weekend_profile_30m_kwh": tuple(profile.weekend_profile_kwh),
+            "weekday_profile_days": profile.weekday_profile_days,
+            "weekend_profile_days": profile.weekend_profile_days,
+            "profile_history_days": profile.profile_history_days,
+            "daily_coverage_ratio": profile.daily_coverage_ratio,
+            "profile_coverage_ratio": profile.profile_coverage_ratio,
+            "current_day_energy_kwh": values["actual_load_today"],
+            "current_day_observed_at": values["actual_load_observed_at"],
+            "persistence_delta_kw": self._load_persistence_delta_kw,
+            "persistence_observed_at": self._load_persistence_observed_at,
+            "persistence_sample_count": self._load_persistence_sample_count,
+            "model_schema": LOAD_MODEL_SCHEMA,
+            "model_quality": (
+                "complete" if values["history_complete"] and profile.profile_history_days else "fallback"
+            ),
+            "fallback_currently_used": bool(
+                not values["history_complete"]
+                and values["fallback_load"] is not None
+                and values["average_load"] == values["fallback_load"]
+            ),
+            "generated_at": generated_at,
+            "ready": bool(values["average_load"] is not None and generated_at is not None),
+            "source": "recorder_phase_counters_and_actual_load",
+        }
+
+    def attach_tariff_plan_listener(self) -> None:
+        """Observe a suffixed same-entry tariff entity without guessing its ID."""
+
+        source = getattr(self, "_tariff_plan_source", None)
+        entity_id = getattr(source, "entity_id", None)
+        if not isinstance(entity_id, str) or entity_id in RCE_EVENT_DRIVEN_ENTITIES:
+            return
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                (entity_id,),
+                self._async_input_changed,
+            )
+        )
+
+    def _same_entry_tariff_plan_state(self) -> State | None:
+        """Return only the exact tariff broker object wired for this entry."""
+
+        source = getattr(self, "_tariff_plan_source", None)
+        source_entry = getattr(source, "_entry", None)
+        entity_id = getattr(source, "entity_id", None)
+        if (
+            source is None
+            or source_entry is None
+            or source_entry.entry_id != self._entry.entry_id
+            or not isinstance(entity_id, str)
+        ):
+            return None
+        return self.hass.states.get(entity_id)
+
+    def current_post_command_settling_market_fingerprint(self) -> str | None:
+        """Recheck the accepted market basis against actual HA sources.
+
+        A desired-power replan may be pending without changing this basis.
+        This hash is only evidence of unchanged economics, never authority.
+        Missing required policy sources do not inherit display defaults.
+        """
+
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            return self._pstryk.market_fingerprint()
+        accepted = self._post_command_settling_market_settings
+        if self._lifecycle_stopped or accepted is None:
+            return None
+        accepted_hash = post_command_settling_market_fingerprint(accepted)
+        if accepted_hash is None:
+            return None
+        timezone = ZoneInfo(self.hass.config.time_zone)
+        now = dt_util.now().astimezone(timezone)
+        if now.date() != accepted.now.date():
+            return None
+        today_payload, today_age = _rce_state_rows_and_age(
+            self.hass.states.get("sensor.hoymiles_rce_day"), now
+        )
+        tomorrow_payload, tomorrow_age = _rce_state_rows_and_age(
+            self.hass.states.get("sensor.hoymiles_rce_day_tomorrow"), now
+        )
+        selected = _select_current_rce_price_rows(
+            primary_rows=today_payload,
+            primary_age_seconds=today_age,
+            rollover_rows=tomorrow_payload,
+            rollover_age_seconds=tomorrow_age,
+            target_date=now.date(),
+            timezone=timezone,
+            primary_daily_valid=cached_state_valid(self.hass.states.get("sensor.hoymiles_rce_day"), now.date(), now),
+            rollover_daily_valid=cached_state_valid(self.hass.states.get("sensor.hoymiles_rce_day_tomorrow"), now.date(), now),
+        )
+        if not selected[4]:
+            return None
+        tomorrow_rows = _rce_rows_for_local_date(
+            tomorrow_payload, now.date() + timedelta(days=1), timezone
+        )
+        tomorrow_complete = _complete_rce_half_hours_for_local_date(
+            tomorrow_rows, now.date() + timedelta(days=1), timezone
+        )[0]
+        # Read the selector itself, not a broker snapshot awaiting its callback.
+        tomorrow_configured = _preferred_text_helper(
+            self.hass,
+            EMS_TOMORROW_FORECAST_ENTITY_HELPER,
+            TOMORROW_FORECAST_ENTITY_HELPER,
+        ).lower()
+        _, tomorrow_forecast = _first_numeric_state(
+            self.hass, TOMORROW_FORECAST_CANDIDATES, tomorrow_configured
+        )
+        use_tomorrow = bool(
+            tomorrow_complete
+            and (cached_state_valid(self.hass.states.get("sensor.hoymiles_rce_day_tomorrow"), now.date() + timedelta(days=1), now)
+                 or (tomorrow_age is not None and -5.0 <= tomorrow_age <= _RCE_PRICE_MAX_AGE_SECONDS))
+            and numeric_state_sample(
+                tomorrow_forecast,
+                now,
+                max_age_seconds=_TOMORROW_FORECAST_MAX_AGE_SECONDS,
+                minimum=0.0,
+            ).fresh
+        )
+        block_state = self.hass.states.get(
+            "input_boolean.hoymiles_sale_block_enabled"
+        )
+        block_start = _helper_minutes(
+            self.hass, "input_datetime.hoymiles_sale_block_start"
+        )
+        block_end = _helper_minutes(
+            self.hass, "input_datetime.hoymiles_sale_block_end"
+        )
+        if (
+            block_state is None
+            or block_state.state not in {"on", "off"}
+            or block_start is None
+            or block_end is None
+            or not 0 <= block_start < 1440
+            or not 0 <= block_end < 1440
+        ):
+            return None
+        prices = parse_rce_rows(
+            [*selected[0], *(tomorrow_rows if use_tomorrow else [])],
+            timezone,
+            block_enabled=block_state.state == "on",
+            block_start_minute=block_start,
+            block_end_minute=block_end,
+        )
+        avoided_import_price = self._post_command_settling_avoided_import_price(now)
+        efficiency_sample = _shared_input_field(
+            self._runtime, "efficiency", "battery_to_home_efficiency"
+        )
+        discharge_efficiency_entity = (
+            "input_number.hoymiles_tariff_discharge_efficiency"
+            if efficiency_sample is _SHARED_INPUT_MISSING
+            else "input_number.hoymiles_ems_battery_to_home_efficiency"
+        )
+        current_hash = post_command_settling_market_fingerprint(replace(
+            accepted,
+            now=now,
+            price_slots=prices,
+            minimum_net_export_power_kw=(
+                2.0 if self.hass.states.get("input_number.hoymiles_rce_minimum_net_export_power") is None
+                else _state_number(self.hass, "input_number.hoymiles_rce_minimum_net_export_power")
+            ),
+            battery_wear_cost_pln_kwh=(
+                # This optional legacy helper is absent in the managed package.
+                # Match the optimizer's 0.08 default only for actual absence.
+                0.08
+                if self.hass.states.get("input_number.hoymiles_rce_battery_wear_cost") is None
+                else _state_number(self.hass, "input_number.hoymiles_rce_battery_wear_cost")
+            ),
+            export_efficiency_percent=_state_number(
+                self.hass, "input_number.hoymiles_rce_export_efficiency"
+            ),
+            house_discharge_efficiency_percent=_state_number(
+                self.hass, discharge_efficiency_entity
+            ),
+            avoided_import_price_pln_kwh=avoided_import_price,
+        ))
+        return accepted_hash if current_hash == accepted_hash else None
+
+    def _post_command_settling_avoided_import_price(self, now: datetime) -> float | None:
+        """Verify the tariff broker's price against its current pricing policy."""
+
+        tariff_plan = self._same_entry_tariff_plan_state()
+        if tariff_plan is None:
+            if self._tariff_plan_source is not None:
+                return None
+            return _state_number(self.hass, "input_number.hoymiles_tariff_g11_price")
+        if (
+            tariff_plan.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}
+            or tariff_plan.attributes.get("result_current") is not True
+            or tariff_plan.attributes.get("recalculation_pending") is not False
+        ):
+            return None
+        published = None
+        price_attribute = ""
+        for attribute in (
+            "tariff_profile_g11_price", "g11_reference_price_pln_kwh",
+            "current_price_pln_kwh",
+        ):
+            try:
+                published = float(tariff_plan.attributes[attribute])
+                price_attribute = attribute
+                break
+            except (KeyError, TypeError, ValueError):
+                pass
+        if published is None or not isfinite(published) or published <= 0.0:
+            return None
+        operator = _state_text(self.hass, "input_select.hoymiles_tariff_operator")
+        tariff_type = _state_text(self.hass, "input_select.hoymiles_tariff_type")
+        if tariff_type not in SUPPORTED_GROUPS:
+            return None
+        if operator != MANUAL_OPERATOR:
+            profile = get_tariff_profile(operator, tariff_type)
+            if (
+                profile is None or not profile_is_valid(profile, now.date())
+                or price_attribute != "tariff_profile_g11_price"
+            ):
+                return None
+            actual_price = profile.g11_price_pln_kwh
+        elif price_attribute == "g11_reference_price_pln_kwh":
+            actual_price = _state_number(self.hass, "input_number.hoymiles_tariff_g11_price")
+        elif price_attribute == "current_price_pln_kwh":
+            rates = {
+                name: _state_number(self.hass, f"input_number.hoymiles_tariff_{name}_price")
+                for name in ("g11", "low", "medium", "peak")
+            }
+            windows = {
+                name: _helper_minutes(self.hass, f"input_datetime.hoymiles_tariff_{name}")
+                for name in ("cheap_1_start", "cheap_1_end", "cheap_2_start",
+                             "cheap_2_end", "medium_start", "medium_end")
+            }
+            weekend = _state_text(self.hass, "input_boolean.hoymiles_tariff_weekend_low_price")
+            holidays = _state_text(self.hass, "input_boolean.hoymiles_tariff_polish_holidays_low_price")
+            if (
+                any(value is None or not isfinite(value) or value < 0 for value in rates.values())
+                or any(value is None or not 0 <= value < 1440 for value in windows.values())
+                or weekend not in {"on", "off"} or holidays not in {"on", "off"}
+            ):
+                return None
+            schedule = TariffSchedule(
+                tariff_type=tariff_type,
+                g11_price_pln_kwh=rates["g11"], low_price_pln_kwh=rates["low"],
+                medium_price_pln_kwh=rates["medium"], peak_price_pln_kwh=rates["peak"],
+                cheap_windows=((windows["cheap_1_start"], windows["cheap_1_end"]),
+                               (windows["cheap_2_start"], windows["cheap_2_end"])),
+                medium_windows=((windows["medium_start"], windows["medium_end"]),),
+                weekend_low_price=tariff_type in {"G12w", "G12e", "G13"} and weekend == "on",
+                polish_holidays_low_price=holidays == "on",
+                operator=operator,
+            )
+            actual_price = round(tariff_rate(now, schedule)[0], 4)
+        else:
+            return None
+        return published if actual_price == published else None
+
+    @callback
+    def _publish_timeline_result(self) -> None:
+        """Publish only the result committed for this exact input revision."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            self._pstryk.publish_timeline(self)
+            return
+
+        if self._timeline_sensor is None:
+            return
+        if self._result is None:
+            self._timeline_sensor.publish_unavailable(
+                input_revision=self._input_revision.value,
+                blocker_code=str(
+                    self._attributes.get("status_code", "missing_data")
+                ),
+            )
+            return
+        quality = (
+            "partial"
+            if self._timeline_metadata.get("planning_scope") == "today_only"
+            else "complete"
+        )
+        trace = self._result.timeline_trace
+        if getattr(self, "_pv_delay_timeline_result", None) is self._result:
+            trace = getattr(self, "_pv_delay_timeline_trace", None) or trace
+        self._timeline_sensor.publish_current(
+            trace,
+            input_revision=self._input_revision.value,
+            metadata=self._timeline_metadata,
+            quality=quality,
+        )
 
     @property
     def suggested_object_id(self) -> str:
@@ -832,6 +2294,15 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         """Return a localized plan state."""
         language = "pl" if self.hass.config.language.startswith("pl") else "en"
         code = str(self._attributes.get("status_code", "missing_data"))
+        if self._attributes.get("price_provider") == "Pstryk":
+            if self._attributes.get("recalculation_pending") is True:
+                return "Przeliczanie planu Pstryk" if language == "pl" else "Recalculating the Pstryk plan"
+            if self._attributes.get("result_current") is True and not self._attributes.get("planned_slots"):
+                from .pstryk_plan import SALE_REASON_TEXT
+                reason = SALE_REASON_TEXT[language].get(self._attributes.get("sale_decision_reason"))
+                if reason:
+                    return reason
+                return "Brak zaplanowanej sprzedaży z magazynu" if language == "pl" else "No scheduled battery sale"
         text = STATUS_TEXT[language].get(
             code,
             STATUS_TEXT[language]["optimizer_error"],
@@ -852,6 +2323,29 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         """Track every input that can change the plan."""
         await super().async_added_to_hass()
         self._lifecycle_stopped = False
+        restore_cache = getattr(self, "_async_restore_load_history_cache", None)
+        if callable(restore_cache):
+            await restore_cache()
+        shared_inputs = getattr(self._runtime, "shared_inputs", None)
+        if shared_inputs is not None:
+            # Bind only after the entity is genuinely on the platform. The
+            # removal callback releases this bound-method owner before a
+            # sensor-only reload attaches its replacement.
+            self.async_on_remove(
+                shared_inputs.attach_load_model_provider(
+                    self.shared_load_model_snapshot
+                )
+            )
+        listen_shared = getattr(
+            getattr(self._runtime, "shared_inputs", None),
+            "async_listen",
+            None,
+        )
+        if callable(listen_shared):
+            self.async_on_remove(listen_shared(self._async_shared_inputs_changed))
+        listen_tariff_price = getattr(self._tariff_price_source, "async_listen", None)
+        if callable(listen_tariff_price):
+            self.async_on_remove(listen_tariff_price(self._async_tariff_price_changed))
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
@@ -862,6 +2356,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         current_policy, current_diagnostics = _forecast_learning_policy_snapshot(
             self.hass,
             dt_util.now(),
+            getattr(self, "_runtime", None),
         )
         self._forecast_gcf_policy_signature = (
             _forecast_learning_policy_signature(current_policy)
@@ -880,15 +2375,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 self._async_forecast_gcf_policy_changed,
             )
         )
-        self.async_on_remove(
-            async_track_state_report_event(
-                self.hass,
-                FORECAST_GCF_COHORT_REPORT_ENTITIES,
-                self._async_forecast_gcf_policy_changed,
-            )
-        )
         self.async_on_remove(lambda: self._clear_forecast_gcf_cohort_state())
         self.async_on_remove(self._cancel_delayed_recalculation)
+        self._slot_boundary_cancel = None
+        self.async_on_remove(self._cancel_slot_boundary)
+        self._schedule_slot_boundary()
         refresh_dynamic_forecast_listener = getattr(
             self,
             "_refresh_dynamic_forecast_listener",
@@ -903,7 +2394,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             async_track_time_interval(
                 self.hass,
                 self._async_timer,
-                timedelta(minutes=1),
+                RCE_FULL_OPTIMIZER_INTERVAL,
             )
         )
         self.async_on_remove(
@@ -915,6 +2406,78 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         )
         self.async_write_ha_state()
         self._schedule_startup_warmup()
+
+    def _load_history_identity(self) -> dict[str, Any]:
+        return source_identity(
+            entry_id=self._entry.entry_id,
+            entry_unique_id=self._entry.unique_id,
+            source_device_id=self._entry.data.get(CONF_SOURCE_DEVICE_ID),
+            resolved_source_device_id=self._entry.data.get(
+                CONF_RESOLVED_SOURCE_DEVICE_ID
+            ),
+            timezone=self.hass.config.time_zone,
+        )
+
+    async def _async_restore_load_history_cache(self) -> None:
+        """Restore accepted dates without pretending they were read now."""
+
+        try:
+            raw = await self._load_history_store.async_load()
+            if raw is None:
+                return
+            restored, generated_at = decode_cache(
+                raw,
+                expected_identity=self._load_history_identity(),
+                empty=_empty_load_summary(),
+            )
+        except (TypeError, ValueError):
+            _LOGGER.warning("Ignoring foreign or corrupt qualified LOAD history cache")
+            return
+        self._extended_load_history = restored
+        self._load_history = merge_history(
+            _empty_load_summary(), restored, limit=4
+        )
+        self._load_profile_generated_at = generated_at
+        self._load_history_store_payload = dict(raw)
+        self._ev_filter().restore(raw.get("ev_load_filter"))
+        self._charge_forecast().restore(raw.get("charge_forecast"))
+
+    def _charge_forecast(self):
+        from .charge_forecast_runtime import ChargeForecastRuntime
+        identity = self._load_history_identity()
+        model = getattr(self, '_charge_forecast_model', None)
+        if model is None or model.identity != identity:
+            model = self._charge_forecast_model = ChargeForecastRuntime(self.hass, identity)
+        return model
+
+    def _forecast_charge_curve(self, now, soc, live_amps, voltage, fresh):
+        from .charge_forecast import forecast_curve
+        if (not fresh or not self.hass.states.is_state('input_boolean.hoymiles_pv_charge_delay_enabled','on')
+                or live_amps is None or voltage is None):
+            return None
+        return forecast_curve(self._charge_forecast().curve(now),soc=soc,live_kw=live_amps*voltage/1000*.95)
+
+    async def _async_save_load_history_cache(self) -> None:
+        summary = merge_history(
+            self._extended_load_history,
+            self._load_history,
+            limit=LOAD_EXTENDED_LOOKBACK_DAYS,
+        )
+        payload = encode_cache(
+            summary,
+            identity=self._load_history_identity(),
+            generated_at=self._load_profile_generated_at,
+        )
+        ev_payload = self._ev_filter().payload()
+        if ev_payload is not None:
+            payload["ev_load_filter"] = ev_payload
+        charge_payload = self._charge_forecast().payload()
+        if charge_payload is not None:
+            payload['charge_forecast'] = charge_payload
+        if payload == self._load_history_store_payload:
+            return
+        await self._load_history_store.async_save(payload)
+        self._load_history_store_payload = payload
 
     @callback
     def _schedule_startup_warmup(self) -> None:
@@ -937,6 +2500,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         try:
             await self._async_refresh_load_history(force_full=True)
             await self._async_refresh_forecast_accuracy(force=True)
+            self._full_plan_trigger = "startup"
             self._invalidate_internal_inputs()
             await self._recalculate_and_write()
         except asyncio.CancelledError:
@@ -948,51 +2512,157 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         """Refresh recorder-backed LOAD history once per hour."""
         await self._async_refresh_load_history()
         await self._async_refresh_forecast_accuracy()
+        self._full_plan_trigger = "history_refresh"
         self._invalidate_internal_inputs()
         await self._recalculate_and_write()
 
     async def _async_refresh_load_history(self, *, force_full: bool = False) -> None:
-        """Refresh LOAD history without scanning 28 raw days every hour."""
+        """Refresh the mandatory recent LOAD model before optional history."""
         if self._history_refresh_running:
             return
         self._history_refresh_running = True
+        refresh_shared_inputs = False
         try:
             timezone = ZoneInfo(self.hass.config.time_zone)
             now = datetime.now(timezone)
-            full_refresh = (
+            self._load_history_last_attempt_at = now
+            retry_count = getattr(self, "_load_history_retry_count", 0)
+            next_retry_at = getattr(self, "_load_history_next_retry_at", None)
+            retry_epoch_date = getattr(
+                self,
+                "_load_history_retry_epoch_date",
+                None,
+            )
+            if retry_count >= LOAD_HISTORY_RETRY_LIMIT and (
+                retry_epoch_date != now.date()
+                or (next_retry_at is not None and now >= next_retry_at)
+            ):
+                retry_count = 0
+                next_retry_at = None
+                retry_epoch_date = now.date()
+                self._load_history_retry_count = 0
+                self._load_history_next_retry_at = None
+                self._load_history_retry_epoch_date = now.date()
+            full_refresh_needed = (
                 force_full or self._full_history_refresh_date != now.date()
             )
-            local_start = datetime.combine(
-                now.date() - timedelta(days=31 if full_refresh else 0),
-                time.min,
-                tzinfo=timezone,
-            )
-            raw_history = await async_get_bounded_state_reports(
-                self.hass,
-                dt_util.as_utc(local_start),
-                dt_util.as_utc(now),
-                LOAD_PHASE_ENERGY_ENTITIES,
+            retry_due = next_retry_at is None or now >= next_retry_at
+            retry_allowed = retry_count < LOAD_HISTORY_RETRY_LIMIT
+            full_refresh = full_refresh_needed and retry_allowed and (
+                retry_due or (force_full and retry_count == 0)
             )
 
-            samples: dict[str, list[tuple[datetime, float]]] = {
-                entity_id: [] for entity_id in LOAD_PHASE_ENERGY_ENTITIES
+            if full_refresh:
+                short_start = datetime.combine(
+                    now.date() - timedelta(days=LOAD_SHORT_LOOKBACK_DAYS),
+                    time.min,
+                    tzinfo=timezone,
+                )
+                profile_history_error: (
+                    RecorderHistoryQueryTimeout
+                    | RecorderHistoryLimitExceeded
+                    | None
+                ) = None
+                try:
+                    raw_history = await async_get_bounded_state_reports(
+                        self.hass,
+                        dt_util.as_utc(short_start),
+                        dt_util.as_utc(now),
+                        LOAD_PHASE_ENERGY_ENTITIES,
+                    )
+                except (RecorderHistoryQueryTimeout, RecorderHistoryLimitExceeded) as err:
+                    self._load_history_retry_count = min(
+                        retry_count + 1,
+                        LOAD_HISTORY_RETRY_LIMIT,
+                    )
+                    self._load_history_retry_epoch_date = (
+                        retry_epoch_date or now.date()
+                    )
+                    self._load_history_next_retry_at = (
+                        now + LOAD_HISTORY_RETRY_BACKOFF
+                        if self._load_history_retry_count < LOAD_HISTORY_RETRY_LIMIT
+                        else now + LOAD_HISTORY_RETRY_COOLDOWN
+                    )
+                    self._load_history_read_status = "short_io_failed"
+                    self._load_history_read_error = type(err).__name__
+                    self._load_history_extended_partial = True
+                    _LOGGER.warning(
+                        "Recent LOAD phase history unavailable; preserving the last "
+                        "verified model (attempt %s/%s)",
+                        self._load_history_retry_count,
+                        LOAD_HISTORY_RETRY_LIMIT,
+                        exc_info=True,
+                    )
+                    return
+                try:
+                    profile_history = await async_get_bounded_state_reports(
+                        self.hass,
+                        dt_util.as_utc(short_start),
+                        dt_util.as_utc(now),
+                        (LOAD_PROFILE_ENERGY_ENTITY,),
+                    )
+                except (RecorderHistoryQueryTimeout, RecorderHistoryLimitExceeded) as err:
+                    profile_history_error = err
+                    profile_history = {LOAD_PROFILE_ENERGY_ENTITY: []}
+                    self._load_history_retry_count = min(
+                        retry_count + 1,
+                        LOAD_HISTORY_RETRY_LIMIT,
+                    )
+                    self._load_history_retry_epoch_date = (
+                        retry_epoch_date or now.date()
+                    )
+                    self._load_history_next_retry_at = (
+                        now + LOAD_HISTORY_RETRY_BACKOFF
+                        if self._load_history_retry_count < LOAD_HISTORY_RETRY_LIMIT
+                        else now + LOAD_HISTORY_RETRY_COOLDOWN
+                    )
+                    self._load_history_read_status = (
+                        "short_phase_complete_dense_unavailable"
+                    )
+                    self._load_history_read_error = type(err).__name__
+                    self._load_history_extended_partial = True
+                    _LOGGER.warning(
+                        "Recent dense LOAD history unavailable; publishing the "
+                        "phase-backed partial model (attempt %s/%s)",
+                        self._load_history_retry_count,
+                        LOAD_HISTORY_RETRY_LIMIT,
+                        exc_info=True,
+                    )
+                raw_history.update(profile_history)
+                self._load_history_short_range = (short_start, now)
+            else:
+                local_start = datetime.combine(
+                    now.date(),
+                    time.min,
+                    tzinfo=timezone,
+                )
+                raw_history = await async_get_bounded_state_reports(
+                    self.hass,
+                    dt_util.as_utc(local_start),
+                    dt_util.as_utc(now),
+                    LOAD_PHASE_ENERGY_ENTITIES,
+                )
+
+            samples: dict[str, list[tuple[Any, Any]]] = {
+                entity_id: [] for entity_id in LOAD_HISTORY_ENTITIES
             }
-            for entity_id in LOAD_PHASE_ENERGY_ENTITIES:
+            for entity_id in LOAD_HISTORY_ENTITIES:
                 for item in raw_history.get(entity_id, []):
                     state_value = getattr(item, "state", None)
                     updated = getattr(item, "last_updated", None)
-                    if state_value is None or updated is None:
-                        continue
-                    try:
-                        numeric = float(state_value)
-                    except (TypeError, ValueError):
-                        continue
+                    observed_at = (
+                        updated.astimezone(timezone)
+                        if isinstance(updated, datetime)
+                        and updated.tzinfo is not None
+                        and updated.utcoffset() is not None
+                        else updated
+                    )
                     samples[entity_id].append(
-                        (updated.astimezone(timezone), max(numeric, 0.0))
+                        (observed_at, parse_load_history_state(state_value))
                     )
 
             night_windows: dict[date, tuple[datetime, datetime]] = {}
-            for offset in range(29 if full_refresh else 0, 0, -1):
+            for offset in range(LOAD_SHORT_LOOKBACK_DAYS if full_refresh else 0, 0, -1):
                 night_date = now.date() - timedelta(days=offset)
                 sunset = get_astral_event_date(
                     self.hass,
@@ -1039,22 +2709,266 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     )
 
             if full_refresh:
-                self._load_history = summarize_load_history(
+                previous_short_summary = self._load_history
+                previous_extended_summary = self._extended_load_history
+                previous_profile_generated_at = self._load_profile_generated_at
+                short_summary = summarize_load_history(
                     samples,
                     now=now,
                     night_windows=night_windows,
                     current_day_window=current_day_window,
                     history_days=4,
                 )
-                self._extended_load_history = summarize_load_history(
-                    samples,
-                    now=now,
-                    night_windows=night_windows,
-                    current_day_window=current_day_window,
-                    history_days=28,
+                retained_daily: dict[str, float] = {}
+                if profile_history_error is not None:
+                    partial_daily = short_summary.partial_daily_energy_kwh or {}
+                    retained_daily = {
+                        day: value
+                        for day, value in previous_short_summary.daily_energy_kwh.items()
+                        if day in partial_daily and partial_daily[day] == value
+                    }
+                    daily_quality = dict(short_summary.daily_quality_by_date or {})
+                    daily_quality.update(
+                        {
+                            day: "retained_complete_dense_timeout"
+                            for day in retained_daily
+                        }
+                    )
+                    preserve_profile = set(retained_daily) == set(
+                        previous_short_summary.daily_energy_kwh
+                    )
+                    profile_quality = dict(short_summary.profile_quality_by_date or {})
+                    if preserve_profile:
+                        profile_quality.update(
+                            {
+                                day: "retained_complete_dense_timeout"
+                                for day in retained_daily
+                            }
+                        )
+                    short_summary = replace(
+                        short_summary,
+                        average_daily_kwh=(
+                            round(sum(retained_daily.values()) / len(retained_daily), 3)
+                            if retained_daily
+                            else None
+                        ),
+                        daily_history_days=len(retained_daily),
+                        daily_energy_kwh=retained_daily,
+                        average_profile_kwh=(
+                            previous_short_summary.average_profile_kwh
+                            if preserve_profile
+                            else ()
+                        ),
+                        weekday_profile_kwh=(
+                            previous_short_summary.weekday_profile_kwh
+                            if preserve_profile
+                            else ()
+                        ),
+                        weekend_profile_kwh=(
+                            previous_short_summary.weekend_profile_kwh
+                            if preserve_profile
+                            else ()
+                        ),
+                        weekday_profile_days=(
+                            previous_short_summary.weekday_profile_days
+                            if preserve_profile
+                            else 0
+                        ),
+                        weekend_profile_days=(
+                            previous_short_summary.weekend_profile_days
+                            if preserve_profile
+                            else 0
+                        ),
+                        profile_history_days=(
+                            previous_short_summary.profile_history_days
+                            if preserve_profile
+                            else 0
+                        ),
+                        daily_quality_by_date=daily_quality,
+                        profile_quality_by_date=profile_quality,
+                        daily_coverage_ratio=(
+                            previous_short_summary.daily_coverage_ratio
+                            if preserve_profile
+                            else 0.0
+                        ),
+                        profile_coverage_ratio=(
+                            previous_short_summary.profile_coverage_ratio
+                            if preserve_profile
+                            else 0.0
+                        ),
+                    )
+                short_has_observations = any(
+                    is_load_history_observation(value)
+                    for entity_samples in samples.values()
+                    for _observed_at, value in entity_samples
                 )
-                self._full_history_refresh_date = now.date()
-                self._load_profile_generated_at = now
+                if short_has_observations:
+                    merged_short = merge_history(
+                        previous_short_summary,
+                        short_summary,
+                        limit=4,
+                    )
+                    accepted_changed = (
+                        merged_short.daily_energy_kwh
+                        != previous_short_summary.daily_energy_kwh
+                        or merged_short.profile_kwh_by_date
+                        != previous_short_summary.profile_kwh_by_date
+                    )
+                    self._load_history = merged_short
+                    self._load_profile_generated_at = (
+                        now if accepted_changed else previous_profile_generated_at
+                    )
+                else:
+                    # A successful empty Recorder response is not a new model
+                    # observation.  Keep the last verified model and its true
+                    # acquisition timestamp so freshness cannot be renewed by
+                    # republishing it.
+                    self._load_history = previous_short_summary
+                    self._load_profile_generated_at = previous_profile_generated_at
+                self._load_history_last_success_at = now
+                if profile_history_error is None:
+                    self._full_history_refresh_date = now.date()
+                    self._load_history_retry_count = 0
+                    self._load_history_next_retry_at = None
+                    self._load_history_retry_epoch_date = None
+                    self._load_history_read_status = (
+                        "short_complete"
+                        if short_has_observations
+                        else "short_no_new_data"
+                    )
+                    self._load_history_read_error = None
+                refresh_shared_inputs = True
+
+                # Publish the useful recent result before optional old history.
+                coordinator = getattr(self._runtime, "shared_inputs", None)
+                refresh = getattr(coordinator, "async_refresh", None)
+                if callable(refresh):
+                    try:
+                        await refresh()
+                        refresh_shared_inputs = False
+                    except Exception:  # noqa: BLE001 - recent model stays valid
+                        _LOGGER.exception("Cannot publish the recent EMS LOAD model")
+
+                # A timed-out Recorder worker may still be executing SQL. Do not
+                # start optional extension reads until the bounded query guard
+                # confirms that worker has really finished on a later refresh.
+                if profile_history_error is None:
+                    extended_samples = {
+                        entity_id: list(values)
+                        for entity_id, values in samples.items()
+                    }
+                    extended_start = datetime.combine(
+                        now.date() - timedelta(days=LOAD_EXTENDED_LOOKBACK_DAYS),
+                        time.min,
+                        tzinfo=timezone,
+                    )
+                    cursor = extended_start
+                    extension_end = self._load_history_short_range[0]
+                    extension_complete = True
+                    try:
+                        async with asyncio.timeout(LOAD_EXTENDED_TOTAL_BUDGET_SECONDS):
+                            while cursor < extension_end:
+                                chunk_end = min(
+                                    cursor + timedelta(days=LOAD_EXTENDED_CHUNK_DAYS),
+                                    extension_end,
+                                )
+                                phase_chunk = await async_get_bounded_state_reports(
+                                    self.hass,
+                                    dt_util.as_utc(cursor),
+                                    dt_util.as_utc(chunk_end),
+                                    LOAD_PHASE_ENERGY_ENTITIES,
+                                )
+                                dense_chunk = await async_get_bounded_state_reports(
+                                    self.hass,
+                                    dt_util.as_utc(cursor),
+                                    dt_util.as_utc(chunk_end),
+                                    (LOAD_PROFILE_ENERGY_ENTITY,),
+                                )
+                                phase_chunk.update(dense_chunk)
+                                for entity_id in LOAD_HISTORY_ENTITIES:
+                                    for item in phase_chunk.get(entity_id, []):
+                                        state_value = getattr(item, "state", None)
+                                        updated = getattr(item, "last_updated", None)
+                                        observed_at = (
+                                            updated.astimezone(timezone)
+                                            if isinstance(updated, datetime)
+                                            and updated.tzinfo is not None
+                                            and updated.utcoffset() is not None
+                                            else updated
+                                        )
+                                        extended_samples[entity_id].append(
+                                            (
+                                                observed_at,
+                                                parse_load_history_state(state_value),
+                                            )
+                                        )
+                                cursor = chunk_end
+                    except (
+                        TimeoutError,
+                        RecorderHistoryQueryTimeout,
+                        RecorderHistoryLimitExceeded,
+                    ) as err:
+                        extension_complete = False
+                        self._load_history_read_error = type(err).__name__
+                        _LOGGER.warning(
+                            "Extended LOAD history is partial; keeping the recent model",
+                            exc_info=True,
+                        )
+
+                    extended_night_windows = dict(night_windows)
+                    for offset in range(29, LOAD_SHORT_LOOKBACK_DAYS, -1):
+                        night_date = now.date() - timedelta(days=offset)
+                        sunset = get_astral_event_date(self.hass, "sunset", night_date)
+                        sunrise = get_astral_event_date(
+                            self.hass,
+                            "sunrise",
+                            night_date + timedelta(days=1),
+                        )
+                        if sunset is None or sunrise is None:
+                            continue
+                        extended_night_windows[night_date] = (
+                            sunset.astimezone(timezone) - timedelta(minutes=90),
+                            sunrise.astimezone(timezone) + timedelta(minutes=90),
+                        )
+                    extended_summary = summarize_load_history(
+                        extended_samples,
+                        now=now,
+                        night_windows=extended_night_windows,
+                        current_day_window=current_day_window,
+                        history_days=28,
+                    )
+                    extended_has_observations = any(
+                        is_load_history_observation(value)
+                        for entity_samples in extended_samples.values()
+                        for _observed_at, value in entity_samples
+                    )
+                    if extended_has_observations:
+                        merged_extended = merge_history(
+                            previous_extended_summary,
+                            extended_summary,
+                            limit=LOAD_EXTENDED_LOOKBACK_DAYS,
+                        )
+                        accepted_changed = (
+                            merged_extended.daily_energy_kwh
+                            != previous_extended_summary.daily_energy_kwh
+                            or merged_extended.profile_kwh_by_date
+                            != previous_extended_summary.profile_kwh_by_date
+                        )
+                        self._extended_load_history = merged_extended
+                        if accepted_changed:
+                            self._load_profile_generated_at = now
+                    else:
+                        self._extended_load_history = previous_extended_summary
+                    self._load_history_extended_range = (extended_start, now)
+                    self._load_history_extended_partial = not extension_complete
+                    self._load_history_read_status = (
+                        "extended_complete"
+                        if extension_complete and extended_has_observations
+                        else "extended_no_new_data"
+                        if extension_complete
+                        else "extended_partial"
+                    )
+                    refresh_shared_inputs = True
             else:
                 current = summarize_load_history(
                     samples,
@@ -1066,15 +2980,127 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 self._load_history = replace(
                     self._load_history,
                     current_day_energy_kwh=current.current_day_energy_kwh,
+                    current_day_observed_at=current.current_day_observed_at,
                 )
                 self._extended_load_history = replace(
                     self._extended_load_history,
                     current_day_energy_kwh=current.current_day_energy_kwh,
+                    current_day_observed_at=current.current_day_observed_at,
                 )
+                # The hourly pass may add exactly one just-finished night.
+                # This is a bounded phase-only query and does not refresh the
+                # age of the daily/profile model.
+                for night_date in (now.date() - timedelta(days=1), now.date()):
+                    key = night_date.isoformat()
+                    if key in self._extended_load_history.night_energy_kwh:
+                        continue
+                    sunset = get_astral_event_date(self.hass, "sunset", night_date)
+                    sunrise = get_astral_event_date(
+                        self.hass, "sunrise", night_date + timedelta(days=1)
+                    )
+                    if sunset is None or sunrise is None:
+                        continue
+                    night_start = sunset.astimezone(timezone) - timedelta(minutes=90)
+                    night_end = sunrise.astimezone(timezone) + timedelta(minutes=90)
+                    if night_end > now:
+                        continue
+                    night_raw = await async_get_bounded_state_reports(
+                        self.hass,
+                        dt_util.as_utc(night_start - timedelta(hours=2)),
+                        dt_util.as_utc(night_end),
+                        LOAD_PHASE_ENERGY_ENTITIES,
+                    )
+                    night_samples: dict[str, list[tuple[Any, Any]]] = {}
+                    for entity_id in LOAD_PHASE_ENERGY_ENTITIES:
+                        rows: list[tuple[Any, Any]] = []
+                        for item in night_raw.get(entity_id, []):
+                            observed_at = getattr(item, "last_updated", None)
+                            local_observed_at = (
+                                observed_at.astimezone(timezone)
+                                if isinstance(observed_at, datetime)
+                                and observed_at.tzinfo is not None
+                                and observed_at.utcoffset() is not None
+                                else observed_at
+                            )
+                            rows.append(
+                                (
+                                    local_observed_at,
+                                    parse_load_history_state(
+                                        getattr(item, "state", None)
+                                    ),
+                                )
+                            )
+                        night_samples[entity_id] = rows
+                    night_summary = summarize_load_history(
+                        night_samples,
+                        now=now,
+                        night_windows={night_date: (night_start, night_end)},
+                        history_days=0,
+                    )
+                    if key in night_summary.night_energy_kwh:
+                        self._load_history = merge_history(
+                            self._load_history, night_summary, limit=4
+                        )
+                        self._extended_load_history = merge_history(
+                            self._extended_load_history,
+                            night_summary,
+                            limit=LOAD_EXTENDED_LOOKBACK_DAYS,
+                        )
+                        self._load_history_read_status = "completed_night_added"
+                    elif key in (night_summary.night_quality_by_date or {}):
+                        previous_short = self._load_history
+                        previous_extended = self._extended_load_history
+                        merged_short = merge_history(
+                            previous_short, night_summary, limit=4
+                        )
+                        merged_extended = merge_history(
+                            previous_extended,
+                            night_summary,
+                            limit=LOAD_EXTENDED_LOOKBACK_DAYS,
+                        )
+                        self._load_history = replace(
+                            merged_short,
+                            current_day_energy_kwh=(
+                                previous_short.current_day_energy_kwh
+                            ),
+                            current_day_observed_at=(
+                                previous_short.current_day_observed_at
+                            ),
+                            partial_daily_energy_kwh=(
+                                previous_short.partial_daily_energy_kwh
+                            ),
+                        )
+                        self._extended_load_history = replace(
+                            merged_extended,
+                            current_day_energy_kwh=(
+                                previous_extended.current_day_energy_kwh
+                            ),
+                            current_day_observed_at=(
+                                previous_extended.current_day_observed_at
+                            ),
+                            partial_daily_energy_kwh=(
+                                previous_extended.partial_daily_energy_kwh
+                            ),
+                        )
+                    break
+                refresh_shared_inputs = True
+            await self._ev_filter().refresh(self._extended_load_history, now)
+            await self._charge_forecast().refresh(now)
+            save_cache = getattr(self, "_async_save_load_history_cache", None)
+            if callable(save_cache):
+                await save_cache()
         except Exception:  # noqa: BLE001 - recorder outages need a safe fallback
             _LOGGER.exception("Cannot rebuild recorder-backed LOAD history")
         finally:
             self._history_refresh_running = False
+        if refresh_shared_inputs:
+            coordinator = getattr(self._runtime, "shared_inputs", None)
+            refresh = getattr(coordinator, "async_refresh", None)
+            if callable(refresh):
+                try:
+                    await refresh()
+                except Exception:  # noqa: BLE001 - the local model stays valid
+                    _LOGGER.exception("Cannot publish the shared EMS LOAD model")
 
     async def _async_refresh_forecast_accuracy(
         self,
@@ -1093,6 +3119,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             learning_policy, _ = _forecast_learning_policy_snapshot(
                 self.hass,
                 now,
+                getattr(self, "_runtime", None),
             )
             policy_signature = _forecast_learning_policy_signature(
                 learning_policy
@@ -1101,9 +3128,12 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 if learning_policy.mode == "fixed_zero_export":
                     self._forecast_refresh_date = now.date()
                 return
-            configured = _state_text(
+            configured = _resolved_forecast_entity_id(
                 self.hass,
-                TODAY_FORECAST_ENTITY_HELPER,
+                getattr(self, "_runtime", None),
+                broker_field="today",
+                new_helper=EMS_TODAY_FORECAST_ENTITY_HELPER,
+                legacy_helper=TODAY_FORECAST_ENTITY_HELPER,
             )
             forecast_entity, forecast_state = _first_numeric_state(
                 self.hass,
@@ -1111,6 +3141,14 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 configured,
             )
             if not forecast_entity or forecast_state is None:
+                return
+            source_policy = forecast_policy_for_source(
+                learning_policy, getattr(forecast_state, "attributes", {}),
+            )
+            if source_policy.mode == "solcast_adaptive":
+                # Solcast owns production-based calibration for this source.
+                # Retain the dormant local model, but perform no Recorder scan.
+                self._forecast_refresh_date = now.date()
                 return
             actual_entity = "sensor.hoymiles_hit_pv_total_energy_today"
             start = now - timedelta(days=15)
@@ -1126,24 +3164,30 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 ),
             )
             forecast_by_day: dict[date, list[float]] = {}
-            actual_by_day: dict[date, list[float]] = {}
-            for entity_id, destination in (
-                (forecast_entity, forecast_by_day),
-                (actual_entity, actual_by_day),
-            ):
-                for item in raw.get(entity_id, []):
-                    updated = getattr(item, "last_updated", None)
-                    value = getattr(item, "state", None)
-                    if updated is None or value is None:
-                        continue
-                    try:
-                        numeric = max(float(value), 0.0)
-                    except (TypeError, ValueError):
-                        continue
-                    local_day = updated.astimezone(timezone).date()
-                    if local_day >= now.date():
-                        continue
-                    destination.setdefault(local_day, []).append(numeric)
+            actual_by_day: dict[date, list[tuple[datetime, object]]] = {}
+            for item in raw.get(forecast_entity, []):
+                updated = getattr(item, "last_updated", None)
+                value = getattr(item, "state", None)
+                if updated is None or value is None:
+                    continue
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if not isfinite(numeric) or numeric < 0.0:
+                    continue
+                local_day = updated.astimezone(timezone).date()
+                if local_day < now.date():
+                    forecast_by_day.setdefault(local_day, []).append(numeric)
+            for item in raw.get(actual_entity, []):
+                updated = getattr(item, "last_updated", None)
+                if updated is None:
+                    continue
+                local_updated = updated.astimezone(timezone)
+                if local_updated.date() < now.date():
+                    actual_by_day.setdefault(local_updated.date(), []).append(
+                        (local_updated, getattr(item, "state", None))
+                    )
 
             export_allowed_history = [
                 (item.last_updated, item.state)
@@ -1172,21 +3216,27 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 ):
                     continue
                 forecasts = [value for value in forecast_by_day[day] if value > 0.5]
-                actuals = actual_by_day[day]
-                if not forecasts or not actuals:
+                sunset = get_astral_event_date(self.hass, "sunset", day)
+                if sunset is None:
+                    continue
+                actual = qualified_cumulative_energy_day(
+                    actual_by_day[day],
+                    day_start=day_start,
+                    day_end=day_end,
+                    production_end=sunset.astimezone(timezone),
+                )
+                if not forecasts or actual is None:
                     continue
                 # The median is robust to several intraday Solcast refreshes.
                 ordered = sorted(forecasts)
                 forecast = ordered[len(ordered) // 2]
-                actual = max(actuals)
-                if actual <= 0.5:
-                    continue
                 age_days = float((now.date() - day).days)
                 samples.append((age_days, actual / forecast))
 
             current_policy, _ = _forecast_learning_policy_snapshot(
                 self.hass,
                 dt_util.now().astimezone(timezone),
+                getattr(self, "_runtime", None),
             )
             if (
                 not current_policy.enabled
@@ -1225,6 +3275,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
     def _configured_forecast_source_ids(self) -> frozenset[str]:
         """Return configured sources without allowing a self-reference."""
         targets = _configured_forecast_entity_ids(self.hass)
+        if _shared_inputs_snapshot(self._runtime) is not None:
+            targets = _configured_forecast_entity_ids(self.hass, self._runtime)
         own_entity_id = getattr(self, "entity_id", None)
         return (
             targets - {own_entity_id}
@@ -1248,8 +3300,18 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             self._dynamic_forecast_unsub = async_track_state_change_event(
                 self.hass,
                 sorted(targets),
-                self._async_input_changed,
+                self._async_forecast_value_changed,
             )
+
+    @callback
+    def _async_forecast_value_changed(
+        self,
+        _event: Event[EventStateChangedData],
+    ) -> None:
+        """Collect forecast value churn for the next 120-second snapshot."""
+
+        if not self._lifecycle_stopped:
+            self._shared_inputs_dirty = True
 
     @callback
     def _remove_dynamic_forecast_listener(self) -> None:
@@ -1261,8 +3323,27 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
 
     @callback
     def _current_input_fingerprint(self) -> tuple[Any, ...]:
-        """Return the exact watched snapshot used to certify publication."""
-        watched_entities = WATCHED_ENTITIES | self._configured_forecast_source_ids()
+        """Certify every value and provenance consumed by this solver run."""
+        tariff_entity_id = getattr(
+            getattr(self, "_tariff_plan_source", None),
+            "entity_id",
+            None,
+        )
+        # Fast telemetry does not start another solver. Publication retains its
+        # identity/quality evidence and revalidates the fixed selection against
+        # newly captured physical inputs after the executor returns.
+        watched_entities = set(
+            WATCHED_ENTITIES | self._configured_forecast_source_ids()
+        )
+        ev_config = self._ev_filter().configure()[0]
+        if ev_config.enabled and ev_config.valid and ev_config.entity_id:
+            watched_entities.add(ev_config.entity_id)
+        watched_entities -= {"sensor.hoymiles_hit_tariff_charge_plan"}
+        if isinstance(tariff_entity_id, str):
+            watched_entities.add(tariff_entity_id)
+        # These two raw states arrive as one physical FC03 cohort.  Fingerprint
+        # the coherent projection below rather than a transient HA delivery
+        # order.
         watched_entities -= {
             "sensor.hoymiles_hit_gcf_enable_readback_code",
             "sensor.hoymiles_hit_gcf_maximum_export_power_readback",
@@ -1270,16 +3351,88 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         fingerprint = optimizer_input_fingerprint(
             self.hass,
             watched_entities,
-            attribute_projections={
-                "sensor.hoymiles_hit_tariff_charge_plan": (
-                    TARIFF_PRICE_BROKER_ATTRIBUTES
-                ),
-            },
+            attribute_projections=(
+                {tariff_entity_id: TARIFF_PRICE_BROKER_ATTRIBUTES}
+                if isinstance(tariff_entity_id, str)
+                else {}
+            ),
         )
-        gcf_signature = getattr(self, "_forecast_gcf_optimizer_signature", None)
-        if gcf_signature is None:
-            return fingerprint
-        return (*fingerprint, ("__rce_gcf_optimizer__", gcf_signature))
+        fingerprint = _rce_report_fingerprint(
+            self.hass, fingerprint, dt_util.now(),
+        )
+        # RCE still consumes the raw execution enable/limit states below when
+        # applying the export cap.  Keep them separate from the coherent GCF
+        # learning cohort so a raw-state drift cannot certify stale executor
+        # work even when Shared EMS is active.
+        raw_execution_gcf_signature = optimizer_input_fingerprint(
+            self.hass,
+            RCE_GCF_OPTIMIZER_ENTITIES,
+        )
+        raw_execution_gcf_signature = _rce_report_fingerprint(
+            self.hass, raw_execution_gcf_signature, dt_util.now(),
+        )
+        fingerprint = (
+            *fingerprint,
+            ("__rce_execution_gcf__", raw_execution_gcf_signature),
+        )
+        shared_signature_func = globals().get("_shared_optimizer_signature")
+        shared_signature = (
+            shared_signature_func(self._runtime)
+            if callable(shared_signature_func) and hasattr(self, "_runtime")
+            else None
+        )
+        if shared_signature is not None:
+            fingerprint = (
+                *fingerprint,
+                ("__shared_ems_inputs__", shared_signature),
+            )
+        gcf_signature = _live_forecast_gcf_optimizer_signature(
+            self.hass,
+            getattr(self, "_runtime", None),
+        )
+        schedule = getattr(
+            getattr(self, "_tariff_price_source", None),
+            "current_price_schedule",
+            None,
+        )
+        semantic_signature = getattr(
+            getattr(self, "_tariff_price_source", None),
+            "_semantic_signature",
+            None,
+        )
+        tariff_price_signature = (
+            semantic_signature(schedule)
+            if callable(semantic_signature)
+            else None
+        )
+        return (
+            *fingerprint,
+            ("__rce_gcf_optimizer__", gcf_signature),
+            ("__r07_tariff_price__", tariff_price_signature),
+            ("__rce_publication_source__", (
+                getattr(getattr(self, "_entry", None), "entry_id", None),
+                getattr(getattr(self, "_entry", None), "data", {}).get(CONF_SOURCE_DEVICE_ID),
+                getattr(getattr(self, "_entry", None), "data", {}).get(CONF_RESOLVED_SOURCE_DEVICE_ID),
+                getattr(getattr(getattr(self, "_runtime", None), "source_device", None), "id", None),
+            )),
+        )
+
+    @callback
+    def _async_tariff_price_changed(self) -> None:
+        """Refresh the shadow sidecar when its independent R07 source changes."""
+
+        if self._lifecycle_stopped or (
+            getattr(self, "_pstryk", None) is not None and self._pstryk.active
+        ):
+            return
+        self._invalidate_internal_inputs()
+        self._full_plan_trigger = "tariff_price_update"
+        if self._recalculate_cancel is None:
+            self._recalculate_cancel = async_call_later(
+                self.hass,
+                INPUT_RECALCULATION_DELAY_SECONDS,
+                self._async_debounced_recalculate,
+            )
 
     @callback
     def _invalidate_input_event(
@@ -1288,7 +3441,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
     ) -> bool:
         """Invalidate only when a value consumed by this optimizer changed."""
         entity_id = event.data["entity_id"]
-        counterpart = entity_id == "sensor.hoymiles_hit_tariff_charge_plan"
+        counterpart = entity_id == getattr(
+            getattr(self, "_tariff_plan_source", None),
+            "entity_id",
+            None,
+        )
         changed = self._input_revision.invalidate_state_change(
             event.data.get("old_state"),
             event.data.get("new_state"),
@@ -1307,12 +3464,43 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         self._mark_recalculation_pending()
 
     @callback
+    def _reject_stale_executor_result(
+        self,
+        captured_revision: int,
+        captured_fingerprint: tuple[Any, ...],
+    ) -> bool:
+        """Reject stale work and account for unreported fingerprint drift."""
+
+        revision_current = self._input_revision.is_current(captured_revision)
+        fingerprint_current = _rce_publication_fingerprints_match(
+            captured_fingerprint, self._current_input_fingerprint(),
+            now=dt_util.now(),
+        )
+        if revision_current and fingerprint_current:
+            return False
+        self._full_plan_rejected_for_input_drift = True
+        if revision_current:
+            # A consumed source changed before its HA callback advanced the
+            # revision.  Convert that drift into a real revision so the next
+            # attempt can certify a fresh snapshot.
+            self._invalidate_internal_inputs()
+        else:
+            self._mark_recalculation_pending()
+        return True
+
+    @callback
     def _mark_recalculation_pending(self) -> None:
         """Withdraw execution authority once, without publication ping-pong."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            self._pstryk.invalidate()
+            return
+        self._cancel_stale_result_retry()
         if (
             self._attributes.get("result_current") is False
             and self._attributes.get("recalculation_pending") is True
         ):
+            if self._timeline_sensor is not None:
+                self._timeline_sensor.publish_pending(self._input_revision.value)
             return
         self._attributes = {
             **self._attributes,
@@ -1320,6 +3508,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             "recalculation_pending": True,
         }
         self.async_write_ha_state()
+        if self._timeline_sensor is not None:
+            self._timeline_sensor.publish_pending(self._input_revision.value)
 
     @callback
     def _mark_result_current(self) -> None:
@@ -1337,14 +3527,43 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         event: Event[EventStateChangedData],
     ) -> None:
         """Coalesce fast ESPHome updates into one optimizer refresh."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.ignore_event(event.data["entity_id"]):
+            return
+        if event.data["entity_id"] in EV_LOAD_HELPERS:
+            self._ev_filter().configure()  # epoch catches configuration ABA
         if event.data["entity_id"] in FORECAST_ENTITY_HELPERS:
             self._refresh_dynamic_forecast_listener()
         if not self._invalidate_input_event(event):
             return
+        self._full_plan_trigger = "immediate_input"
         # Leading-edge coalescing bounds the fail-closed pending interval even
         # when ESPHome telemetry changes continuously. A solver already in
         # flight observes the revision and immediately retries the latest
         # snapshot under the same single-flight lock.
+        if self._recalculate_cancel is None:
+            self._recalculate_cancel = async_call_later(
+                self.hass,
+                INPUT_RECALCULATION_DELAY_SECONDS,
+                self._async_debounced_recalculate,
+            )
+
+    @callback
+    def _async_shared_inputs_changed(self) -> None:
+        """Collect broker churn for the next bounded full-plan snapshot."""
+
+        if self._lifecycle_stopped:
+            return
+        bootstrap = not self._shared_inputs_seen
+        self._shared_inputs_seen = True
+        if not bootstrap:
+            # Shared live values update frequently.  They do not withdraw an
+            # accepted RCE plan; the periodic five-minute pass reads their
+            # newest coherent snapshot.  The independent execution gates
+            # remain fail-closed for live SOC/BMS/export data.
+            self._shared_inputs_dirty = True
+            return
+        self._invalidate_internal_inputs()
+        self._full_plan_trigger = "shared_bootstrap"
         if self._recalculate_cancel is None:
             self._recalculate_cancel = async_call_later(
                 self.hass,
@@ -1361,9 +3580,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
 
         if self._lifecycle_stopped:
             return
-        policy, diagnostics = _forecast_learning_policy_snapshot(
-            self.hass,
-            dt_util.now(),
+        runtime = getattr(self, "_runtime", None)
+        policy, diagnostics = (
+            _forecast_learning_policy_snapshot(self.hass, dt_util.now(), runtime)
+            if runtime is not None
+            else _forecast_learning_policy_snapshot(self.hass, dt_util.now())
         )
         if policy.excluded_reason != "gcf_readback_incoherent":
             self._cancel_forecast_gcf_policy_evaluation()
@@ -1416,9 +3637,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         self._forecast_gcf_policy_evaluation_cancel = None
         if self._lifecycle_stopped:
             return
-        policy, diagnostics = _forecast_learning_policy_snapshot(
-            self.hass,
-            now,
+        runtime = getattr(self, "_runtime", None)
+        policy, diagnostics = (
+            _forecast_learning_policy_snapshot(self.hass, now, runtime)
+            if runtime is not None
+            else _forecast_learning_policy_snapshot(self.hass, now)
         )
         self._apply_forecast_gcf_policy(
             policy,
@@ -1459,6 +3682,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         ):
             self._schedule_forecast_policy_refresh()
         self._invalidate_internal_inputs()
+        self._full_plan_trigger = "forecast_gcf_policy"
         if not self._lifecycle_stopped and self._recalculate_cancel is None:
             self._recalculate_cancel = async_call_later(
                 self.hass,
@@ -1487,6 +3711,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         """Rebuild and publish the adaptive model after GCF becomes usable."""
 
         await self._async_refresh_forecast_accuracy(force=True)
+        self._full_plan_trigger = "forecast_policy_recovery"
         self._invalidate_internal_inputs()
         await self._recalculate_and_write()
 
@@ -1494,6 +3719,13 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         self._recalculate_cancel = None
         if self._lifecycle_stopped:
             return
+        # Small contract probes and migration-era restored entities may reach
+        # this callback before the normal constructor has installed the
+        # optional broker flag.  Treat that as a clean snapshot rather than
+        # creating a second invalidation path.
+        if getattr(self, "_shared_inputs_dirty", False):
+            self._shared_inputs_dirty = False
+            self._invalidate_internal_inputs()
         task = asyncio.current_task()
         if task is None:
             return
@@ -1504,10 +3736,43 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             self._delayed_recalculate_tasks.discard(task)
 
     @callback
+    def _schedule_stale_result_retry(self) -> None:
+        """Queue one bounded retry after three in-flight input drifts."""
+
+        if (
+            self._lifecycle_stopped
+            or self._stale_result_retry_cancel is not None
+        ):
+            return
+        self._stale_result_retry_cancel = async_call_later(
+            self.hass,
+            RCE_STALE_RESULT_RETRY_DELAY_SECONDS,
+            self._async_stale_result_retry,
+        )
+
+    @callback
+    def _cancel_stale_result_retry(self) -> None:
+        """Cancel a retry superseded by a newer RCE-plan trigger."""
+
+        if self._stale_result_retry_cancel is not None:
+            self._stale_result_retry_cancel()
+            self._stale_result_retry_cancel = None
+
+    async def _async_stale_result_retry(self, _now: datetime) -> None:
+        """Run one delayed retry batch without re-arming on another drift."""
+
+        self._stale_result_retry_cancel = None
+        if self._lifecycle_stopped:
+            return
+        self._full_plan_trigger = "stale_result_retry"
+        await self._recalculate_and_write(allow_deferred_retry=False)
+
+    @callback
     def _cancel_delayed_recalculation(self) -> None:
         """Cancel queued or running delayed work when the entity is removed."""
 
         self._lifecycle_stopped = True
+        self._cancel_stale_result_retry()
         if self._recalculate_cancel is not None:
             self._recalculate_cancel()
             self._recalculate_cancel = None
@@ -1517,44 +3782,133 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             if not task.done():
                 task.cancel()
 
+    def _cancel_slot_boundary(self) -> None:
+        cancel = getattr(self, "_slot_boundary_cancel", None)
+        if cancel is not None:
+            cancel()
+            self._slot_boundary_cancel = None
+
+    def _schedule_slot_boundary(self) -> None:
+        self._cancel_slot_boundary()
+        if self._lifecycle_stopped:
+            return
+        now = dt_util.now()
+        boundary = floor_half_hour(now) + timedelta(minutes=30)
+        self._slot_boundary_cancel = async_call_later(
+            self.hass, max((boundary - now).total_seconds(), 0.0),
+            self._async_slot_boundary,
+        )
+
+    async def _async_slot_boundary(self, now: datetime) -> None:
+        self._slot_boundary_cancel = None
+        if self._lifecycle_stopped:
+            return
+        try:
+            self._shared_inputs_dirty = False
+            self._full_plan_trigger = "slot_boundary"
+            self._invalidate_internal_inputs()
+            await self._recalculate_and_write()
+        finally:
+            self._schedule_slot_boundary()
+
     async def _async_timer(self, now: datetime) -> None:
-        """Refresh the active slot and rolling forecast every minute."""
+        """Refresh the full forecast on the bounded optimizer cadence."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            await self._pstryk.recalculate()
+            return
         if self._recalculate_cancel is not None:
             self._recalculate_cancel()
             self._recalculate_cancel = None
+        self._shared_inputs_dirty = False
+        self._full_plan_trigger = "periodic"
         self._invalidate_internal_inputs()
         await self._recalculate_and_write()
 
-    async def _recalculate_and_write(self) -> None:
+    async def async_recalculate_post_command_settling(self) -> None:
+        """Run the supervisor's one extra refresh through normal revision gates."""
+
+        if self._lifecycle_stopped:
+            return
+        task = asyncio.current_task()
+        if task is None:
+            return
+        self._delayed_recalculate_tasks.add(task)
+        try:
+            self._shared_inputs_dirty = False
+            self._full_plan_trigger = "post_command_settling"
+            self._invalidate_internal_inputs()
+            await self._recalculate_and_write()
+        finally:
+            self._delayed_recalculate_tasks.discard(task)
+
+    async def _recalculate_and_write(
+        self,
+        *,
+        allow_deferred_retry: bool = True,
+    ) -> None:
         """Write to HA only when the material plan state changed."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            await self._pstryk.recalculate()
+            return
         async with self._optimizer_lock:
             previous_state = self.native_value
             previous_attributes = self._attributes
             committed = False
+            stale_rejections = 0
             for _attempt in range(MAX_IMMEDIATE_RECALCULATIONS):
+                self._full_plan_rejected_for_input_drift = False
                 if await self._recalculate_locked():
                     committed = True
                     break
+                if self._full_plan_rejected_for_input_drift:
+                    stale_rejections += 1
             if committed:
                 self._mark_result_current()
+                self._cancel_stale_result_retry()
                 if self._recalculate_cancel is not None:
                     self._recalculate_cancel()
                     self._recalculate_cancel = None
+            self._attributes = {
+                **self._attributes,
+                "full_plan_solver_calls": self._full_plan_solver_calls,
+                "last_full_plan_at": (
+                    self._last_full_plan_at.isoformat().replace("+00:00", "Z")
+                    if self._last_full_plan_at is not None
+                    else None
+                ),
+                "last_full_plan_trigger": self._full_plan_trigger,
+            }
             if (
                 previous_state != self.native_value
                 or previous_attributes != self._attributes
             ):
                 self.async_write_ha_state()
+            if committed:
+                self._publish_timeline_result()
+            elif (
+                allow_deferred_retry
+                and stale_rejections == MAX_IMMEDIATE_RECALCULATIONS
+            ):
+                self._schedule_stale_result_retry()
 
     async def _recalculate(self) -> None:
         """Serialize startup and event-driven optimizer runs."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            await self._pstryk.recalculate()
+            return
         async with self._optimizer_lock:
             for _attempt in range(MAX_IMMEDIATE_RECALCULATIONS):
                 if await self._recalculate_locked():
                     self._mark_result_current()
+                    self._publish_timeline_result()
                     return
 
     async def _recalculate_locked(self) -> bool:
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            await self._pstryk.recalculate()
+            return False
+        if self._lifecycle_stopped:
+            return False
         if self._forecast_gcf_policy_evaluation_cancel is not None:
             # The current 258/259/generation reports are still a mixed HA
             # delivery cohort. Keep the previous coherent plan current until
@@ -1565,22 +3919,132 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         try:
             settings, metadata = self._optimizer_input()
             if settings is None:
+                self._post_command_settling_market_settings = None
+                if self._retain_last_complete_plan(
+                    blocker_code="missing_data",
+                    missing_entities=metadata["missing_entities"],
+                ):
+                    return False
                 self._result = None
+                self._timeline_metadata = dict(metadata)
                 self._attributes = {
                     "status_code": "missing_data",
                     "missing_entities": metadata["missing_entities"],
                     "planned_slots": [],
+                    "current_slot_load_exhausts_requested_discharge_budget": False,
+                    "current_slot_load_only_export_suppressed": False,
+                    "post_command_settling_market_fingerprint": None,
                     **metadata,
                 }
                 return True
-            result = await self.hass.async_add_executor_job(optimize_rce, settings)
-            if (
-                not self._input_revision.is_current(captured_revision)
-                or captured_fingerprint != self._current_input_fingerprint()
-            ):
-                self._mark_recalculation_pending()
+            # Freeze both the original evidence and the worker input. The HA
+            # loop may replace or mutate provider-owned maps during this await.
+            captured_settings = deepcopy(settings)
+            self._full_plan_solver_calls += 1
+            result = await self.hass.async_add_executor_job(
+                optimize_rce, deepcopy(captured_settings),
+            )
+            if self._lifecycle_stopped:
                 return False
+            if not await self._async_wait_active_rce_commitment_cohort():
+                self._mark_recalculation_pending()
+                self._schedule_stale_result_retry()
+                return False
+            if self._lifecycle_stopped:
+                return False
+            settings, metadata = self._optimizer_input()
+            if self._reject_stale_executor_result(
+                captured_revision,
+                captured_fingerprint,
+            ):
+                return False
+            fresh_inputs = settings is not None and all(
+                metadata.get(key) is True for key in (
+                    "rce_today_data_fresh", "forecast_today_data_fresh",
+                    "soc_data_fresh", "gcf_execution_data_fresh",
+                )
+            )
+            solver_status, solver_ready = result.status_code, result.ready
+            revalidation_diagnostics: dict[str, Any] = {}
+            result = (
+                revalidate_rce_plan(
+                    settings, result, captured_settings=captured_settings,
+                    diagnostics=revalidation_diagnostics,
+                )
+                if fresh_inputs else None
+            )
+            if result is None:
+                # No await separates latest input capture, revalidation and
+                # publication. A failed proof cannot inherit currentness from
+                # the worker's old snapshot or become a successful empty run.
+                self._post_command_settling_market_settings = None
+                blocker = "plan_revalidation_failed" if fresh_inputs else "missing_data"
+                failure_diagnostics = {
+                    "plan_revalidation_solver_status": solver_status,
+                    "plan_revalidation_solver_ready": solver_ready,
+                    "plan_revalidation_reason": revalidation_diagnostics.get("reason", "inputs_not_fresh"),
+                    "plan_revalidation_changed_fields": revalidation_diagnostics.get("changed_fields", []),
+                    "plan_revalidation_fixed_status": revalidation_diagnostics.get("fixed_status"),
+                }
+                if not self._retain_last_complete_plan(
+                    blocker_code=blocker,
+                    missing_entities=metadata.get("missing_entities", ()),
+                ):
+                    self._result = None
+                    self._timeline_metadata = dict(metadata)
+                    self._attributes = {
+                        **metadata,
+                        **failure_diagnostics,
+                        "status_code": blocker,
+                        "result_current": False,
+                        "recalculation_pending": True,
+                        "execution_input_valid": False,
+                        "execution_blocker_code": blocker,
+                        "planned_slots": [],
+                        "post_command_settling_market_fingerprint": None,
+                    }
+                else:
+                    self._attributes = {**self._attributes, **failure_diagnostics}
+                return False
+            if result.ready is False and result.status_code == "home_energy_shortage":
+                # A current diagnostic result is not execution readiness.
+                # Preserve the actual physical blocker instead of leaving a
+                # valid negative plan pending forever as generic missing data.
+                metadata = {
+                    **metadata,
+                    "execution_input_valid": False,
+                    "execution_blocker_code": "home_energy_shortage",
+                    "plan_revalidation_reason": "current_home_energy_shortage",
+                }
+            commitment = self._active_rce_commitment(settings.now)
+            run_basis = getattr(self, "_active_run_basis", None)
+            if run_basis is not None and (
+                settings.now >= (run_basis[2].current_run_end or settings.now)
+                or (commitment is not None and commitment.transaction_id != run_basis[0])
+            ):
+                run_basis = None
+            if (commitment is not None and run_basis is None
+                and self._post_command_settling_market_settings is not None
+                and self._result is not None):
+                run_basis = (commitment.transaction_id,
+                             self._post_command_settling_market_settings, self._result)
+            self._active_run_basis = run_basis
+            result = retain_active_rce_slot(
+                settings, result,
+                accepted_settings=run_basis[1] if run_basis else self._post_command_settling_market_settings,
+                accepted_result=run_basis[2] if run_basis else self._result,
+                commitment=commitment,
+            )
+            load_only_export_suppressed = active_load_only_export_suppressed(
+                settings, result,
+                accepted_settings=run_basis[1] if run_basis else self._post_command_settling_market_settings,
+                accepted_result=run_basis[2] if run_basis else self._result,
+                commitment=commitment,
+            )
+            metadata = {**metadata, "active_slot_commitment_applied":
+                        result.active_slot_commitment_applied}
             self._result = result
+            self._timeline_metadata = dict(metadata)
             now = dt_util.now().astimezone(ZoneInfo(self.hass.config.time_zone))
             current_slot_continue_eligible = bool(
                 result.current_slot_planned_export_kwh >= 0.01
@@ -1625,6 +4089,9 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     result.base_reserve_energy_kwh,
                     2,
                 ),
+                "sale_base_reserve_energy_kwh": round(
+                    result.sale_base_reserve_energy_kwh, 2,
+                ),
                 "protected_night_energy_kwh": round(
                     result.protected_night_energy_kwh,
                     2,
@@ -1649,6 +4116,35 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 ),
                 "planned_export_kwh": round(result.planned_export_kwh, 2),
                 "planned_revenue_pln": round(result.planned_revenue_pln, 2),
+                "legacy_planned_export_kwh": round(
+                    result.legacy_planned_export_kwh,
+                    2,
+                ),
+                "legacy_planned_revenue_pln": round(
+                    result.legacy_planned_revenue_pln,
+                    2,
+                ),
+                "self_consumption_filter_contract_version": (
+                    result.self_consumption_filter_contract_version
+                ),
+                "self_consumption_filter_active": (
+                    result.self_consumption_filter_active
+                ),
+                "self_consumption_filter_applied": (
+                    result.self_consumption_filter_applied
+                ),
+                "self_consumption_filter_reduced": (
+                    result.self_consumption_filter_reduced
+                ),
+                "self_consumption_filter_status_code": (
+                    result.self_consumption_filter_status_code
+                ),
+                "self_consumption_filter_reason_code": (
+                    result.self_consumption_filter_reason_code
+                ),
+                "self_consumption_filter_ui_reason": (
+                    result.self_consumption_filter_ui_reason
+                ),
                 "automatic_price_floor_pln_kwh": (
                     round(result.automatic_price_floor_pln_kwh, 4)
                     if result.automatic_price_floor_pln_kwh is not None
@@ -1777,6 +4273,10 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     2,
                 ),
                 "load_risk_mode": result.load_risk_mode,
+                "minimum_export_rejected_slots": list(result.minimum_export_rejected_slots),
+                "minimum_export_rejection_reason": (
+                    "below_min_net_export_power" if result.minimum_export_rejected_slots else None
+                ),
                 "critical_zero_pv_guard_active": (
                     result.critical_zero_pv_guard_active
                 ),
@@ -1899,9 +4399,9 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     result.current_slot_planned_export_kwh,
                     3,
                 ),
-                "current_slot_execution_export_power_kw": round(
-                    result.current_slot_execution_export_power_kw,
-                    3,
+                # Control input: rounding 199.9 W to 200 W changes eligibility.
+                "current_slot_execution_export_power_kw": (
+                    result.current_slot_execution_export_power_kw
                 ),
                 "current_slot_execution_discharge_power_kw": round(
                     result.current_slot_execution_discharge_power_kw,
@@ -1944,48 +4444,125 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     result.current_slot_shared_discharge_limit_kwh,
                     3,
                 ),
+                "current_slot_load_only_export_suppressed": load_only_export_suppressed,
+                "current_slot_load_exhausts_requested_discharge_budget": (
+                    result.current_slot_load_exhausts_requested_discharge_budget
+                ),
+                "post_command_settling_market_fingerprint": (
+                    result.post_command_settling_market_fingerprint
+                ),
                 "planned_slots": planned_slots,
+                **(
+                    result.self_consumption_shadow.as_attributes()
+                    if result.self_consumption_shadow is not None
+                    else {
+                        "shadow_contract_version": (
+                            "rce_self_consumption_shadow_v3"
+                        ),
+                        "legacy_sale_contract_version": "rce_sale_profit_v1",
+                        "shadow_control_applied": False,
+                        "shadow_available": False,
+                        "shadow_status_code": "unavailable",
+                        "shadow_reason_code": "not_calculated",
+                    }
+                ),
                 **metadata,
             }
+            from .pv_charge_delay_adapter import update_rce_attributes
+            update_rce_attributes(self, settings, result)
+            self._post_command_settling_market_settings = settings
+            self._last_full_plan_at = dt_util.utcnow()
             return True
         except Exception:  # noqa: BLE001 - fail closed in the automation entity
-            if (
-                not self._input_revision.is_current(captured_revision)
-                or captured_fingerprint != self._current_input_fingerprint()
+            if self._reject_stale_executor_result(
+                captured_revision,
+                captured_fingerprint,
             ):
-                self._mark_recalculation_pending()
                 return False
             _LOGGER.exception("Cannot calculate the optimized RCE plan")
+            self._post_command_settling_market_settings = None
+            if self._retain_last_complete_plan(
+                blocker_code="optimizer_error",
+                missing_entities=(),
+            ):
+                return False
             self._result = None
+            self._timeline_metadata = {}
             self._attributes = {
                 "status_code": "optimizer_error",
                 "missing_entities": [],
                 "planned_slots": [],
+                "current_slot_load_exhausts_requested_discharge_budget": False,
+                "current_slot_load_only_export_suppressed": False,
+                "post_command_settling_market_fingerprint": None,
             }
             return True
 
+    def _retain_last_complete_plan(
+        self,
+        *,
+        blocker_code: str,
+        missing_entities: Any,
+    ) -> bool:
+        """Keep one recent display plan while withdrawing all authority."""
+
+        completed_at = self._last_full_plan_at
+        if self._result is None or completed_at is None:
+            return False
+        try:
+            age_seconds = (dt_util.utcnow() - completed_at).total_seconds()
+        except (AttributeError, OverflowError, TypeError, ValueError):
+            return False
+        if age_seconds < -5.0 or age_seconds > _LAST_COMPLETE_PLAN_GRACE_SECONDS:
+            return False
+        self._attributes = {
+            **self._attributes,
+            "missing_entities": list(missing_entities),
+            "result_current": False,
+            "recalculation_pending": True,
+            "plan_display_available": True,
+            "plan_data_state": "last_complete_inputs_missing",
+            "execution_input_valid": False,
+            "execution_blocker_code": blocker_code,
+            "last_complete_age_seconds": round(max(age_seconds, 0.0), 1),
+        }
+        if self._timeline_sensor is not None:
+            self._timeline_sensor.publish_unavailable(
+                input_revision=self._input_revision.value,
+                blocker_code=blocker_code,
+            )
+        return True
+
     def _optimizer_input(
         self,
+        *, public_prices: Any | None = None,
     ) -> tuple[OptimizerInput | None, dict[str, Any]]:
         timezone = ZoneInfo(self.hass.config.time_zone)
         now = dt_util.now().astimezone(timezone)
         now_slot = floor_half_hour(now)
 
-        bms_current_sample = numeric_state_sample(
-            self.hass.states.get(
-                "sensor.hoymiles_hit_maximum_discharge_current"
-            ),
+        bms_current_sample = _policy_numeric_sample(
+            self._runtime,
+            "bms",
+            "maximum_discharge_current_a",
+            self.hass.states.get("sensor.hoymiles_hit_maximum_discharge_current"),
             now,
             max_age_seconds=300.0,
             minimum=0.0,
         )
-        bms_charge_current_sample = numeric_state_sample(
+        bms_charge_current_sample = _policy_numeric_sample(
+            self._runtime,
+            "bms",
+            "maximum_charge_current_a",
             self.hass.states.get("sensor.hoymiles_hit_maximum_charge_current"),
             now,
             max_age_seconds=300.0,
             minimum=0.0,
         )
-        bms_voltage_sample = numeric_state_sample(
+        bms_voltage_sample = _policy_numeric_sample(
+            self._runtime,
+            "bms",
+            "voltage_v",
             self.hass.states.get("sensor.hoymiles_hit_battery_voltage_bms"),
             now,
             max_age_seconds=300.0,
@@ -2042,7 +4619,10 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             )
             bms_charge_data_age_seconds = next(failed_charge_ages, None)
 
-        self_use_soc_sample = numeric_state_sample(
+        self_use_soc_sample = _policy_numeric_sample(
+            self._runtime,
+            "system",
+            "self_use_reserve_soc_percent",
             self.hass.states.get(
                 "sensor.hoymiles_hit_ems_self_use_soc_readback"
             ),
@@ -2051,7 +4631,10 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             minimum=10.0,
             maximum=100.0,
         )
-        battery_soc_sample = numeric_state_sample(
+        battery_soc_sample = _policy_numeric_sample(
+            self._runtime,
+            "system",
+            "battery_soc_percent",
             self.hass.states.get(
                 "sensor.hoymiles_hit_overview_battery_soc"
             ),
@@ -2060,7 +4643,10 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             minimum=0.0,
             maximum=100.0,
         )
-        inverter_count_sample = numeric_state_sample(
+        inverter_count_sample = _policy_numeric_sample(
+            self._runtime,
+            "system",
+            "inverter_count",
             self.hass.states.get(
                 "sensor.hoymiles_hit_number_of_machines_master_and_slave"
             ),
@@ -2069,11 +4655,16 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             minimum=1.0,
             maximum=10.0,
         )
+        battery_capacity = _policy_stable_number(
+            self._runtime,
+            "system",
+            "battery_capacity_kwh",
+            self.hass,
+            "sensor.hoymiles_hit_battery_capacity",
+            minimum=0.001,
+        )
         required = {
-            "sensor.hoymiles_hit_battery_capacity": _state_number(
-                self.hass,
-                "sensor.hoymiles_hit_battery_capacity",
-            ),
+            "sensor.hoymiles_hit_battery_capacity": battery_capacity,
             "sensor.hoymiles_hit_overview_battery_soc": (
                 battery_soc_sample.value
                 if battery_soc_sample.fresh
@@ -2106,12 +4697,30 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 "input_number.hoymiles_rce_export_efficiency",
             ),
         }
-        rated_power = _select_number(
-            self.hass,
-            "input_select.hoymiles_rce_inverter_rated_power",
+        shared_rated_power = _shared_sample_value(
+            self._runtime,
+            "system",
+            "inverter_rated_power_each_kw",
         )
+        if shared_rated_power is _SHARED_INPUT_MISSING:
+            rated_power = _preferred_select_number(
+                self.hass,
+                EMS_INVERTER_RATED_POWER_HELPER,
+                LEGACY_INVERTER_RATED_POWER_HELPER,
+            )
+        else:
+            rated_power = (
+                float(shared_rated_power)
+                if type(shared_rated_power) in {int, float}
+                else None
+            )
         if rated_power is None:
-            required["input_select.hoymiles_rce_inverter_rated_power"] = None
+            required[EMS_INVERTER_RATED_POWER_HELPER] = None
+        rce_inverter_power = (
+            _rce_inverter_discharge_power_kw(rated_power)
+            if rated_power is not None
+            else None
+        )
 
         sun = self.hass.states.get("sun.sun")
         rising = (
@@ -2131,79 +4740,53 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         tomorrow_rows_state = self.hass.states.get(
             "sensor.hoymiles_rce_day_tomorrow"
         )
-        today_rows = (
-            today_rows_state.attributes.get("value", [])
-            if today_rows_state
-            else []
-        )
-        tomorrow_rows = (
-            tomorrow_rows_state.attributes.get("value", [])
-            if tomorrow_rows_state
-            else []
-        )
-        def rows_for_local_date(
-            rows: Any,
-            target_date: date,
-        ) -> list[Mapping[str, Any]]:
-            if not isinstance(rows, list):
-                return []
-            matched: list[Mapping[str, Any]] = []
-            for item in rows:
-                if not isinstance(item, Mapping):
-                    continue
-                raw_business_date = str(
-                    item.get("business_date", "")
-                ).strip()
-                if raw_business_date == target_date.isoformat():
-                    matched.append(item)
-                    continue
-                if raw_business_date:
-                    continue
-                # PSE ``dtime_utc`` is the end of the 15-minute settlement
-                # interval.  Resolve the market quarter on the absolute UTC
-                # timeline before assigning a local business date.  This is
-                # especially important for the 24:00 endpoint and both folds
-                # of the repeated autumn hour.  ``period_utc`` is a clock
-                # range, not an absolute datetime, so it is not a safe date
-                # fallback.
-                raw_interval_end = item.get("dtime_utc")
-                if isinstance(raw_interval_end, datetime):
-                    interval_end = raw_interval_end
-                elif (
-                    isinstance(raw_interval_end, str)
-                    and raw_interval_end.strip()
-                ):
-                    interval_end = dt_util.parse_datetime(
-                        raw_interval_end.strip()
-                    )
-                else:
-                    interval_end = None
-                if interval_end is None:
-                    continue
-                if interval_end.tzinfo is None:
-                    interval_end = interval_end.replace(tzinfo=dt_util.UTC)
-                quarter_start = (
-                    interval_end.astimezone(dt_util.UTC)
-                    - timedelta(minutes=15)
-                ).astimezone(timezone)
-                if quarter_start.date() == target_date:
-                    matched.append(item)
-            return matched
-
-        today_rows_age_seconds = state_age_seconds(today_rows_state, now)
-        tomorrow_rows_age_seconds = state_age_seconds(tomorrow_rows_state, now)
-        today_rows = rows_for_local_date(today_rows, now.date())
-        tomorrow_rows = rows_for_local_date(
-            tomorrow_rows,
-            now.date() + timedelta(days=1),
+        (
+            today_rows_payload,
+            primary_today_rows_age_seconds,
+        ) = _rce_state_rows_and_age(
+            today_rows_state,
+            now,
         )
         (
+            tomorrow_rows_payload,
+            tomorrow_rows_age_seconds,
+        ) = _rce_state_rows_and_age(tomorrow_rows_state, now)
+        today_daily_valid = cached_state_valid(today_rows_state, now.date(), now)
+        rollover_daily_valid = cached_state_valid(tomorrow_rows_state, now.date(), now)
+        tomorrow_daily_valid = cached_state_valid(tomorrow_rows_state, now.date() + timedelta(days=1), now)
+        if public_prices is not None:
+            from .pstryk_plan import compatibility_rows
+            from .pstryk_daily_cache import daily_snapshot_valid
+            rows = compatibility_rows(public_prices, timezone)
+            today_rows_payload = [row for row in rows if row["business_date"] == now.date().isoformat()]
+            tomorrow_rows_payload = [row for row in rows if row["business_date"] == (now.date() + timedelta(days=1)).isoformat()]
+            primary_today_rows_age_seconds = tomorrow_rows_age_seconds = (now.astimezone(dt_util.UTC) - public_prices.fetched_at).total_seconds()
+            # A complete dated Pstryk publication has the same day-validity
+            # contract as RCE. Never borrow PSE's cache flag for Pstryk rows.
+            today_daily_valid = daily_snapshot_valid(public_prices, now.date(), now)
+            tomorrow_daily_valid = daily_snapshot_valid(public_prices, now.date() + timedelta(days=1), now)
+            rollover_daily_valid = False
+        (
+            today_rows,
             today_rows_complete,
             today_half_hours,
             today_expected_half_hours,
-        ) = _complete_rce_half_hours_for_local_date(
-            today_rows,
-            now.date(),
+            today_rows_data_fresh,
+            today_rows_age_seconds,
+            today_rows_source_role,
+        ) = _select_current_rce_price_rows(
+            primary_rows=today_rows_payload,
+            primary_age_seconds=primary_today_rows_age_seconds,
+            rollover_rows=tomorrow_rows_payload,
+            rollover_age_seconds=tomorrow_rows_age_seconds,
+            target_date=now.date(),
+            timezone=timezone,
+            primary_daily_valid=today_daily_valid,
+            rollover_daily_valid=rollover_daily_valid,
+        )
+        tomorrow_rows = _rce_rows_for_local_date(
+            tomorrow_rows_payload,
+            now.date() + timedelta(days=1),
             timezone,
         )
         (
@@ -2215,17 +4798,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             now.date() + timedelta(days=1),
             timezone,
         )
-        today_rows_data_fresh = bool(
-            today_rows_complete
-            and today_rows_age_seconds is not None
-            and -5.0 <= today_rows_age_seconds <= _RCE_PRICE_MAX_AGE_SECONDS
-        )
         tomorrow_price_rows_complete = bool(
             tomorrow_rows_structurally_complete
-            and tomorrow_rows_age_seconds is not None
-            and -5.0
-            <= tomorrow_rows_age_seconds
-            <= _RCE_PRICE_MAX_AGE_SECONDS
+            and (tomorrow_daily_valid
+                 or (tomorrow_rows_age_seconds is not None
+                     and -5.0 <= tomorrow_rows_age_seconds <= _RCE_PRICE_MAX_AGE_SECONDS))
         )
         if not today_rows_data_fresh:
             required["sensor.hoymiles_rce_day"] = None
@@ -2243,17 +4820,36 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         if block_end is None:
             required["input_datetime.hoymiles_sale_block_end"] = None
 
-        today_configured = _state_text(
+        today_configured = _resolved_forecast_entity_id(
             self.hass,
-            TODAY_FORECAST_ENTITY_HELPER,
+            self._runtime,
+            broker_field="today",
+            new_helper=EMS_TODAY_FORECAST_ENTITY_HELPER,
+            legacy_helper=TODAY_FORECAST_ENTITY_HELPER,
         )
-        tomorrow_configured = _state_text(
+        tomorrow_configured = _resolved_forecast_entity_id(
             self.hass,
-            TOMORROW_FORECAST_ENTITY_HELPER,
+            self._runtime,
+            broker_field="tomorrow",
+            new_helper=EMS_TOMORROW_FORECAST_ENTITY_HELPER,
+            legacy_helper=TOMORROW_FORECAST_ENTITY_HELPER,
         )
-        day3_configured = _state_text(
+        day3_configured = _resolved_forecast_entity_id(
             self.hass,
-            DAY3_FORECAST_ENTITY_HELPER,
+            self._runtime,
+            broker_field="day3",
+            new_helper=EMS_DAY3_FORECAST_ENTITY_HELPER,
+            legacy_helper=DAY3_FORECAST_ENTITY_HELPER,
+        )
+        remaining_shared = _shared_input_field(
+            self._runtime,
+            "forecast",
+            "remaining_today",
+        )
+        remaining_configured = (
+            getattr(remaining_shared, "entity_id", None)
+            if remaining_shared is not _SHARED_INPUT_MISSING
+            else None
         )
         today_entity, today_forecast_state = _first_numeric_state(
             self.hass,
@@ -2268,29 +4864,38 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         remaining_entity, remaining_state = _first_numeric_state(
             self.hass,
             REMAINING_TODAY_CANDIDATES,
+            remaining_configured,
         )
         day3_entity, day3_forecast_state = _first_numeric_state(
             self.hass,
             DAY3_FORECAST_CANDIDATES,
             day3_configured,
         )
-        today_forecast_sample = numeric_state_sample(
+        forecast_update_state = resolve_solcast_update_state(self.hass.states)
+        forecast_sun_state = self.hass.states.get("sun.sun")
+        today_forecast_sample = evaluate_pv_forecast_usefulness(
             today_forecast_state,
             now,
+            target_date=now.date(),
             max_age_seconds=_TODAY_FORECAST_MAX_AGE_SECONDS,
-            minimum=0.0,
+            update_state=forecast_update_state,
+            sun_state=forecast_sun_state,
         )
-        tomorrow_forecast_sample = numeric_state_sample(
+        tomorrow_forecast_sample = evaluate_pv_forecast_usefulness(
             tomorrow_forecast_state,
             now,
+            target_date=now.date() + timedelta(days=1),
             max_age_seconds=_TOMORROW_FORECAST_MAX_AGE_SECONDS,
-            minimum=0.0,
+            update_state=forecast_update_state,
+            sun_state=forecast_sun_state,
         )
-        day3_forecast_sample = numeric_state_sample(
+        day3_forecast_sample = evaluate_pv_forecast_usefulness(
             day3_forecast_state,
             now,
+            target_date=now.date() + timedelta(days=2),
             max_age_seconds=_DAY3_FORECAST_MAX_AGE_SECONDS,
-            minimum=0.0,
+            update_state=forecast_update_state,
+            sun_state=forecast_sun_state,
         )
         forecast_today_data_fresh = today_forecast_sample.fresh
         forecast_tomorrow_data_fresh = tomorrow_forecast_sample.fresh
@@ -2306,102 +4911,65 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         )
         if not forecast_today_data_fresh:
             required["Solcast Forecast Today"] = None
-        # Tomorrow is optional. Use it only when both the price day and its
-        # matching forecast are positively fresh; otherwise solve today only.
+        # Tomorrow's sale slots require both fresh prices and fresh PV. Its
+        # independently fresh PV/P10 still informs the protected home horizon
+        # while prices are pending. Missing prices must not manufacture a
+        # missing P10 and erase today's valid production via the zero-PV guard.
         tomorrow_rows_complete = bool(
             tomorrow_price_rows_complete and forecast_tomorrow_data_fresh
         )
         usable_tomorrow_rows = tomorrow_rows if tomorrow_rows_complete else []
         usable_tomorrow_forecast_state = (
-            tomorrow_forecast_state if tomorrow_rows_complete else None
+            tomorrow_forecast_state if forecast_tomorrow_data_fresh else None
         )
 
-        if self._load_history.average_daily_kwh is not None:
-            history_load = self._load_history.average_daily_kwh
-            load_history_days = float(self._load_history.daily_history_days)
-            load_history_source = "recorder_phase_energy_counters"
-        else:
-            history_load = _state_number(
-                self.hass,
-                "sensor.hoymiles_load_average_4_days",
-            )
-            load_history_days = _state_attribute_number(
-                self.hass,
-                "sensor.hoymiles_load_average_4_days",
-                "history_days",
-            )
-            load_history_source = "statistics_fallback"
-        if self._load_history.average_night_kwh is not None:
-            night_history_days = float(self._load_history.night_history_days)
-        else:
-            night_history_days = _state_attribute_number(
-                self.hass,
-                "sensor.hoymiles_night_load_average_4_days",
-                "history_days",
-            )
-        fallback_load = _state_number(
-            self.hass,
-            "input_number.hoymiles_rce_fallback_daily_load",
-        )
-        actual_load_today = _state_number(
-            self.hass,
-            "sensor.hoymiles_actual_load_energy_today",
-        )
-        # A newly installed/migrated actual-load meter needs four complete days
-        # before the long-term statistic is representative.  During that
-        # transition, never reserve less than either the user fallback or a
-        # conservative projection of today's measured house energy.  The
-        # quarter-day denominator prevents one early counter step from creating
-        # an unrealistically large projection just after midnight.
-        elapsed_day_fraction = max(
-            (now.hour * 60 + now.minute) / (24 * 60),
-            0.25,
-        )
-        live_daily_projection = (
-            max(actual_load_today, 0.0) / elapsed_day_fraction
-            if actual_load_today is not None
-            else None
-        )
-        history_complete = (load_history_days or 0.0) >= 3.95
-        if history_load is not None and history_complete:
-            average_load = history_load
-            load_model_source = "history_4_days"
-        else:
-            provisional_candidates = (
-                history_load,
-                fallback_load,
-                live_daily_projection,
-            )
-            numeric_candidates = [
-                value for value in provisional_candidates if value is not None
-            ]
-            average_load = max(numeric_candidates) if numeric_candidates else None
-            load_model_source = "provisional_safe_max"
+        load_model_values = self._load_model_values(now)
+        history_load = load_model_values["history_load"]
+        load_history_days = load_model_values["load_history_days"]
+        load_history_source = load_model_values["load_history_source"]
+        night_load = load_model_values["average_night_load"]
+        night_history_days = load_model_values["night_history_days"]
+        fallback_load = load_model_values["fallback_load"]
+        actual_load_today = load_model_values["actual_load_today"]
+        # The direct daily counter is retained with its own observation time;
+        # it is compared with the historical profile over the same elapsed
+        # interval instead of being extrapolated by clock time.
+        live_daily_projection = load_model_values["live_daily_projection"]
+        history_complete = load_model_values["history_complete"]
+        average_load = load_model_values["average_load"]
+        load_model_source = load_model_values["load_model_source"]
         if average_load is None:
             required["sensor.hoymiles_load_average_4_days"] = None
 
         missing = sorted(
             entity_id for entity_id, value in required.items() if value is None
         )
-        profile_history = (
-            self._extended_load_history
-            if self._extended_load_history.daily_history_days
-            else self._load_history
-        )
+        profile_history = load_model_values["profile_history"]
+        diagnostic_history = load_model_values["diagnostic_history"]
         (
             conservative_daily_load,
             conservative_load_days,
         ) = robust_weighted_upper_estimate(
-            tuple(profile_history.daily_energy_kwh.values())
+            tuple(profile_history.daily_energy_kwh.values()),
+            ages_days=daily_ages_days(
+                tuple(profile_history.daily_energy_kwh), as_of=now.date()
+            ),
         )
         (
             conservative_night_load,
             conservative_night_days,
         ) = robust_weighted_upper_estimate(
-            tuple(profile_history.night_energy_kwh.values())
+            tuple(profile_history.night_energy_kwh.values()),
+            ages_days=daily_ages_days(
+                tuple(profile_history.night_energy_kwh), as_of=now.date()
+            ),
         )
         learning_policy, learning_diagnostics = (
-            _forecast_learning_policy_snapshot(self.hass, now)
+            _forecast_learning_policy_snapshot(
+                self.hass,
+                now,
+                getattr(self, "_runtime", None),
+            )
         )
         self._forecast_gcf_policy_signature = (
             _forecast_learning_policy_signature(learning_policy)
@@ -2412,26 +4980,44 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 learning_diagnostics,
             )
         )
+        today_learning_policy, tomorrow_learning_policy, day3_learning_policy = (
+            forecast_policy_for_source(
+                learning_policy, getattr(state, "attributes", {}),
+            )
+            for state in (
+                today_forecast_state, usable_tomorrow_forecast_state,
+                usable_day3_forecast_state,
+            )
+        )
         forecast_factor_used = forecast_factor_for_policy(
-            learning_policy,
-            self._forecast_accuracy_factor,
+            today_learning_policy, self._forecast_accuracy_factor,
+        )
+        tomorrow_forecast_factor = forecast_factor_for_policy(
+            tomorrow_learning_policy, self._forecast_accuracy_factor,
+        )
+        day3_forecast_factor = forecast_factor_for_policy(
+            day3_learning_policy, self._forecast_accuracy_factor,
         )
         forecast_history_days_used = (
-            self._forecast_accuracy_days if learning_policy.enabled else 0
+            self._forecast_accuracy_days if today_learning_policy.enabled else 0
         )
         forecast_uncertainty_used = (
             self._forecast_accuracy_uncertainty
-            if learning_policy.enabled
+            if today_learning_policy.enabled
             else 0.15
         )
         metadata: dict[str, Any] = {
             **learning_diagnostics,
-            "forecast_learning_enabled": learning_policy.enabled,
-            "forecast_learning_mode": learning_policy.mode,
+            "forecast_learning_enabled": today_learning_policy.enabled,
+            "forecast_learning_mode": today_learning_policy.mode,
             "forecast_learning_excluded_reason": (
-                learning_policy.excluded_reason
+                today_learning_policy.excluded_reason
             ),
             "forecast_factor_used": round(forecast_factor_used, 3),
+            "forecast_tomorrow_factor_used": round(tomorrow_forecast_factor, 3),
+            "forecast_day3_factor_used": round(day3_forecast_factor, 3),
+            "forecast_tomorrow_learning_mode": tomorrow_learning_policy.mode,
+            "forecast_day3_learning_mode": day3_learning_policy.mode,
             "forecast_learning_history_days_used": forecast_history_days_used,
             "missing_entities": missing,
             "forecast_today_entity": today_entity or "none",
@@ -2449,6 +5035,9 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 else None
             ),
             "forecast_day3_data_reason": day3_forecast_sample.reason,
+            "forecast_day3_source_fresh": day3_forecast_sample.source_fresh,
+            "forecast_day3_usability_mode": day3_forecast_sample.mode,
+            "forecast_day3_usable": day3_forecast_sample.usable,
             "rce_today_periods": len(today_rows) if isinstance(today_rows, list) else 0,
             "rce_today_half_hours": today_half_hours,
             "rce_today_expected_half_hours": today_expected_half_hours,
@@ -2464,6 +5053,17 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             ),
             "tomorrow_data_pending": not tomorrow_rows_complete,
             "rce_today_data_fresh": today_rows_data_fresh,
+            "rce_today_source_entity": (
+                "sensor.hoymiles_rce_day_tomorrow"
+                if today_rows_source_role == "previous_tomorrow_rollover"
+                else "sensor.hoymiles_rce_day"
+            ),
+            "rce_today_source_role": today_rows_source_role,
+            "rce_today_rollover_used": (
+                today_rows_data_fresh
+                and today_rows_source_role == "previous_tomorrow_rollover"
+            ),
+            "rce_today_business_date": now.date().isoformat(),
             "rce_today_age_seconds": (
                 round(today_rows_age_seconds, 1)
                 if today_rows_age_seconds is not None
@@ -2482,6 +5082,36 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 else None
             ),
             "forecast_today_data_reason": today_forecast_sample.reason,
+            "forecast_today_source_fresh": today_forecast_sample.source_fresh,
+            "forecast_today_usability_mode": today_forecast_sample.mode,
+            "forecast_today_usable": today_forecast_sample.usable,
+            "forecast_last_success": (
+                today_forecast_sample.last_success_at.isoformat()
+                if today_forecast_sample.last_success_at is not None
+                else None
+            ),
+            "forecast_next_update": (
+                today_forecast_sample.next_update_at.isoformat()
+                if today_forecast_sample.next_update_at is not None
+                else None
+            ),
+            "forecast_valid_until": (
+                today_forecast_sample.valid_until.isoformat()
+                if today_forecast_sample.valid_until is not None
+                else None
+            ),
+            "forecast_target_date": today_forecast_sample.target_date.isoformat(),
+            "forecast_coverage_start_date": (
+                today_forecast_sample.coverage_start_date.isoformat()
+                if today_forecast_sample.coverage_start_date is not None
+                else None
+            ),
+            "forecast_coverage_end_date": (
+                today_forecast_sample.coverage_end_date.isoformat()
+                if today_forecast_sample.coverage_end_date is not None
+                else None
+            ),
+            "forecast_coverage_complete": today_forecast_sample.coverage_complete,
             "self_use_soc_data_fresh": self_use_soc_sample.fresh,
             "self_use_soc_age_seconds": (
                 round(self_use_soc_sample.age_seconds, 1)
@@ -2507,6 +5137,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             "forecast_tomorrow_data_reason": (
                 tomorrow_forecast_sample.reason
             ),
+            "forecast_tomorrow_source_fresh": (
+                tomorrow_forecast_sample.source_fresh
+            ),
+            "forecast_tomorrow_usability_mode": tomorrow_forecast_sample.mode,
+            "forecast_tomorrow_usable": tomorrow_forecast_sample.usable,
             "automatic_replan": True,
             "automatic_discharge_enabled": self.hass.states.is_state(
                 "input_boolean.hoymiles_rce_discharge_enabled",
@@ -2543,6 +5178,13 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 else None
             ),
             "recorder_load_history_days": profile_history.daily_history_days,
+            "recorder_load_accepted_energy_days": profile_history.daily_history_days,
+            "recorder_load_history_usable": load_model_values["history_data_usable"],
+            "recorder_load_history_observation_fresh": load_model_values["history_data_fresh"],
+            "recorder_load_history_retained_in_window": bool(
+                load_model_values["history_complete"]
+                and not load_model_values["history_data_fresh"]
+            ),
             "recorder_load_history_energy_kwh": round(
                 profile_history.daily_energy_total_kwh,
                 2,
@@ -2561,13 +5203,69 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 profile_history.average_profile_kwh
             ),
             "recorder_load_profile_history_days": (
-                profile_history.daily_history_days
+                profile_history.profile_history_days
             ),
+            "recorder_load_accepted_profile_days": profile_history.profile_history_days,
+            "recorder_load_daily_coverage_ratio": round(
+                profile_history.daily_coverage_ratio, 4
+            ),
+            "recorder_load_profile_coverage_ratio": round(
+                profile_history.profile_coverage_ratio, 4
+            ),
+            "recorder_load_daily_quality": diagnostic_history.daily_quality_by_date,
+            "recorder_load_profile_quality": diagnostic_history.profile_quality_by_date,
+            "recorder_load_phase_quality": diagnostic_history.phase_quality_by_date,
+            "recorder_load_phase_diagnostics": (
+                diagnostic_history.phase_diagnostics_by_date
+            ),
+            "recorder_load_availability_diagnostics": (
+                diagnostic_history.availability_diagnostics_by_date
+            ),
+            **qualification_diagnostics(diagnostic_history),
+            "recorder_load_data_retained_after_outage": bool(
+                self._load_history_store_payload is not None
+                and profile_history.daily_history_days
+                and self._load_history_read_status
+                in {
+                    "short_io_failed", "short_phase_complete_dense_unavailable",
+                    "short_no_new_data", "extended_no_new_data", "extended_partial",
+                }
+            ),
+            "recorder_load_current_sample_count": self._load_persistence_sample_count,
             "load_profile_generated_at": (
                 self._load_profile_generated_at.isoformat()
                 if self._load_profile_generated_at is not None
                 else None
             ),
+            "load_history_read_status": self._load_history_read_status,
+            "load_history_read_error": self._load_history_read_error,
+            "load_history_last_attempt_at": (
+                self._load_history_last_attempt_at.isoformat()
+                if self._load_history_last_attempt_at is not None
+                else None
+            ),
+            "load_history_last_success_at": (
+                self._load_history_last_success_at.isoformat()
+                if self._load_history_last_success_at is not None
+                else None
+            ),
+            "load_history_retry_count": self._load_history_retry_count,
+            "load_history_next_retry_at": (
+                self._load_history_next_retry_at.isoformat()
+                if self._load_history_next_retry_at is not None
+                else None
+            ),
+            "load_history_short_range": (
+                [stamp.isoformat() for stamp in self._load_history_short_range]
+                if self._load_history_short_range is not None
+                else None
+            ),
+            "load_history_extended_range": (
+                [stamp.isoformat() for stamp in self._load_history_extended_range]
+                if self._load_history_extended_range is not None
+                else None
+            ),
+            "load_history_extended_partial": self._load_history_extended_partial,
             "recorder_load_weekday_profile_30m_kwh": list(
                 profile_history.weekday_profile_kwh
             ),
@@ -2586,6 +5284,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 else None
             ),
             "recorder_night_history_days": self._load_history.night_history_days,
+            "recorder_night_completed_windows": self._load_history.night_history_days,
+            "recorder_night_quality": diagnostic_history.night_quality_by_date,
             "recorder_night_history_energy_kwh": round(
                 self._load_history.night_energy_total_kwh,
                 2,
@@ -2603,6 +5303,26 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 round(actual_load_today, 2)
                 if actual_load_today is not None
                 else None
+            ),
+            "actual_load_energy_today_observed_at": (
+                load_model_values["actual_load_observed_at"].isoformat()
+                if load_model_values["actual_load_observed_at"] is not None
+                else None
+            ),
+            "load_persistence_delta_kw": round(
+                self._load_persistence_delta_kw, 3
+            ),
+            "load_persistence_observed_at": (
+                self._load_persistence_observed_at.isoformat()
+                if self._load_persistence_observed_at is not None
+                else None
+            ),
+            "load_persistence_sample_count": self._load_persistence_sample_count,
+            "load_model_schema": LOAD_MODEL_SCHEMA,
+            "load_model_quality": (
+                "complete"
+                if history_complete and profile_history.profile_history_days
+                else "fallback"
             ),
             "actual_day_window_load_today_kwh": (
                 round(self._load_history.current_day_energy_kwh, 2)
@@ -2657,6 +5377,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         assert block_end is not None
         assert average_load is not None
         assert rated_power is not None
+        assert rce_inverter_power is not None
         price_slots = parse_rce_rows(
             [*today_rows, *usable_tomorrow_rows],
             timezone,
@@ -2684,16 +5405,18 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         forecast_tomorrow_raw = max(
             tomorrow_forecast_sample.value or 0.0,
             0.0,
-        ) if tomorrow_rows_complete else 0.0
+        ) if forecast_tomorrow_data_fresh else 0.0
         actual_pv_today = _state_number(
             self.hass,
             "sensor.hoymiles_hit_pv_total_energy_today",
         ) or 0.0
-        remaining_sample = numeric_state_sample(
+        remaining_sample = evaluate_pv_forecast_usefulness(
             remaining_state,
             now,
+            target_date=now.date(),
             max_age_seconds=18 * 3600.0,
-            minimum=0.0,
+            update_state=forecast_update_state,
+            sun_state=forecast_sun_state,
         )
         remaining_today_raw = (
             remaining_sample.value
@@ -2714,12 +5437,57 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     else None
                 ),
                 "forecast_remaining_today_data_reason": remaining_sample.reason,
+                "forecast_remaining_today_source_fresh": (
+                    remaining_sample.source_fresh
+                ),
+                "forecast_remaining_today_usability_mode": remaining_sample.mode,
+                "forecast_remaining_today_usable": remaining_sample.usable,
             }
         )
         sunrise_minute = rising.hour * 60 + rising.minute
         sunset_minute = setting.hour * 60 + setting.minute
         night_start = (sunset_minute - 90) % (24 * 60)
         night_end = (sunrise_minute + 90) % (24 * 60)
+        (
+            load_current_day_correction_ratio,
+            load_current_day_residual_kwh,
+            load_expected_to_observation_kwh,
+        ) = current_day_profile_correction(
+            now=now,
+            observed_energy_kwh=actual_load_today,
+            observed_at=load_model_values["actual_load_observed_at"],
+            daily_energy_kwh=average_load,
+            average_profile_30m_kwh=profile_history.average_profile_kwh,
+            weekday_profile_30m_kwh=profile_history.weekday_profile_kwh,
+            weekend_profile_30m_kwh=profile_history.weekend_profile_kwh,
+            night_energy_kwh=night_load,
+            night_start_minute=night_start,
+            night_end_minute=night_end,
+            persistence_delta_kw=self._load_persistence_delta_kw,
+            persistence_observed_at=self._load_persistence_observed_at,
+        )
+        load_current_day_correction_kwh = (
+            load_expected_to_observation_kwh
+            * (load_current_day_correction_ratio - 1.0)
+        )
+        shared_snapshot = _shared_inputs_snapshot(self._runtime)
+        metadata.update(
+            {
+                "load_model_revision": getattr(shared_snapshot, "revision", None),
+                "load_current_day_correction_ratio": round(
+                    load_current_day_correction_ratio, 4
+                ),
+                "load_current_day_correction_kwh": round(
+                    load_current_day_correction_kwh, 3
+                ),
+                "load_current_day_residual_kwh": round(
+                    load_current_day_residual_kwh, 3
+                ),
+                "load_expected_to_observation_kwh": round(
+                    load_expected_to_observation_kwh, 3
+                ),
+            }
+        )
 
         sunrise_today = get_astral_event_date(
             self.hass,
@@ -2731,18 +5499,36 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             "sunset",
             now.date(),
         )
-        expected_elapsed_raw = _detailed_pv_expected_elapsed_kwh(
-            today_forecast_state,
-            now.date(),
-            timezone,
-            now,
+        # Compare cumulative production and forecast at the same observation
+        # time. Advancing wall time across the solver await must not change
+        # immutable PV maps when no input report has changed.
+        actual_pv_sample = numeric_state_sample(
+            self.hass.states.get("sensor.hoymiles_hit_pv_total_energy_today"),
+            now, max_age_seconds=300.0, minimum=0.0,
+            future_tolerance_seconds=0.0,
+        )
+        pv_observed_at = actual_pv_sample.reported_at
+        pv_observation_current = bool(
+            actual_pv_sample.fresh
+            and pv_observed_at is not None
+            and pv_observed_at.tzinfo is not None
+            and pv_observed_at.utcoffset() is not None
+            and pv_observed_at.astimezone(timezone).date() == now.date()
+        )
+        expected_elapsed_raw = (
+            _detailed_pv_expected_elapsed_kwh(
+                today_forecast_state, now.date(), timezone,
+                pv_observed_at.astimezone(timezone),
+            )
+            if pv_observation_current else None
         )
         live_eligible = (
-            learning_policy.enabled
+            today_learning_policy.enabled
+            and pv_observation_current
             and sunrise_today is not None
             and sunset_today is not None
-            and now >= sunrise_today.astimezone(timezone) + timedelta(minutes=90)
-            and now <= sunset_today.astimezone(timezone) + timedelta(minutes=30)
+            and pv_observed_at >= sunrise_today.astimezone(timezone) + timedelta(minutes=90)
+            and pv_observed_at <= sunset_today.astimezone(timezone) + timedelta(minutes=30)
         )
         (
             today_forecast_factor,
@@ -2756,7 +5542,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         )
         forecast_today = forecast_today_raw * today_forecast_factor
         forecast_tomorrow = (
-            forecast_tomorrow_raw * forecast_factor_used
+            forecast_tomorrow_raw * tomorrow_forecast_factor
         )
         remaining_today = remaining_today_raw * today_forecast_factor
 
@@ -2789,7 +5575,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             and forecast_tomorrow_raw > 0
             else 0.0
         )
-        # A wider P10–P90 band moves reserve planning further toward P10.
+        # A wider P10â€“P90 band moves reserve planning further toward P10.
         risk_weight = min(
             risk_weight + min(uncertainty_spread_ratio, 1.0) * 0.15,
             0.90,
@@ -2908,16 +5694,31 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             low_pv_by_slot,
             risk_weight,
         )
+        delay_pv_by_slot = {}
+        delay_profile_state = self.hass.states.get(PV_DELAY_PROFILE_HELPER)
+        delay_profile = delay_profile_state.state if delay_profile_state is not None else None
+        delay_weight = profile_weight(delay_profile)
+        for expected_raw, low_raw, high_raw, expected_map, low_map, usable in (
+            (forecast_today_raw, today_p10_raw, today_p90_raw, pv_today,
+             pv_today_low, today_forecast_sample.usable),
+            (forecast_tomorrow_raw, tomorrow_p10_raw, tomorrow_p90_raw,
+             pv_tomorrow, pv_tomorrow_low, tomorrow_forecast_sample.usable),
+        ):
+            day_weight = day_uncertainty_weight(expected_raw, low_raw, high_raw,
+                history_days=forecast_history_days_used,
+                live_confidence=live_forecast_confidence)
+            if usable and day_weight is not None and delay_weight is not None:
+                delay_pv_by_slot.update(_blend_pv_maps(expected_map, low_map, delay_weight))
 
         day3_raw = _forecast_total(usable_day3_forecast_state, "p50")
         day3_p10_raw = _forecast_total(usable_day3_forecast_state, "p10")
         day3_expected = (
-            day3_raw * forecast_factor_used
+            day3_raw * day3_forecast_factor
             if day3_raw is not None
             else None
         )
         day3_low = (
-            day3_p10_raw * forecast_factor_used
+            day3_p10_raw * day3_forecast_factor
             if day3_p10_raw is not None
             else day3_expected
         )
@@ -3015,9 +5816,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 effective_export_source = entity_id
                 break
 
-        tariff_plan = self.hass.states.get(
-            "sensor.hoymiles_hit_tariff_charge_plan"
-        )
+        tariff_plan = self._same_entry_tariff_plan_state()
         avoided_import_price = None
         if tariff_plan is not None:
             for attribute in (
@@ -3045,22 +5844,50 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         )
         if battery_wear_cost is None:
             battery_wear_cost = 0.08
-        charge_efficiency = _state_number(
-            self.hass,
-            "input_number.hoymiles_tariff_charge_efficiency",
+        minimum_export_entity = "input_number.hoymiles_rce_minimum_net_export_power"
+        minimum_net_export = (
+            # This setting belongs to the classic RCE optimizer. Pstryk
+            # shares physical inputs, but owns its separate BUY/SELL plan.
+            2.0 if self.hass.states.get(minimum_export_entity) is None
+            else _state_number(self.hass, minimum_export_entity)
         )
-        discharge_efficiency = _state_number(
-            self.hass,
-            "input_number.hoymiles_tariff_discharge_efficiency",
+        if (minimum_net_export is None or not isfinite(minimum_net_export)
+                or not 0.2 <= minimum_net_export <= 100.0):
+            return None, {"status_code": "missing_data", "missing_entities": [minimum_export_entity]}
+        shared_charge_efficiency = _shared_sample_value(
+            self._runtime,
+            "efficiency",
+            "pv_to_battery_efficiency",
+        )
+        shared_discharge_efficiency = _shared_sample_value(
+            self._runtime,
+            "efficiency",
+            "battery_to_home_efficiency",
+        )
+        charge_efficiency = (
+            _state_number(
+                self.hass,
+                "input_number.hoymiles_tariff_charge_efficiency",
+            )
+            if shared_charge_efficiency is _SHARED_INPUT_MISSING
+            else float(shared_charge_efficiency)
+            if type(shared_charge_efficiency) in {int, float}
+            and isfinite(float(shared_charge_efficiency))
+            else None
+        )
+        discharge_efficiency = (
+            _state_number(
+                self.hass,
+                "input_number.hoymiles_tariff_discharge_efficiency",
+            )
+            if shared_discharge_efficiency is _SHARED_INPUT_MISSING
+            else float(shared_discharge_efficiency)
+            if type(shared_discharge_efficiency) in {int, float}
+            and isfinite(float(shared_discharge_efficiency))
+            else None
         )
         charge_efficiency = charge_efficiency or 95.0
         discharge_efficiency = discharge_efficiency or 95.0
-        night_load = self._load_history.average_night_kwh
-        if night_load is None:
-            night_load = _state_number(
-                self.hass,
-                "sensor.hoymiles_night_load_average_4_days",
-            )
         pv_to_load_today = _state_number(
             self.hass,
             "sensor.hoymiles_hit_pv_to_load_energy_today",
@@ -3077,9 +5904,14 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             self.hass,
             "sensor.hoymiles_hit_load_from_pv_power",
         ) or 0.0
-        pv_total_power_w = _state_number(
+        pv_total_power_w = _policy_stable_number(
+            self._runtime,
+            "power",
+            "pv_power_kw",
             self.hass,
             "sensor.hoymiles_hit_overview_pv_total_power",
+            minimum=0.0,
+            shared_scale=1000.0,
         ) or 0.0
         (
             current_load_power_kw,
@@ -3089,6 +5921,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             self.hass,
             "sensor.hoymiles_actual_load_power",
             now,
+            runtime=self._runtime,
+            shared_field="home_load_power_kw",
         )
         if current_load_power_kw is None:
             phase_samples = tuple(
@@ -3127,10 +5961,17 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             self.hass,
             "sensor.hoymiles_hit_overview_pv_total_power",
             now,
+            runtime=self._runtime,
+            shared_field="pv_power_kw",
         )
-        load_power_w = _state_number(
+        load_power_w = _policy_stable_number(
+            self._runtime,
+            "power",
+            "home_load_power_kw",
             self.hass,
             "sensor.hoymiles_actual_load_power",
+            minimum=0.0,
+            shared_scale=1000.0,
         )
         if load_power_w is None:
             phase_loads = tuple(
@@ -3151,8 +5992,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     "sensor.hoymiles_hit_overview_load_active_power",
                 )
         load_power_w = max(load_power_w or 0.0, 0.0)
-        # Rejestr 2180 potrafi zawierać straty przetwarzania. Dla udziału
-        # autokonsumpcji ograniczamy go do rzeczywistego obciążenia domu.
+        # Rejestr 2180 potrafi zawieraÄ‡ straty przetwarzania. Dla udziaĹ‚u
+        # autokonsumpcji ograniczamy go do rzeczywistego obciÄ…ĹĽenia domu.
         pv_to_load_power_w = min(
             max(pv_to_load_power_w, 0.0),
             load_power_w,
@@ -3162,8 +6003,16 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
             if battery_soc_sample.age_seconds is not None
             else None
         )
-        rce_today_age = _state_age_minutes(today_rows_state, now)
-        rce_tomorrow_age = _state_age_minutes(tomorrow_rows_state, now)
+        rce_today_age = (
+            today_rows_age_seconds / 60.0
+            if today_rows_age_seconds is not None
+            else None
+        )
+        rce_tomorrow_age = (
+            tomorrow_rows_age_seconds / 60.0
+            if tomorrow_rows_age_seconds is not None
+            else None
+        )
         forecast_today_age = _state_age_minutes(today_forecast_state, now)
         forecast_tomorrow_age = _state_age_minutes(
             tomorrow_forecast_state,
@@ -3171,8 +6020,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         )
         p10_missing = today_p10_raw is None or tomorrow_p10_raw is None
         p10_stale = not (
-            _age_minutes_is_fresh(forecast_today_age, 360)
-            and _age_minutes_is_fresh(forecast_tomorrow_age, 720)
+            today_forecast_sample.usable
+            and tomorrow_forecast_sample.usable
         )
         p10_high_risk = (
             forecast_uncertainty_used >= 0.18
@@ -3192,13 +6041,14 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         if not _age_minutes_is_fresh(battery_age, 10):
             quality_score -= 25
             quality_issues.append("battery_soc_stale")
-        if not _age_minutes_is_fresh(forecast_today_age, 360):
+        if not today_forecast_sample.usable:
             quality_score -= 15
             quality_issues.append("forecast_today_stale")
-        if not _age_minutes_is_fresh(forecast_tomorrow_age, 720):
+        if not tomorrow_forecast_sample.usable:
             quality_score -= 15
             quality_issues.append("forecast_tomorrow_stale")
-        if not _age_minutes_is_fresh(rce_today_age, 24 * 60):
+        if not (cached_state_valid(today_rows_state, now.date(), now)
+                or _age_minutes_is_fresh(rce_today_age, 24 * 60)):
             quality_score -= 20
             quality_issues.append("rce_today_stale")
         if not tomorrow_rows_complete:
@@ -3207,7 +6057,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
         if not uncertainty_available:
             quality_score -= 10
             quality_issues.append("solcast_uncertainty_unavailable")
-        if learning_policy.enabled and self._forecast_accuracy_days < 2:
+        if today_learning_policy.enabled and self._forecast_accuracy_days < 2:
             quality_score -= 5
             quality_issues.append("forecast_history_short")
         if profile_history.daily_history_days < 4:
@@ -3296,6 +6146,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 ),
                 "forecast_uncertainty_available": uncertainty_available,
                 "forecast_uncertainty_risk_weight": round(risk_weight, 4),
+                "pv_charge_delay_profile": delay_profile if delay_weight is not None else None,
+                "pv_charge_delay_p10_weight": delay_weight,
                 "forecast_uncertainty_spread_ratio": round(
                     uncertainty_spread_ratio,
                     4,
@@ -3387,6 +6239,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     else None
                 ),
                 "effective_export_power_source": effective_export_source,
+                "minimum_net_export_power_kw": minimum_net_export,
                 "avoided_import_price_pln_kwh": round(
                     avoided_import_price,
                     4,
@@ -3433,7 +6286,11 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     1,
                 ),
                 "inverter_count": inverter_count,
-                "inverter_power_each_kw": rated_power,
+                "inverter_power_each_kw": rce_inverter_power,
+                "inverter_nameplate_power_each_kw": rated_power,
+                "battery_discharge_calibration_applied": (
+                    abs(rce_inverter_power - rated_power) >= 0.01
+                ),
                 "market_slots": len(price_slots),
                 "night_window": (
                     f"{night_start // 60:02d}:{night_start % 60:02d}"
@@ -3441,6 +6298,13 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 ),
             }
         )
+        charge_curve = self._forecast_charge_curve(now,
+            required['sensor.hoymiles_hit_overview_battery_soc'],bms_charge_current_sample.value,
+            bms_voltage_sample.value,bms_charge_data_fresh and bms_charge_data_available)
+        metadata['charge_forecast_source'] = 'observed_soc_curve' if charge_curve else 'current_bms_limit'
+        # Publish only the stable learned curve, not a live voltage-dependent
+        # clamp. Recorder would otherwise insert rows for diagnostic jitter.
+        metadata['charge_forecast_curve_kw'] = self._charge_forecast().curve(now) if charge_curve else None
         return (
             OptimizerInput(
                 now=now,
@@ -3469,7 +6333,8 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 average_night_load_kwh=night_load,
                 night_start_minute=night_start,
                 night_end_minute=night_end,
-                inverter_power_kw=rated_power,
+                inverter_power_kw=rce_inverter_power,
+                inverter_ac_power_kw=rated_power,
                 inverter_count=inverter_count,
                 discharge_power_percent=required[
                     "input_number.hoymiles_rce_requested_discharge_power"
@@ -3479,6 +6344,7 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 ],
                 bms_max_discharge_current_a=bms_current_sample.value,
                 bms_max_charge_current_a=bms_charge_current_sample.value,
+                forecast_charge_curve_kw=charge_curve,
                 battery_voltage_v=bms_voltage_sample.value,
                 bms_discharge_data_fresh=bms_discharge_data_fresh,
                 bms_discharge_data_age_seconds=(
@@ -3491,8 +6357,13 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 bms_charge_data_age_seconds=bms_charge_data_age_seconds,
                 bms_charge_data_available=bms_charge_data_available,
                 actual_day_load_today_kwh=(
-                    self._load_history.current_day_energy_kwh
+                    actual_load_today
                 ),
+                actual_day_load_observed_at=load_model_values[
+                    "actual_load_observed_at"
+                ],
+                persistence_delta_kw=self._load_persistence_delta_kw,
+                persistence_observed_at=self._load_persistence_observed_at,
                 pv_to_load_power_kw=max(pv_to_load_power_w, 0.0) / 1000.0,
                 load_profile_30m_kwh=profile_history.average_profile_kwh,
                 weekday_load_profile_30m_kwh=(
@@ -3502,11 +6373,13 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                     profile_history.weekend_profile_kwh
                 ),
                 conservative_pv_by_slot_kwh=conservative_pv_by_slot,
+                delay_pv_by_slot_kwh=delay_pv_by_slot,
                 forecast_confidence_percent=forecast_confidence,
                 export_power_cap_kw=export_power_cap_kw,
                 effective_export_power_kw=effective_export_power_kw,
                 avoided_import_price_pln_kwh=avoided_import_price,
                 battery_wear_cost_pln_kwh=battery_wear_cost,
+                minimum_net_export_power_kw=minimum_net_export,
                 day3_pv_forecast_kwh=day3_conservative,
                 charge_efficiency_percent=charge_efficiency,
                 house_discharge_efficiency_percent=discharge_efficiency,
@@ -3521,6 +6394,12 @@ class HoymilesRCEOptimizerSensor(SensorEntity):
                 ),
                 critical_zero_pv_guard=critical_zero_pv_guard,
                 critical_zero_pv_guard_reason=critical_zero_pv_reason,
+                tariff_price_schedule=getattr(
+                    self._tariff_price_source,
+                    "current_price_schedule",
+                    None,
+                ),
+                self_consumption_filter_enabled=True,
             ),
             metadata,
         )

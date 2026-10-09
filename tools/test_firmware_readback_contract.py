@@ -12,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def platform_block(source: str, component_id: str) -> str:
-    marker = f"    id: {component_id}\n"
+    # Require the platform-level four-space indentation. Action references may
+    # legitimately reuse the same component id at a deeper indentation.
+    marker = f"\n    id: {component_id}\n"
     start = source.index(marker)
     block_start = source.rfind("  - platform:", 0, start)
     assert block_start >= 0, component_id
@@ -23,9 +25,58 @@ def platform_block(source: str, component_id: str) -> str:
 def script_block(source: str, component_id: str) -> str:
     marker = f"  - id: {component_id}\n"
     start = source.index(marker)
-    block_end = source.find("\nsensor:\n", start)
+    block_end = source.find("\napi:\n", start)
     assert block_end >= 0, component_id
     return source[start:block_end]
+
+
+def renew_decision(
+    *,
+    state_confirmed: bool = True,
+    authorization_current: bool = True,
+    nonce_current: bool = True,
+    duplicate_response: bool = False,
+    before_soft_expiry: bool = True,
+    before_hard_deadline: bool = True,
+    identity_matches: bool = True,
+    sequence_valid: bool = True,
+    requested_matches: bool = True,
+    physical_matches: bool = True,
+    readback_fresh: bool = True,
+    generation_acceptable: bool = True,
+) -> str:
+    """Executable truth table for the ordered native renewal branches."""
+
+    if not state_confirmed:
+        return "lease_not_confirmed"
+    if not authorization_current:
+        return "authorization_lost"
+    if not nonce_current and not duplicate_response:
+        return "stale_or_invalid_nonce"
+    if not before_soft_expiry or not before_hard_deadline:
+        return "lease_expired"
+    if not identity_matches or not sequence_valid:
+        return "stale_or_invalid_sequence"
+    if not requested_matches or not physical_matches or not readback_fresh:
+        return "physical_authority_lost"
+    if not generation_acceptable:
+        return "snapshot_generation_advanced"
+    return "renewed"
+
+
+def renew_generation_acceptable(current: float, requested: float) -> bool:
+    """Independent oracle for an in-flight FC03 rollover during renewal."""
+
+    if not 1.0 <= requested <= 16_000_000.0:
+        return False
+    return (
+        abs(current - requested) <= 0.01
+        or (
+            current > requested
+            and not (current >= 15_999_994.0 and requested <= 6.0)
+        )
+        or (requested >= 15_999_994.0 and current <= 6.0)
+    )
 
 
 def main() -> None:
@@ -135,6 +186,162 @@ def main() -> None:
     assert "create_write_multiple_command" in ems_writer
     assert "controller, 4300, values.size(), values" in ems_writer
     assert ".publish_state(" not in ems_writer
+    supervisor_api = settings.split("\napi:\n", 1)[1].split("\nsensor:\n", 1)[0]
+    assert supervisor_api.count(
+        "\n    - action: ems_supervisor_write_complete_block\n"
+    ) == 1
+    for field in (
+        "mode_code: int",
+        "self_use_soc: float",
+        "backup_soc: float",
+        "force_charge_soc: float",
+        "maximum_charge_power: float",
+        "force_discharge_soc: float",
+        "maximum_discharge_power: float",
+        "snapshot_generation: float",
+    ):
+        assert field in supervisor_api, field
+    assert "id: ems_write_complete_block_4300_4306" in supervisor_api
+    complete_action_start = supervisor_api.index(
+        "    - action: ems_supervisor_write_complete_block"
+    )
+    complete_action_end = supervisor_api.index(
+        "    - action: ems_supervisor_control_lease_challenge",
+        complete_action_start,
+    )
+    complete_action = supervisor_api[complete_action_start:complete_action_end]
+    assert "supports_response: optional" in complete_action
+    assert 'lambda: "return return_response;"' in complete_action
+    assert 'auto result = std::make_shared<std::string>("unknown");' in complete_action
+    assert 'root["schema_version"] = 1;' in complete_action
+    assert 'root["accepted"] = true;' in complete_action
+    assert 'root["accepted"] = false;' in complete_action
+    assert 'root["accepted"] = nullptr;' in complete_action
+    assert 'root["reason"] = *result;' in complete_action
+    assert "snapshot_generation, false, result" in complete_action
+
+    # Forced modes use one durable ESP-side lease and still enter the same
+    # full-block writer.  API connectivity alone is never a renewal source.
+    assert "action: ems_supervisor_control_lease_challenge" in supervisor_api
+    assert "action: ems_supervisor_write_complete_block_leased" in supervisor_api
+    assert "action: ems_supervisor_renew_control_lease" in supervisor_api
+    assert 'root["protocol_version"] = 2;' in supervisor_api
+    assert "lease_store_failed" in supervisor_api
+    assert "stale_or_invalid_nonce" in supervisor_api
+    assert "authorization_current" in supervisor_api
+    assert "snapshot_generation, true, dispatch" in supervisor_api
+    assert "api.connected" not in supervisor_api
+    assert "if ((requested_mode == 4 || requested_mode == 5) && !lease_context)" in ems_writer
+    assert 'report_dispatch("control_lease_required")' in ems_writer
+    assert "interval: 1s" in settings
+    assert "expired_wait_readback_after_reboot" in settings
+    assert "global_preferences->sync()" in settings
+    assert "std::array<uint32_t, 28>" in settings
+    assert "record[27] == crc32" in settings
+    assert "retarget_not_authorized" in supervisor_api
+    assert "command_generation > static_cast<int>(previous_record[5])" in supervisor_api
+    assert "record[20U + index] = retarget ? physical[index] : 0U" in supervisor_api
+    assert "active_owned && record[20] != 0U" in settings
+    assert "active_matches || predecessor_matches" in settings
+    assert "std::min<uint32_t>(120000U, hard_remaining)" in settings
+    assert "id(ems_control_lease_expiry_ms) = now_ms + remaining;" in settings
+    assert "authorization_seconds" in settings
+    assert "authorization_expired" in settings
+    assert settings.count("id(ems_control_lease_nonce_issued_ms)) <= 60000U;") == 1
+    assert settings.count("id(ems_control_lease_nonce_issued_ms)) <= 120000U;") == 1
+    assert "duplicate_response" in supervisor_api
+    assert "id(ems_control_lease_previous_nonce) = supplied_nonce;" in supervisor_api
+    assert "id(ems_control_lease_last_sequence) + 1U" in supervisor_api
+    renew_action = supervisor_api.split(
+        "    - action: ems_supervisor_renew_control_lease", 1
+    )[1].split("    - action: ems_supervisor_write_gcf_export_limit", 1)[0]
+    assert "const bool readback_fresh =" in renew_action
+    assert "const bool generation_same_or_newer =" in renew_action
+    assert "const bool generation_acceptable =" in renew_action
+    assert "current_generation > snapshot_generation" in renew_action
+    assert "snapshot_generation >= 15999994.0f" in renew_action
+    assert "current_generation <= 6.0f" in renew_action
+    assert renew_generation_acceptable(400.0, 400.0)
+    assert renew_generation_acceptable(401.0, 400.0)
+    assert renew_generation_acceptable(2.0, 15_999_998.0)
+    assert not renew_generation_acceptable(400.0, 401.0)
+    assert not renew_generation_acceptable(15_999_998.0, 2.0)
+    assert not renew_generation_acceptable(400.0, 0.0)
+    assert not renew_generation_acceptable(400.0, 16_000_001.0)
+    assert 'reason = "snapshot_generation_advanced";' in renew_action
+    assert renew_action.index('reason = "physical_authority_lost";') < (
+        renew_action.index('reason = "snapshot_generation_advanced";')
+    )
+    assert renew_decision(
+        generation_acceptable=False
+    ) == "snapshot_generation_advanced"
+    assert renew_decision(
+        generation_acceptable=False,
+        physical_matches=False,
+    ) == "physical_authority_lost"
+    assert renew_decision(
+        generation_acceptable=False,
+        requested_matches=False,
+    ) == "physical_authority_lost"
+    assert renew_decision(
+        generation_acceptable=False,
+        readback_fresh=False,
+    ) == "physical_authority_lost"
+    assert renew_decision(generation_acceptable=True) == "renewed"
+    duplicate_branch = supervisor_api.split("else if (duplicate_response)", 1)[1].split(
+        "} else {", 1
+    )[0]
+    assert "ems_control_lease_expiry_ms" not in duplicate_branch
+    assert 'root["queued"]' not in complete_action
+    assert complete_action.count("api.respond:") == 2
+    assert "dispatch_result: std::shared_ptr<std::string>" in ems_writer
+    refusal_reasons = (
+        "previous_write_pending",
+        "hardware_not_ready",
+        "generation_unavailable",
+        "stale_snapshot_generation",
+        "mode_unavailable",
+        "invalid_block",
+        "stale_snapshot",
+        "topology_unavailable",
+        "topology_invalid",
+        "topology_nonintegral",
+        "slave_topology",
+        "topology_unsupported",
+        "machine_count_unavailable",
+        "machine_count_invalid",
+        "machine_count_nonintegral",
+        "machine_count_out_of_range",
+    )
+    for reason in refusal_reasons:
+        assert ems_writer.count(f'report_dispatch("{reason}");') == 1, reason
+    assert ems_writer.count('report_dispatch("accepted");') == 2
+    addressed_dispatch = ems_writer.index("controller->queue_command(command);")
+    assert ems_writer.index('report_dispatch("accepted");', addressed_dispatch) > (
+        addressed_dispatch
+    )
+    broadcast_dispatch = ems_writer.index("id(modbus_1).send_raw(payload);")
+    assert ems_writer.index('report_dispatch("accepted");', broadcast_dispatch) > (
+        broadcast_dispatch
+    )
+    assert supervisor_api.count(
+        "action: ems_supervisor_write_gcf_export_limit"
+    ) == 1
+    assert supervisor_api.count(
+        "action: ems_supervisor_write_battery_charge_limit"
+    ) == 1
+    assert "id(gcf_control_readback_generation).state -" in supervisor_api
+    assert (
+        "id(battery_charge_power_readback_generation).state -" in supervisor_api
+    )
+    assert supervisor_api.count(
+        "id(direct_register_verified_readback_supported).state < 0.5f"
+    ) == 2
+    assert supervisor_api.count(
+        "std::fabs(machine_count - 1.0f) < 0.01f"
+    ) == 2
+    assert "id: gcf_export_soft_limit_ratio_259" in supervisor_api
+    assert "id: battery_max_charge_power_306" in supervisor_api
     ems_last_poll = platform_block(settings, "maximum_discharge_power_readback_4306")
     assert "id(ems_control_last_readback_ms) = millis();" in ems_last_poll
     assert "id(ems_control_last_readback_ms) = millis();" not in platform_block(
@@ -263,13 +470,15 @@ def main() -> None:
             ),
         ),
     }
-    assert settings.count(call_marker) == len(actuator_calls)
+    # Three additional invocations belong to the legacy API response, the
+    # leased API response, and the local expiry restore path.
+    assert settings.count(call_marker) == len(actuator_calls) + 3
     for component_id, (block, arguments) in actuator_calls.items():
         assert block.count(call_marker) == 1, component_id
         call_start = block.index(call_marker)
         call_end = block.index(");", call_start) + 2
         actual_call = re.sub(r"\s+", "", block[call_start:call_end])
-        expected_call = call_marker + ",".join(arguments) + ");"
+        expected_call = call_marker + ",".join((*arguments, "false", "nullptr")) + ");"
         assert actual_call == expected_call, component_id
         if component_id not in {
             "ems_mode_4300",
@@ -632,6 +841,17 @@ def main() -> None:
 
     soc_source = platform_block(battery, "battery_soc_1909")
     assert "modbus_controller_id: ${modbus_fast_controller_id}" in soc_source
+
+    # PV hold needs a new independent physical report even when BMS power
+    # remains exactly zero. No template heartbeat, extra entity or lost history.
+    bms_power = platform_block(battery, "battery_power_1914")
+    assert "platform: modbus_controller" in bms_power
+    assert "modbus_controller_id: ${modbus_fast_controller_id}" in bms_power
+    for required in ("register_type: read", "address: 1914", "value_type: S_DWORD",
+                     "force_update: true", "state_class: measurement"):
+        assert required in bms_power, required
+    for forbidden in ("lambda:", "heartbeat:", "skip_updates:", "internal: true"):
+        assert forbidden not in bms_power, forbidden
 
     # Capacity is stable, but every successful FC03 cycle must still publish a
     # physical report.  This prevents an unchanged 4102 setting from looking

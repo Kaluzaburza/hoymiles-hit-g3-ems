@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 import logging
+import math
 from statistics import median
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from homeassistant.components.sensor import SensorEntity
@@ -18,7 +19,6 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
-    async_track_state_report_event,
     async_track_time_interval,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -28,30 +28,48 @@ from homeassistant.util import dt as dt_util
 from .bounded_history import async_get_bounded_state_reports
 from .const import DOMAIN, NAME
 from .energy_data import numeric_state_sample, state_age_seconds
+from .ems_shared_inputs import (
+    NEW_BATTERY_TO_HOME_EFFICIENCY_HELPER,
+    qualified_load_history_is_usable,
+)
+from .ems_supervisor import ExportState, planned_grid_power_kw, planned_battery_grid_power_kw
 from .forecast_model import (
     ForecastLearningPolicy,
     adaptive_forecast_factor,
     blend_low_expected,
     forecast_factor_for_policy,
+    forecast_policy_for_source,
     forecast_learning_history_day_eligible,
+    qualified_cumulative_energy_day,
     robust_weighted_factor,
     uncertainty_risk_weight,
 )
 from .models import RuntimeData
+from .load_model import daily_ages_days, expected_load_by_slot
 from .optimizer_revision import (
     MAX_IMMEDIATE_RECALCULATIONS,
     OptimizerInputRevision,
     RCE_LOAD_BROKER_ATTRIBUTES,
     optimizer_input_fingerprint,
+    state_fingerprint,
+)
+from .pv_forecast_usability import (
+    SOLCAST_UPDATE_ENTITY_CANDIDATES,
+    evaluate_pv_forecast_usefulness,
+    resolve_solcast_update_state,
 )
 from .rce_sensor import (
     DAY3_FORECAST_CANDIDATES,
     DAY3_FORECAST_ENTITY_HELPER,
+    EMS_DAY3_FORECAST_ENTITY_HELPER,
+    EMS_INVERTER_RATED_POWER_HELPER,
+    EMS_TODAY_FORECAST_ENTITY_HELPER,
+    EMS_TOMORROW_FORECAST_ENTITY_HELPER,
     FORECAST_EMS_PACKAGE_VERSION_ENTITY,
     FORECAST_EXPORT_ALLOWED_ENTITY,
     FORECAST_ENTITY_HELPERS,
     FORECAST_GCF_POLICY_TRIGGER_ENTITIES,
-    FORECAST_GCF_COHORT_REPORT_ENTITIES,
+    LEGACY_INVERTER_RATED_POWER_HELPER,
     REMAINING_TODAY_CANDIDATES,
     TODAY_FORECAST_CANDIDATES,
     TODAY_FORECAST_ENTITY_HELPER,
@@ -62,15 +80,28 @@ from .rce_sensor import (
     _fallback_pv_map,
     _first_numeric_state,
     _FORECAST_GCF_READBACK_MAX_SKEW_SECONDS,
+    _live_forecast_gcf_optimizer_signature,
     _forecast_learning_policy_signature,
     _forecast_learning_policy_snapshot,
     _helper_minutes,
+    _preferred_number_helper,
+    _preferred_select_number,
+    _policy_numeric_sample,
+    _policy_stable_number,
+    _resolved_forecast_entity_id,
+    _shared_input_field,
+    _shared_inputs_snapshot,
+    _shared_optimizer_signature,
+    _shared_sample_value,
+    _SHARED_INPUT_MISSING,
     _select_number,
     _state_number,
     _state_text,
 )
 from .tariff_optimizer import (
+    TariffActiveCommitment,
     TariffOptimizerInput,
+    TariffOptimizerResult,
     TariffSchedule,
     floor_half_hour,
     horizon_gap_expensive_load_reserve_kwh,
@@ -81,6 +112,7 @@ from .tariff_optimizer import (
     robust_weighted_upper_estimate,
 )
 from .tariff_profiles import (
+    SUPPORTED_GROUPS,
     MANUAL_OPERATOR,
     PROFILE_YEAR,
     SUPPORTED_OPERATORS,
@@ -92,6 +124,7 @@ from .tariff_profiles import (
 
 _LOGGER = logging.getLogger(__name__)
 CHARGE_POWER_FEEDBACK_MIN_SAMPLES = 5
+CHARGE_POWER_FEEDBACK_VERSION = 3
 PLANNING_HORIZON_TARGET_HOURS = 48.0
 LIVE_PV_SURPLUS_MIN_KW = 0.20
 LIVE_PV_SURPLUS_STABLE_SECONDS = 5 * 60.0
@@ -100,6 +133,134 @@ SLOW_TELEMETRY_MAX_AGE_SECONDS = 300.0
 LOAD_BROKER_MAX_AGE_SECONDS = 300.0
 FORECAST_MAX_AGE_SECONDS = 18 * 60 * 60.0
 TARIFF_INPUT_RECALCULATION_DELAY_SECONDS = 5 * 60.0
+TARIFF_SHARED_BOOTSTRAP_RECALCULATION_DELAY_SECONDS = 1.0
+TARIFF_IMMEDIATE_RECALCULATION_DELAY_SECONDS = 1.0
+TARIFF_STALE_RESULT_RETRY_DELAY_SECONDS = 5.0
+TARIFF_FULL_OPTIMIZER_INTERVAL = timedelta(seconds=120)
+_LAST_COMPLETE_PLAN_GRACE_SECONDS = 15 * 60.0
+
+
+def _tariff_forecast_risk_weight(
+    learning_policy: ForecastLearningPolicy,
+    risk_weight: float,
+) -> float:
+    """Avoid stacking P10 on the complete fixed zero-export margin."""
+
+    if learning_policy.mode == "fixed_zero_export":
+        return 0.0
+    return min(max(float(risk_weight), 0.0), 1.0)
+
+
+def _tariff_export_state_from_shared_snapshot(snapshot: Any) -> ExportState:
+    """Map only a fresh, coherent physical GCF cohort to export meaning."""
+
+    gcf = getattr(snapshot, "gcf", None)
+    if gcf is None or getattr(gcf, "gcf_readback_ready", None) is not True:
+        return ExportState.UNVERIFIED
+    if getattr(gcf, "zero_export_confirmed", None) is True:
+        return ExportState.CONFIRMED_ZERO_EXPORT
+    if getattr(gcf, "export_allowed", None) is True:
+        return ExportState.VERIFIED_ALLOWED
+    return ExportState.UNVERIFIED
+
+
+def _tariff_shared_sample_control_signature(
+    sample: Any,
+    *,
+    include_value: bool,
+) -> tuple[Any, ...] | None:
+    """Fingerprint shared control identity without report-cadence fields."""
+
+    if sample is None:
+        return None
+    return (
+        getattr(sample, "value", None) if include_value else None,
+        getattr(sample, "entity_id", None),
+        tuple(getattr(sample, "source_entity_ids", ()) or ()),
+        getattr(sample, "selector_entity_id", None),
+        getattr(sample, "fresh", None),
+        getattr(sample, "reason", None),
+        getattr(sample, "quality", None),
+        getattr(sample, "provenance", None),
+    )
+
+
+def _tariff_shared_critical_signature(runtime: RuntimeData) -> tuple[Any, ...] | None:
+    """Return shared fields that must withdraw tariff authority immediately."""
+
+    snapshot = _shared_inputs_snapshot(runtime)
+    if snapshot is None:
+        return None
+    system = getattr(snapshot, "system", None)
+    load = getattr(snapshot, "load", None)
+    bms = getattr(snapshot, "bms", None)
+    efficiency = getattr(snapshot, "efficiency", None)
+    gcf = getattr(snapshot, "gcf", None)
+    return (
+        getattr(snapshot, "schema_version", None),
+        getattr(snapshot, "config_entry_id", None),
+        getattr(load, "ready", None),
+        *(
+            _tariff_shared_sample_control_signature(
+                getattr(system, field_name, None),
+                include_value=True,
+            )
+            for field_name in (
+                "battery_capacity_kwh",
+                "inverter_count",
+                "inverter_rated_power_each_kw",
+                "system_rated_power_kw",
+            )
+        ),
+        *(
+            _tariff_shared_sample_control_signature(
+                getattr(bms, field_name, None),
+                include_value=False,
+            )
+            for field_name in (
+                "voltage_v",
+                "maximum_charge_current_a",
+                "maximum_discharge_current_a",
+                "maximum_charge_power_kw",
+                "maximum_discharge_power_kw",
+            )
+        ),
+        _tariff_shared_sample_control_signature(
+            getattr(efficiency, "battery_to_home_efficiency", None),
+            include_value=True,
+        ),
+        *(
+            _tariff_shared_sample_control_signature(
+                getattr(gcf, field_name, None),
+                include_value=False,
+            )
+            for field_name in (
+                "hardware_readback_supported",
+                "generation",
+                "enable_code",
+                "maximum_export_power_percent",
+            )
+        ),
+    )
+
+
+def _tariff_immediate_input_fingerprint(
+    hass: HomeAssistant,
+    entity_ids: set[str] | frozenset[str],
+) -> tuple[tuple[str, tuple[Any, ...] | None], ...]:
+    """Fingerprint immediate inputs without report-cadence timestamps."""
+
+    return tuple(
+        (
+            entity_id,
+            state_fingerprint(
+                hass.states.get(entity_id),
+                include_last_updated=False,
+            ),
+        )
+        for entity_id in sorted(entity_ids)
+    )
+
 
 WATCHED_TARIFF_ENTITIES = {
     "sensor.hoymiles_hit_rce_optimized_plan",
@@ -119,7 +280,8 @@ WATCHED_TARIFF_ENTITIES = {
     "input_boolean.hoymiles_tariff_polish_holidays_low_price",
     "input_select.hoymiles_tariff_operator",
     "input_select.hoymiles_tariff_type",
-    "input_select.hoymiles_rce_inverter_rated_power",
+    EMS_INVERTER_RATED_POWER_HELPER,
+    LEGACY_INVERTER_RATED_POWER_HELPER,
     "input_number.hoymiles_tariff_g11_price",
     "input_number.hoymiles_tariff_low_price",
     "input_number.hoymiles_tariff_medium_price",
@@ -130,6 +292,8 @@ WATCHED_TARIFF_ENTITIES = {
     "input_number.hoymiles_tariff_minimum_saving",
     "input_number.hoymiles_tariff_soc_safety_margin",
     "input_number.hoymiles_tariff_maximum_soc",
+    NEW_BATTERY_TO_HOME_EFFICIENCY_HELPER,
+    "input_number.hoymiles_ems_fallback_daily_home_load",
     "input_number.hoymiles_rce_fallback_daily_load",
     "input_datetime.hoymiles_tariff_cheap_1_start",
     "input_datetime.hoymiles_tariff_cheap_1_end",
@@ -138,6 +302,7 @@ WATCHED_TARIFF_ENTITIES = {
     "input_datetime.hoymiles_tariff_medium_start",
     "input_datetime.hoymiles_tariff_medium_end",
     *FORECAST_ENTITY_HELPERS,
+    *SOLCAST_UPDATE_ENTITY_CANDIDATES,
     "sun.sun",
     *TODAY_FORECAST_CANDIDATES,
     *TOMORROW_FORECAST_CANDIDATES,
@@ -146,18 +311,23 @@ WATCHED_TARIFF_ENTITIES = {
 }
 
 # These planning inputs change continuously or arrive in forecast batches.
-# The five-minute optimizer timer samples them as one coherent snapshot instead
-# of withdrawing an accepted plan on every HA state event.  User settings,
-# topology and BMS capability inputs remain event-driven and fail closed.
+# The 120-second optimizer timer samples them as one coherent snapshot instead
+# of withdrawing an accepted plan on every HA state event.  User settings and
+# topology remain event-driven; live BMS capability is independently enforced
+# by execution gates and is sampled with the next plan snapshot.
 TARIFF_FIVE_MINUTE_COALESCED_ENTITIES = {
     "sensor.hoymiles_hit_rce_optimized_plan",
+    "sensor.hoymiles_hit_battery_capacity",
     "sensor.hoymiles_hit_overview_battery_soc",
     "sensor.hoymiles_hit_battery_voltage_bms",
+    "sensor.hoymiles_hit_maximum_charge_current",
+    "sensor.hoymiles_hit_maximum_discharge_current",
     "sensor.hoymiles_hit_pv_total_energy_today",
     "sensor.hoymiles_hit_overview_battery_power",
     "sensor.hoymiles_actual_load_power",
     "sensor.hoymiles_hit_overview_pv_total_power",
-    *FORECAST_ENTITY_HELPERS,
+    "sensor.hoymiles_hit_ems_self_use_soc_readback",
+    "sensor.hoymiles_hit_number_of_machines_master_and_slave",
     "sun.sun",
     *TODAY_FORECAST_CANDIDATES,
     *TOMORROW_FORECAST_CANDIDATES,
@@ -167,6 +337,14 @@ TARIFF_FIVE_MINUTE_COALESCED_ENTITIES = {
 TARIFF_EVENT_DRIVEN_ENTITIES = (
     WATCHED_TARIFF_ENTITIES - TARIFF_FIVE_MINUTE_COALESCED_ENTITIES
 )
+TARIFF_REQUIRED_INPUT_RECOVERY_ENTITIES = frozenset(
+    {
+        "sensor.hoymiles_hit_battery_capacity",
+        "sensor.hoymiles_hit_overview_battery_soc",
+        "sensor.hoymiles_hit_ems_self_use_soc_readback",
+        "sensor.hoymiles_hit_number_of_machines_master_and_slave",
+    }
+)
 
 # These execution states are sampled only by the one-minute delivered-power
 # feedback pass below. They do not participate in optimizer mathematics and
@@ -174,10 +352,12 @@ TARIFF_EVENT_DRIVEN_ENTITIES = (
 TARIFF_EXECUTION_FEEDBACK_ENTITIES = frozenset(
     {
         "input_boolean.hoymiles_tariff_charge_active",
+        "input_text.hoymiles_tariff_active_action",
+        "sensor.hoymiles_ems_control_owner",
         "sensor.hoymiles_hit_ems_mode_readback_code",
+        "sensor.hoymiles_hit_ems_control_readback_generation",
         "sensor.hoymiles_hit_grid_to_battery_power",
-        "sensor.hoymiles_hit_overview_load_active_power",
-        "sensor.hoymiles_tariff_grid_charge_power",
+        "sensor.hoymiles_hit_overview_grid_total_active_power",
     }
 )
 
@@ -254,6 +434,28 @@ def _state_age_seconds(
     return state_age_seconds(state, now or dt_util.utcnow())
 
 
+def _rce_load_broker_fingerprint(
+    state: State | None,
+    *,
+    include_last_reported: bool,
+) -> tuple[Any, ...]:
+    """Fingerprint the exact legacy LOAD-broker facts tariff consumes."""
+
+    available = bool(
+        state is not None
+        and state.state not in {STATE_UNKNOWN, STATE_UNAVAILABLE, "none"}
+    )
+    return (
+        available,
+        state_fingerprint(
+            state,
+            attributes=RCE_LOAD_BROKER_ATTRIBUTES,
+            include_state=False,
+            include_last_updated=include_last_reported,
+        ),
+    )
+
+
 def _number_sample(
     hass: HomeAssistant,
     entity_id: str,
@@ -262,14 +464,32 @@ def _number_sample(
     max_age_seconds: float,
     minimum: float | None = None,
     maximum: float | None = None,
+    runtime: RuntimeData | None = None,
+    shared_section: str | None = None,
+    shared_field: str | None = None,
 ) -> tuple[float | None, bool, float | None]:
     """Return numeric value, freshness and age without treating zero as absent."""
-    sample = numeric_state_sample(
-        hass.states.get(entity_id),
-        now,
-        max_age_seconds=max_age_seconds,
-        minimum=minimum,
-        maximum=maximum,
+    sample = (
+        _policy_numeric_sample(
+            runtime,
+            shared_section,
+            shared_field,
+            hass.states.get(entity_id),
+            now,
+            max_age_seconds=max_age_seconds,
+            minimum=minimum,
+            maximum=maximum,
+        )
+        if runtime is not None
+        and shared_section is not None
+        and shared_field is not None
+        else numeric_state_sample(
+            hass.states.get(entity_id),
+            now,
+            max_age_seconds=max_age_seconds,
+            minimum=minimum,
+            maximum=maximum,
+        )
     )
     return (
         sample.value,
@@ -303,8 +523,26 @@ def _fresh_power_sample(
     *,
     max_age_seconds: float = 120.0,
     non_negative: bool = True,
+    now: datetime | None = None,
+    runtime: RuntimeData | None = None,
+    shared_field: str | None = None,
 ) -> tuple[float | None, float | None, str]:
     """Return live kW, age and a stable source reason for diagnostics."""
+    if runtime is not None and shared_field is not None:
+        sample = _policy_numeric_sample(
+            runtime,
+            "power",
+            shared_field,
+            hass.states.get(entity_id),
+            now or dt_util.utcnow(),
+            max_age_seconds=max_age_seconds,
+            shared_scale=1.0,
+            legacy_scale=0.001,
+            minimum=0.0 if non_negative else None,
+        )
+        if sample.fresh and sample.value is not None:
+            return sample.value, sample.age_seconds, "live"
+        return None, sample.age_seconds, sample.reason
     state = hass.states.get(entity_id)
     if state is None:
         return None, None, "missing"
@@ -324,6 +562,27 @@ def _fresh_power_sample(
             return None, age, "invalid_negative"
         return None, age, "stale"
     return value, age, "live"
+
+
+def _shared_fallback_profile_ready(
+    shared_load: Any,
+    daily_load: float | None,
+) -> bool:
+    """Validate current fallback authority independently of history age."""
+
+    fallback = getattr(shared_load, "fallback_daily_home_load_kwh", None)
+    fallback_value = getattr(fallback, "value", None)
+    return bool(
+        getattr(shared_load, "fallback_currently_used", False) is True
+        and getattr(shared_load, "ready", False) is True
+        and getattr(fallback, "fresh", False) is True
+        and type(fallback_value) in {int, float}
+        and math.isfinite(float(fallback_value))
+        and float(fallback_value) > 0.0
+        and type(daily_load) in {int, float}
+        and math.isfinite(float(daily_load))
+        and abs(float(daily_load) - float(fallback_value)) <= 1e-6
+    )
 
 
 def _state_attribute_profile(
@@ -463,15 +722,25 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         hass: HomeAssistant,
         entry: ConfigEntry,
         runtime: RuntimeData,
+        rce_plan_source: SensorEntity | None = None,
     ) -> None:
         self.hass = hass
         self._entry = entry
         self._runtime = runtime
+        self._rce_plan_source = rce_plan_source
+        self._active_commitment_source: (
+            Callable[[datetime], TariffActiveCommitment | None] | None
+        ) = None
         self._attr_unique_id = f"{entry.entry_id}_tariff_charge_plan"
+        self._result: TariffOptimizerResult | None = None
+        self._pstryk = None
+        self._timeline_sensor: Any | None = None
+        self._timeline_metadata: dict[str, Any] = {}
         self._attributes: dict[str, Any] = {
             "status_code": "missing_data",
             "missing_entities": [],
             "planned_slots": [],
+            "current_run_need_class": "none",
             "current_run_start_eligible": False,
             "current_run_suppression_reason": "live_data_missing",
             "current_run_continue_eligible": False,
@@ -498,15 +767,32 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         self._effective_charge_power_source = "configured"
         self._charge_power_feedback_last_ratio: float | None = None
         self._charge_power_feedback_last_sample_at: datetime | None = None
+        self._charge_power_feedback_last_evidence_fingerprint: str | None = None
         self._plan_signature: tuple[Any, ...] | None = None
         self._plan_changed_at: datetime | None = None
         self._current_run_intent_signature: tuple[Any, ...] | None = None
         self._current_run_intent_changed_at: datetime | None = None
+        self._last_input_change_reason: str | None = None
+        self._last_input_change_previous_value: str | None = None
+        self._last_input_change_new_value: str | None = None
         self._live_pv_surplus_started_at: datetime | None = None
         self._startup_warmup_task: asyncio.Task[None] | None = None
+        self._shared_inputs_bootstrap_seen = False
+        self._shared_inputs_dirty = False
+        self._shared_inputs_critical_signature = _tariff_shared_critical_signature(
+            runtime
+        )
+        shared_snapshot = _shared_inputs_snapshot(runtime)
+        self._shared_inputs_load_ready = getattr(
+            getattr(shared_snapshot, "load", None),
+            "ready",
+            None,
+        )
         self._forecast_policy_refresh_task: asyncio.Task[None] | None = None
         self._recalculate_cancel = None
+        self._stale_result_retry_cancel = None
         self._delayed_recalculate_tasks: set[asyncio.Task[None]] = set()
+        self._required_input_recovery_pending = False
         self._lifecycle_stopped = False
         self._dynamic_forecast_entities: frozenset[str] = frozenset()
         self._dynamic_forecast_unsub = None
@@ -516,13 +802,128 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         self._forecast_gcf_policy_evaluation_cancel = None
         self._optimizer_lock = asyncio.Lock()
         self._input_revision = OptimizerInputRevision()
+        self._full_plan_rejected_for_input_drift = False
+        self._full_plan_solver_calls = 0
+        self._last_full_plan_at: datetime | None = None
+        self._full_plan_trigger = "startup"
         self._attributes.update(
             {
                 "result_current": False,
                 "recalculation_pending": True,
                 "input_revision": 0,
+                "full_plan_solver_calls": 0,
+                "last_full_plan_at": None,
+                "last_full_plan_trigger": "startup",
             }
         )
+
+    def attach_timeline_sensor(self, timeline_sensor: Any) -> None:
+        """Bind the one entry-local observation-only timeline publisher."""
+
+        if self._timeline_sensor is not None and self._timeline_sensor is not timeline_sensor:
+            raise RuntimeError("tariff timeline sensor already attached")
+        self._timeline_sensor = timeline_sensor
+
+    def attach_rce_plan_source(self, rce_plan_source: SensorEntity) -> None:
+        """Bind the exact same-entry LOAD broker before entity registration."""
+
+        source_entry = getattr(rce_plan_source, "_entry", None)
+        if source_entry is None or source_entry.entry_id != self._entry.entry_id:
+            raise RuntimeError("tariff LOAD broker belongs to another entry")
+        self._rce_plan_source = rce_plan_source
+
+    def attach_supervisor_commitment_source(self, supervisor: SensorEntity) -> None:
+        """Bind the exact same-entry authoritative execution snapshot."""
+
+        source_entry = getattr(supervisor, "_entry", None)
+        source = getattr(supervisor, "current_tariff_active_commitment", None)
+        if (
+            source_entry is None
+            or source_entry.entry_id != self._entry.entry_id
+            or not callable(source)
+        ):
+            raise RuntimeError("tariff commitment source belongs to another entry")
+        if self._active_commitment_source is not None:
+            raise RuntimeError("tariff commitment source is already attached")
+        self._active_commitment_source = source
+        self._active_commitment_cohort_source = getattr(supervisor, 'rce_commitment_cohort_pending', None)
+
+    async def _async_wait_active_tariff_commitment_cohort(self) -> bool:
+        """Let the shared FC03 coalescer finish; never grant execution proof."""
+        pending = getattr(self, '_active_commitment_cohort_source', None)
+        if pending is None:
+            return True
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 0.5
+        while pending():
+            if self._lifecycle_stopped or loop.time() >= deadline:
+                return False
+            await asyncio.sleep(min(0.05, deadline-loop.time()))
+        return True
+
+    @callback
+    def _active_tariff_commitment(
+        self,
+        now: datetime,
+    ) -> TariffActiveCommitment | None:
+        """Read one fail-closed immutable Supervisor commitment."""
+
+        source = self._active_commitment_source
+        if source is None:
+            return None
+        try:
+            commitment = source(now)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        return (
+            commitment
+            if isinstance(commitment, TariffActiveCommitment)
+            else None
+        )
+
+    @callback
+    def _publish_timeline_result(self) -> None:
+        """Publish only the result committed for this exact input revision."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            self._pstryk.publish_timeline(self)
+            return
+
+        if self._timeline_sensor is None:
+            return
+        if self._result is None:
+            self._timeline_sensor.publish_unavailable(
+                input_revision=self._input_revision.value,
+                blocker_code=str(
+                    self._attributes.get("status_code", "missing_data")
+                ),
+            )
+            return
+        if not self._result.physical_dispatch_available:
+            self._timeline_sensor.publish_unavailable(
+                input_revision=self._input_revision.value,
+                blocker_code=self._result.physical_dispatch_block_reason,
+            )
+            return
+        self._timeline_sensor.publish_current(
+            self._result.timeline_trace,
+            input_revision=self._input_revision.value,
+            metadata=self._timeline_metadata,
+        )
+
+    def _same_entry_rce_plan_state(self) -> State | None:
+        """Return only the exact RCE broker object wired for this config entry."""
+
+        source = getattr(self, "_rce_plan_source", None)
+        source_entry = getattr(source, "_entry", None)
+        entity_id = getattr(source, "entity_id", None)
+        if (
+            source is None
+            or source_entry is None
+            or source_entry.entry_id != self._entry.entry_id
+            or not isinstance(entity_id, str)
+        ):
+            return None
+        return self.hass.states.get(entity_id)
 
     @property
     def suggested_object_id(self) -> str:
@@ -543,6 +944,11 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
     def native_value(self) -> str:
         language = "pl" if self.hass.config.language.startswith("pl") else "en"
         code = str(self._attributes.get("status_code", "missing_data"))
+        if self._attributes.get("price_provider") == "Pstryk":
+            if self._attributes.get("recalculation_pending") is True:
+                return "Przeliczanie planu Pstryk" if language == "pl" else "Recalculating the Pstryk plan"
+            if self._attributes.get("result_current") is True and not self._attributes.get("planned_slots"):
+                return "Brak zaplanowanego zakupu — autokonsumpcja" if language == "pl" else "No scheduled purchase — self-consumption"
         return STATUS_TEXT[language].get(
             code,
             STATUS_TEXT[language]["optimizer_error"],
@@ -554,10 +960,46 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        listen_shared = getattr(
+            getattr(self._runtime, "shared_inputs", None),
+            "async_listen",
+            None,
+        )
+        if callable(listen_shared):
+            self.async_on_remove(listen_shared(self._async_shared_inputs_changed))
+        rce_broker_entity_id = getattr(
+            getattr(self, "_rce_plan_source", None),
+            "entity_id",
+            None,
+        )
+        if (
+            isinstance(rce_broker_entity_id, str)
+            and rce_broker_entity_id not in TARIFF_EVENT_DRIVEN_ENTITIES
+        ):
+            # The generic watched set deliberately coalesces the RCE entity
+            # because its regular publication carries live/diagnostic churn.
+            # This separate same-entry listener consumes only the explicit
+            # load-model projection in _invalidate_input_event(), so a new
+            # generated_at/report timestamp cannot start a tariff solver.
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    (rce_broker_entity_id,),
+                    self._async_rce_broker_changed,
+                )
+            )
+        attach_tariff_listener = getattr(
+            getattr(self, "_rce_plan_source", None),
+            "attach_tariff_plan_listener",
+            None,
+        )
+        if callable(attach_tariff_listener):
+            attach_tariff_listener()
         restored = await self.async_get_last_state()
         if (
             restored is not None
-            and restored.attributes.get("charge_power_feedback_version") == 1
+            and restored.attributes.get("charge_power_feedback_version")
+            == CHARGE_POWER_FEEDBACK_VERSION
         ):
             try:
                 factor = float(
@@ -608,9 +1050,17 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 self._async_input_changed,
             )
         )
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                sorted(TARIFF_REQUIRED_INPUT_RECOVERY_ENTITIES),
+                self._async_required_input_recovered,
+            )
+        )
         current_policy, _ = _forecast_learning_policy_snapshot(
             self.hass,
             dt_util.now(),
+            getattr(self, "_runtime", None),
         )
         self._forecast_gcf_policy_signature = (
             _forecast_learning_policy_signature(current_policy)
@@ -619,13 +1069,6 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             async_track_state_change_event(
                 self.hass,
                 FORECAST_GCF_POLICY_TRIGGER_ENTITIES,
-                self._async_forecast_gcf_policy_changed,
-            )
-        )
-        self.async_on_remove(
-            async_track_state_report_event(
-                self.hass,
-                FORECAST_GCF_COHORT_REPORT_ENTITIES,
                 self._async_forecast_gcf_policy_changed,
             )
         )
@@ -647,7 +1090,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             async_track_time_interval(
                 self.hass,
                 self._async_timer,
-                timedelta(minutes=5),
+                TARIFF_FULL_OPTIMIZER_INTERVAL,
             )
         )
         self.async_on_remove(
@@ -680,6 +1123,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         """Warm Recorder models after the fail-closed entity is registered."""
         try:
             await self._async_refresh_forecast_accuracy()
+            self._full_plan_trigger = "startup"
             self._invalidate_internal_inputs()
             await self._recalculate_and_write()
         except asyncio.CancelledError:
@@ -691,6 +1135,8 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
     def _configured_forecast_source_ids(self) -> frozenset[str]:
         """Return configured sources without allowing a self-reference."""
         targets = _configured_forecast_entity_ids(self.hass)
+        if _shared_inputs_snapshot(self._runtime) is not None:
+            targets = _configured_forecast_entity_ids(self.hass, self._runtime)
         own_entity_id = getattr(self, "entity_id", None)
         return (
             targets - {own_entity_id}
@@ -714,8 +1160,18 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             self._dynamic_forecast_unsub = async_track_state_change_event(
                 self.hass,
                 sorted(targets),
-                self._async_input_changed,
+                self._async_forecast_value_changed,
             )
+
+    @callback
+    def _async_forecast_value_changed(
+        self,
+        _event: Event[EventStateChangedData],
+    ) -> None:
+        """Collect forecast value churn for the next 120-second snapshot."""
+
+        if not self._lifecycle_stopped:
+            self._shared_inputs_dirty = True
 
     @callback
     def _remove_dynamic_forecast_listener(self) -> None:
@@ -727,19 +1183,123 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
 
     @callback
     def _current_input_fingerprint(self) -> tuple[Any, ...]:
-        """Return the exact watched snapshot used to certify publication."""
-        return optimizer_input_fingerprint(
-            self.hass,
-            (
-                WATCHED_TARIFF_ENTITIES
-                | self._configured_forecast_source_ids()
-            ),
-            attribute_projections={
-                "sensor.hoymiles_hit_rce_optimized_plan": (
-                    RCE_LOAD_BROKER_ATTRIBUTES
-                ),
-            },
+        """Certify every value and provenance consumed by this solver run."""
+
+        rce_entity_id = getattr(
+            getattr(self, "_rce_plan_source", None),
+            "entity_id",
+            None,
         )
+        # Coalesced physical/forecast values are intentionally frozen for one
+        # solver pass.  Their next broker revision is consumed by the bounded
+        # periodic pass; requiring continuously changing telemetry to remain
+        # byte-identical here can otherwise reject every slow tariff solve.
+        # User settings and source selectors remain immediate publication
+        # guards, while the critical shared signature preserves fail-closed
+        # capability/readback checks.
+        watched_entities = set(
+            TARIFF_EVENT_DRIVEN_ENTITIES
+        )
+        watched_entities.discard("sensor.hoymiles_hit_rce_optimized_plan")
+        shared_snapshot = (
+            _shared_inputs_snapshot(self._runtime)
+            if hasattr(self, "_runtime")
+            else None
+        )
+        # The legacy exact-entry RCE entity supplies the LOAD profile only when
+        # the immutable Shared EMS LOAD broker is unavailable.
+        use_rce_counterpart = bool(
+            getattr(shared_snapshot, "load", None) is None
+            and isinstance(rce_entity_id, str)
+        )
+        if use_rce_counterpart:
+            watched_entities.add(rce_entity_id)
+        fingerprint = optimizer_input_fingerprint(
+            self.hass,
+            watched_entities,
+            attribute_projections=(
+                {rce_entity_id: RCE_LOAD_BROKER_ATTRIBUTES}
+                if use_rce_counterpart
+                else {}
+            ),
+        )
+        if use_rce_counterpart:
+            fingerprint = (
+                *fingerprint,
+                (
+                    "__legacy_rce_load_broker__",
+                    _rce_load_broker_fingerprint(
+                        self.hass.states.get(rce_entity_id),
+                        include_last_reported=True,
+                    ),
+                ),
+            )
+        critical_signature = (
+            _tariff_shared_critical_signature(self._runtime)
+            if hasattr(self, "_runtime")
+            else None
+        )
+        gcf_signature = _live_forecast_gcf_optimizer_signature(
+            self.hass,
+            getattr(self, "_runtime", None),
+        )
+        charge_power_feedback_signature = (
+            getattr(self, "_effective_charge_power_factor", None),
+            getattr(self, "_effective_charge_power_source", None),
+        )
+        active_commitment_reader = getattr(
+            self,
+            "_active_tariff_commitment",
+            None,
+        )
+        active_commitment = (
+            active_commitment_reader(dt_util.utcnow())
+            if callable(active_commitment_reader)
+            else None
+        )
+        active_commitment_signature = (
+            (
+                active_commitment.transaction_id,
+                active_commitment.action,
+                active_commitment.started_at.isoformat(),
+                active_commitment.hard_deadline.isoformat(),
+                active_commitment.target_soc_percent,
+                active_commitment.maximum_charge_power_percent,
+            )
+            if active_commitment is not None
+            else None
+        )
+        return (
+            *fingerprint,
+            ("__shared_ems_inputs_critical__", critical_signature),
+            ("__forecast_gcf_optimizer__", gcf_signature),
+            ("__charge_power_feedback__", charge_power_feedback_signature),
+            ("__active_tariff_commitment__", active_commitment_signature),
+        )
+
+    @callback
+    def _reject_stale_executor_result(
+        self,
+        captured_revision: int,
+        captured_fingerprint: tuple[Any, ...],
+    ) -> bool:
+        """Reject stale work and account for unreported fingerprint drift."""
+
+        revision_current = self._input_revision.is_current(captured_revision)
+        fingerprint_current = (
+            captured_fingerprint == self._current_input_fingerprint()
+        )
+        if revision_current and fingerprint_current:
+            return False
+        self._full_plan_rejected_for_input_drift = True
+        if revision_current:
+            # A publication-critical input changed before its HA callback
+            # advanced the revision.  Account for that drift exactly once so
+            # the immediate retry certifies a new revision.
+            self._invalidate_internal_inputs()
+        else:
+            self._mark_recalculation_pending()
+        return True
 
     @callback
     def _invalidate_input_event(
@@ -748,17 +1308,29 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
     ) -> bool:
         """Invalidate only when a value consumed by this optimizer changed."""
         entity_id = event.data["entity_id"]
-        counterpart = entity_id == "sensor.hoymiles_hit_rce_optimized_plan"
-        changed = self._input_revision.invalidate_state_change(
-            event.data.get("old_state"),
-            event.data.get("new_state"),
-            attributes=(RCE_LOAD_BROKER_ATTRIBUTES if counterpart else None),
-            include_state=not counterpart,
-            # A fresh report with the same value extends provenance freshness;
-            # it does not change optimizer mathematics.  Availability, state
-            # and consumed attributes remain immediate fail-closed inputs.
-            include_last_updated=False,
+        counterpart = entity_id == getattr(
+            getattr(self, "_rce_plan_source", None),
+            "entity_id",
+            None,
         )
+        if counterpart:
+            changed = _rce_load_broker_fingerprint(
+                event.data.get("old_state"),
+                include_last_reported=False,
+            ) != _rce_load_broker_fingerprint(
+                event.data.get("new_state"),
+                include_last_reported=False,
+            )
+            if changed:
+                self._input_revision.invalidate()
+        else:
+            changed = self._input_revision.invalidate_state_change(
+                event.data.get("old_state"),
+                event.data.get("new_state"),
+                # A fresh report with the same value extends provenance
+                # freshness; it does not change optimizer mathematics.
+                include_last_updated=False,
+            )
         if changed:
             self._mark_recalculation_pending()
         return changed
@@ -772,10 +1344,16 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
     @callback
     def _mark_recalculation_pending(self) -> None:
         """Withdraw execution authority once while a replacement is pending."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            self._pstryk.invalidate()
+            return
+        self._cancel_stale_result_retry()
         if (
             self._attributes.get("result_current") is False
             and self._attributes.get("recalculation_pending") is True
         ):
+            if self._timeline_sensor is not None:
+                self._timeline_sensor.publish_pending(self._input_revision.value)
             return
         self._attributes = {
             **self._attributes,
@@ -783,6 +1361,8 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "recalculation_pending": True,
         }
         self.async_write_ha_state()
+        if self._timeline_sensor is not None:
+            self._timeline_sensor.publish_pending(self._input_revision.value)
 
     @callback
     def _mark_result_current(self) -> None:
@@ -796,7 +1376,8 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
 
     @callback
     def _async_input_changed(self, event: Event[EventStateChangedData]) -> None:
-        if event.data["entity_id"] in FORECAST_ENTITY_HELPERS:
+        entity_id = event.data["entity_id"]
+        if entity_id in FORECAST_ENTITY_HELPERS:
             self._refresh_dynamic_forecast_listener()
         # Solcast may finish loading a few seconds after this integration.
         # When the first startup calibration found no forecast entity, retry
@@ -821,12 +1402,200 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             self.async_on_remove(task.cancel)
         if not self._invalidate_input_event(event):
             return
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
+        self._last_input_change_reason = (
+            "user_fallback_changed"
+            if entity_id in {
+                "input_number.hoymiles_ems_fallback_daily_home_load",
+                "input_number.hoymiles_rce_fallback_daily_load",
+            }
+            else f"source_changed:{entity_id}"
+        )
+        self._last_input_change_previous_value = (
+            str(old_state.state)[:80] if old_state is not None else None
+        )
+        self._last_input_change_new_value = (
+            str(new_state.state)[:80] if new_state is not None else None
+        )
+        self._attributes = {
+            **self._attributes,
+            "input_change_reason": self._last_input_change_reason,
+            "input_change_previous_value": self._last_input_change_previous_value,
+            "input_change_new_value": self._last_input_change_new_value,
+        }
+        self._full_plan_trigger = "immediate_input"
         if not self._lifecycle_stopped and self._recalculate_cancel is None:
             self._recalculate_cancel = async_call_later(
                 self.hass,
-                TARIFF_INPUT_RECALCULATION_DELAY_SECONDS,
+                # This listener contains settings, tariff/profile and new
+                # forecast-source events only. Fast physical inputs are kept
+                # out of it by TARIFF_FIVE_MINUTE_COALESCED_ENTITIES.
+                TARIFF_IMMEDIATE_RECALCULATION_DELAY_SECONDS,
                 self._async_debounced_recalculate,
             )
+
+    @callback
+    def _async_required_input_recovered(
+        self,
+        event: Event[EventStateChangedData],
+    ) -> None:
+        """Retry only when a source missing from the last plan becomes usable."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.ignore_event(event.data["entity_id"]):
+            return
+
+        entity_id = event.data["entity_id"]
+        if entity_id not in set(
+            self._attributes.get("missing_entities", ()) or ()
+        ):
+            return
+        new_state = event.data.get("new_state")
+        try:
+            value = float(new_state.state) if new_state is not None else math.nan
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(value):
+            return
+        self._schedule_available_required_input_recovery()
+
+    @callback
+    def _schedule_available_required_input_recovery(self) -> None:
+        """Arm one bounded retry for fresh, previously missing physical inputs."""
+
+        if self._lifecycle_stopped or self._required_input_recovery_pending:
+            return
+        missing_entities = set(
+            self._attributes.get("missing_entities", ()) or ()
+        )
+        now = dt_util.now()
+        bounds = {
+            "sensor.hoymiles_hit_battery_capacity": (0.001, 10_000.0),
+            "sensor.hoymiles_hit_overview_battery_soc": (0.0, 100.0),
+            "sensor.hoymiles_hit_ems_self_use_soc_readback": (10.0, 100.0),
+            "sensor.hoymiles_hit_number_of_machines_master_and_slave": (
+                1.0,
+                10.0,
+            ),
+        }
+        recovered = False
+        for entity_id in TARIFF_REQUIRED_INPUT_RECOVERY_ENTITIES & missing_entities:
+            minimum, maximum = bounds[entity_id]
+            sample = numeric_state_sample(
+                self.hass.states.get(entity_id),
+                now,
+                max_age_seconds=SLOW_TELEMETRY_MAX_AGE_SECONDS,
+                minimum=minimum,
+                maximum=maximum,
+            )
+            if sample.fresh:
+                recovered = True
+                break
+        if not recovered:
+            return
+
+        self._required_input_recovery_pending = True
+        self._full_plan_trigger = "required_input_recovered"
+        self._invalidate_internal_inputs()
+        if self._recalculate_cancel is not None:
+            self._recalculate_cancel()
+        delay = (
+            _FORECAST_GCF_READBACK_MAX_SKEW_SECONDS
+            + TARIFF_IMMEDIATE_RECALCULATION_DELAY_SECONDS
+            if self._forecast_gcf_policy_evaluation_cancel is not None
+            else TARIFF_IMMEDIATE_RECALCULATION_DELAY_SECONDS
+        )
+        self._recalculate_cancel = async_call_later(
+            self.hass,
+            delay,
+            self._async_debounced_recalculate,
+        )
+
+    @callback
+    def _async_rce_broker_changed(
+        self,
+        event: Event[EventStateChangedData],
+    ) -> None:
+        """React once to a material same-entry RCE load-model update.
+
+        _invalidate_input_event() deliberately projects only
+        RCE_LOAD_BROKER_ATTRIBUTES for this source.  It therefore ignores
+        the source state, generated/report timestamps, pending diagnostics and
+        all other RCE plan attributes before arming this one-second debounce.
+        """
+
+        shared_snapshot = _shared_inputs_snapshot(
+            getattr(self, "_runtime", None)
+        )
+        if getattr(shared_snapshot, "load", None) is not None:
+            # Shared EMS is the authoritative LOAD source in this mode.  The
+            # legacy RCE broker is not consumed by _optimizer_input(), so its
+            # publication must not create a second tariff run beside the
+            # bounded Shared EMS/periodic snapshot.
+            return
+
+        if not self._invalidate_input_event(event):
+            return
+        self._full_plan_trigger = "rce_load_broker"
+        if not self._lifecycle_stopped and self._recalculate_cancel is None:
+            self._recalculate_cancel = async_call_later(
+                self.hass,
+                TARIFF_IMMEDIATE_RECALCULATION_DELAY_SECONDS,
+                self._async_debounced_recalculate,
+            )
+
+    @callback
+    def _async_shared_inputs_changed(self) -> None:
+        """Coalesce broker revisions without withdrawing accepted authority."""
+
+        if self._lifecycle_stopped:
+            return
+        shared_snapshot = _shared_inputs_snapshot(self._runtime)
+        load_ready = getattr(
+            getattr(shared_snapshot, "load", None),
+            "ready",
+            None,
+        )
+        load_became_ready = (
+            self._shared_inputs_load_ready is False and load_ready is True
+        )
+        self._shared_inputs_load_ready = load_ready
+        critical_signature = _tariff_shared_critical_signature(self._runtime)
+        self._shared_inputs_critical_signature = critical_signature
+        bootstrap = not self._shared_inputs_bootstrap_seen
+        self._shared_inputs_bootstrap_seen = True
+        # Shared inputs consume state-reported freshness as well as ordinary
+        # state changes.  A source can therefore recover with the same numeric
+        # value after the optimizer has already published it as missing.  Give
+        # that coherent broker edge the same one-shot recovery path; the helper
+        # remains inert once no required source is missing.
+        self._schedule_available_required_input_recovery()
+        if self._required_input_recovery_pending:
+            self._shared_inputs_dirty = True
+            return
+        if not (bootstrap or load_became_ready):
+            # Shared EMS publications also carry physical capability,
+            # topology and readback freshness.  Those fields remain immediate
+            # execution gates, but they are consumed by the optimizer only as
+            # one coherent 120-second snapshot.  Replanning here would race
+            # the periodic pass after an ESP/API recovery cohort.
+            self._shared_inputs_dirty = True
+            return
+
+        self._shared_inputs_dirty = False
+        self._full_plan_trigger = (
+            "shared_bootstrap"
+            if bootstrap
+            else "shared_load_recovery"
+        )
+        self._invalidate_internal_inputs()
+        if self._recalculate_cancel is not None:
+            self._recalculate_cancel()
+            self._recalculate_cancel = None
+        self._recalculate_cancel = async_call_later(
+            self.hass,
+            TARIFF_SHARED_BOOTSTRAP_RECALCULATION_DELAY_SECONDS,
+            self._async_debounced_recalculate,
+        )
 
     @callback
     def _async_forecast_gcf_policy_changed(
@@ -835,16 +1604,32 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
     ) -> None:
         """Accept a complete cohort or arm one bounded fail-closed deadline."""
 
+        if self._lifecycle_stopped:
+            return
         policy, _ = _forecast_learning_policy_snapshot(
             self.hass,
             dt_util.now(),
+            getattr(self, "_runtime", None),
         )
         if policy.excluded_reason != "gcf_readback_incoherent":
+            cohort_pending = (
+                self._forecast_gcf_policy_evaluation_cancel is not None
+            )
             self._cancel_forecast_gcf_policy_evaluation()
             # A completed HA delivery cohort with the same physical policy is
             # not a new optimizer input.  A changed signature still invalidates
             # immediately in _apply_forecast_gcf_policy().
             self._apply_forecast_gcf_policy(policy)
+            if cohort_pending:
+                self._schedule_forecast_gcf_recovery_if_pending()
+            return
+        if (
+            self._forecast_gcf_policy_signature
+            == _forecast_learning_policy_signature(policy)
+        ):
+            # A previous bounded deadline already applied this fail-closed
+            # semantic condition.  Repeated incoherent reports must not create
+            # another authority-withdrawal loop while the source stays invalid.
             return
         if self._forecast_gcf_policy_evaluation_cancel is None:
             # Keep the last coherent, fresh generation while HA finishes
@@ -864,6 +1649,23 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             self._forecast_gcf_policy_evaluation_cancel()
             self._forecast_gcf_policy_evaluation_cancel = None
 
+    @callback
+    def _schedule_forecast_gcf_recovery_if_pending(self) -> None:
+        """Retry work that was blocked only by the bounded GCF grace period."""
+
+        if (
+            self._lifecycle_stopped
+            or self._attributes.get("result_current") is not False
+            or self._attributes.get("recalculation_pending") is not True
+            or self._recalculate_cancel is not None
+        ):
+            return
+        self._recalculate_cancel = async_call_later(
+            self.hass,
+            0.0,
+            self._async_debounced_recalculate,
+        )
+
     async def _async_evaluate_forecast_gcf_policy(
         self,
         now: datetime,
@@ -871,25 +1673,29 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         """Replan only when a completed GCF read changes learning policy."""
 
         self._forecast_gcf_policy_evaluation_cancel = None
+        if self._lifecycle_stopped:
+            return
         policy, _ = _forecast_learning_policy_snapshot(
             self.hass,
             now,
+            getattr(self, "_runtime", None),
         )
-        self._apply_forecast_gcf_policy(policy, force_recalculate=True)
+        self._apply_forecast_gcf_policy(policy)
+        self._schedule_forecast_gcf_recovery_if_pending()
 
     @callback
     def _apply_forecast_gcf_policy(
         self,
         policy: ForecastLearningPolicy,
-        *,
-        force_recalculate: bool = False,
     ) -> None:
         """Apply one complete or deadline-expired physical GCF policy."""
 
+        if self._lifecycle_stopped:
+            return
         signature = _forecast_learning_policy_signature(policy)
         previous_signature = self._forecast_gcf_policy_signature
         signature_changed = signature != previous_signature
-        if not signature_changed and not force_recalculate:
+        if not signature_changed:
             return
         self._forecast_gcf_policy_signature = signature
         if signature_changed and policy.enabled and (
@@ -897,6 +1703,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         ):
             self._schedule_forecast_policy_refresh()
         self._invalidate_internal_inputs()
+        self._full_plan_trigger = "forecast_gcf_policy"
         if not self._lifecycle_stopped and self._recalculate_cancel is None:
             self._recalculate_cancel = async_call_later(
                 self.hass,
@@ -925,6 +1732,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         """Rebuild and publish the adaptive model after GCF becomes usable."""
 
         await self._async_refresh_forecast_accuracy()
+        self._full_plan_trigger = "forecast_policy_recovery"
         self._invalidate_internal_inputs()
         await self._recalculate_and_write()
 
@@ -932,6 +1740,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         self._recalculate_cancel = None
         if self._lifecycle_stopped:
             return
+        if self._shared_inputs_dirty:
+            self._shared_inputs_dirty = False
+            self._invalidate_internal_inputs()
         task = asyncio.current_task()
         if task is None:
             return
@@ -940,12 +1751,47 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             await self._recalculate_and_write()
         finally:
             self._delayed_recalculate_tasks.discard(task)
+            self._required_input_recovery_pending = False
+
+    @callback
+    def _schedule_stale_result_retry(self) -> None:
+        """Queue one bounded retry after three in-flight input drifts."""
+
+        if (
+            self._lifecycle_stopped
+            or self._stale_result_retry_cancel is not None
+        ):
+            return
+        self._stale_result_retry_cancel = async_call_later(
+            self.hass,
+            TARIFF_STALE_RESULT_RETRY_DELAY_SECONDS,
+            self._async_stale_result_retry,
+        )
+
+    @callback
+    def _cancel_stale_result_retry(self) -> None:
+        """Cancel a retry superseded by a newer tariff-plan trigger."""
+
+        if self._stale_result_retry_cancel is not None:
+            self._stale_result_retry_cancel()
+            self._stale_result_retry_cancel = None
+
+    async def _async_stale_result_retry(self, _now: datetime) -> None:
+        """Run one delayed retry batch without re-arming on another drift."""
+
+        self._stale_result_retry_cancel = None
+        if self._lifecycle_stopped:
+            return
+        self._full_plan_trigger = "stale_result_retry"
+        await self._recalculate_and_write(allow_deferred_retry=False)
 
     @callback
     def _cancel_delayed_recalculation(self) -> None:
         """Cancel queued or running delayed work when the entity is removed."""
 
         self._lifecycle_stopped = True
+        self._required_input_recovery_pending = False
+        self._cancel_stale_result_retry()
         if self._recalculate_cancel is not None:
             self._recalculate_cancel()
             self._recalculate_cancel = None
@@ -956,39 +1802,63 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 task.cancel()
 
     async def _async_timer(self, now: datetime) -> None:
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            await self._pstryk.recalculate()
+            return
         if self._recalculate_cancel is not None:
             self._recalculate_cancel()
             self._recalculate_cancel = None
-        self._update_delivered_power_feedback()
+        self._required_input_recovery_pending = False
+        self._shared_inputs_dirty = False
+        self._full_plan_trigger = "periodic"
         self._invalidate_internal_inputs()
         await self._recalculate_and_write()
 
-    def _update_delivered_power_feedback(self) -> None:
-        """Learn a conservative real Grid Charge budget during active runs."""
+    def observe_supervisor_accounting_feedback(
+        self,
+        *,
+        delivered_power_feedback_w: float,
+        evidence_fingerprint: str,
+        observed_at: datetime,
+        transaction_started_at: datetime,
+    ) -> None:
+        """Consume one deduplicated physical accounting-v2 feedback sample."""
+
         now = dt_util.utcnow()
-        active_state = self.hass.states.get(
-            "input_boolean.hoymiles_tariff_charge_active"
-        )
-        if active_state is None or active_state.state != "on":
+        shared_snapshot = _shared_inputs_snapshot(self._runtime)
+        shared_power = getattr(shared_snapshot, "power", None)
+        if (
+            shared_power is not None
+            and getattr(shared_power, "grid_to_battery_ready", False) is not True
+        ):
+            # Accounting feedback cannot calibrate Grid Charge until the
+            # same-entry broker exposes a verified physical grid->battery
+            # provider.  Legacy runtimes without the broker retain v1.5.8.
             return
-        if now - active_state.last_changed < timedelta(minutes=2):
+        if (
+            type(delivered_power_feedback_w) not in {int, float}
+            or not math.isfinite(float(delivered_power_feedback_w))
+            or delivered_power_feedback_w <= 0.0
+            or type(evidence_fingerprint) is not str
+            or len(evidence_fingerprint) != 64
+            or evidence_fingerprint
+            == self._charge_power_feedback_last_evidence_fingerprint
+            or observed_at.tzinfo is None
+            or observed_at.utcoffset() is None
+            or transaction_started_at.tzinfo is None
+            or transaction_started_at.utcoffset() is None
+        ):
+            return
+        sample_age = (now - observed_at.astimezone(timezone.utc)).total_seconds()
+        if not -5.0 <= sample_age <= LIVE_TELEMETRY_MAX_AGE_SECONDS:
+            return
+        if now - transaction_started_at.astimezone(timezone.utc) < timedelta(minutes=2):
             # Ignore inverter ramp-up and Modbus propagation after a command.
             return
-        mode_sample = numeric_state_sample(
-            self.hass.states.get("sensor.hoymiles_hit_ems_mode_readback_code"),
-            now,
-            max_age_seconds=LIVE_TELEMETRY_MAX_AGE_SECONDS,
-            minimum=0.0,
-            maximum=5.0,
-        )
-        if not mode_sample.fresh or mode_sample.value != 4.0:
-            return
-        if self._attributes.get("current_action") not in {
-            "battery_charge",
-            "grid_support_and_charge",
-        }:
-            return
-        soc_sample = numeric_state_sample(
+        soc_sample = _policy_numeric_sample(
+            self._runtime,
+            "system",
+            "battery_soc_percent",
             self.hass.states.get("sensor.hoymiles_hit_overview_battery_soc"),
             now,
             max_age_seconds=SLOW_TELEMETRY_MAX_AGE_SECONDS,
@@ -1002,55 +1872,17 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         if soc is None or maximum_soc is None or soc >= maximum_soc - 5.0:
             # Exclude the normal high-SOC taper from the power calibration.
             return
-        battery_power_sample = numeric_state_sample(
-            self.hass.states.get("sensor.hoymiles_hit_grid_to_battery_power"),
-            now,
-            max_age_seconds=LIVE_TELEMETRY_MAX_AGE_SECONDS,
-        )
-        battery_power_w = (
-            battery_power_sample.value if battery_power_sample.fresh else None
-        )
-        battery_power_is_ac = battery_power_w is not None
-        if battery_power_w is None:
-            battery_power_sample = numeric_state_sample(
-                self.hass.states.get("sensor.hoymiles_tariff_grid_charge_power"),
-                now,
-                max_age_seconds=LIVE_TELEMETRY_MAX_AGE_SECONDS,
-            )
-            battery_power_w = (
-                battery_power_sample.value if battery_power_sample.fresh else None
-            )
         requested_kw = self._attributes.get("requested_charge_power_kw")
-        if battery_power_w is None or not isinstance(requested_kw, (int, float)):
+        if not isinstance(requested_kw, (int, float)):
             return
-        battery_power_kw = max(battery_power_w, 0.0) / 1000.0
-        if battery_power_kw < 0.25 or requested_kw < 0.5:
+        delivered_power_kw = delivered_power_feedback_w / 1000.0
+        if delivered_power_kw < 0.25 or requested_kw < 0.5:
             return
-        load_sample = numeric_state_sample(
-            self.hass.states.get("sensor.hoymiles_hit_overview_load_active_power"),
-            now,
-            max_age_seconds=LIVE_TELEMETRY_MAX_AGE_SECONDS,
-        )
-        if not load_sample.fresh or load_sample.value is None:
-            return
-        load_kw = max(load_sample.value, 0.0) / 1000.0
-        efficiency_value = _state_number(
-            self.hass,
-            "input_number.hoymiles_tariff_charge_efficiency",
-        )
-        efficiency = (
-            90.0 if efficiency_value is None else efficiency_value
-        ) / 100.0
-        battery_ac_kw = (
-            battery_power_kw
-            if battery_power_is_ac
-            else battery_power_kw / max(efficiency, 0.5)
-        )
-        delivered_grid_budget = battery_ac_kw + load_kw
-        ratio = min(max(delivered_grid_budget / requested_kw, 0.35), 1.10)
+        ratio = min(max(delivered_power_kw / requested_kw, 0.35), 1.10)
         self._delivered_power_ratios.append(ratio)
         self._charge_power_feedback_last_ratio = ratio
-        self._charge_power_feedback_last_sample_at = now
+        self._charge_power_feedback_last_sample_at = observed_at.astimezone(timezone.utc)
+        self._charge_power_feedback_last_evidence_fingerprint = evidence_fingerprint
         if len(self._delivered_power_ratios) < CHARGE_POWER_FEEDBACK_MIN_SAMPLES:
             return
         target = min(max(median(self._delivered_power_ratios), 0.50), 1.0)
@@ -1064,14 +1896,18 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
     async def _async_forecast_accuracy_timer(self, now: datetime) -> None:
         """Refresh complete-day Solcast calibration twice per day."""
         await self._async_refresh_forecast_accuracy()
+        self._full_plan_trigger = "forecast_accuracy"
         self._invalidate_internal_inputs()
         await self._recalculate_and_write()
 
     def _forecast_accuracy_source_available(self) -> bool:
         """Return whether the configured Solcast today source is numeric."""
-        configured = _state_text(
+        configured = _resolved_forecast_entity_id(
             self.hass,
-            TODAY_FORECAST_ENTITY_HELPER,
+            self._runtime,
+            broker_field="today",
+            new_helper=EMS_TODAY_FORECAST_ENTITY_HELPER,
+            legacy_helper=TODAY_FORECAST_ENTITY_HELPER,
         )
         _, forecast_state = _first_numeric_state(
             self.hass,
@@ -1090,26 +1926,63 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         finally:
             self._forecast_retry_pending = False
 
-    async def _recalculate_and_write(self) -> None:
+    async def _recalculate_and_write(
+        self,
+        *,
+        allow_deferred_retry: bool = True,
+    ) -> None:
         """Write only when the plan or its diagnostics actually changed."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            await self._pstryk.recalculate()
+            return
         async with self._optimizer_lock:
             previous_state = self.native_value
             previous_attributes = self._attributes
             committed = False
+            stale_rejections = 0
             for _attempt in range(MAX_IMMEDIATE_RECALCULATIONS):
+                self._full_plan_rejected_for_input_drift = False
                 if await self._recalculate_locked():
                     committed = True
                     break
+                if self._full_plan_rejected_for_input_drift:
+                    stale_rejections += 1
             if committed:
                 self._mark_result_current()
-                if self._recalculate_cancel is not None:
+                self._cancel_stale_result_retry()
+                if (
+                    self._recalculate_cancel is not None
+                    and not self._shared_inputs_dirty
+                ):
                     self._recalculate_cancel()
                     self._recalculate_cancel = None
+            self._attributes = {
+                **self._attributes,
+                "full_plan_solver_calls": self._full_plan_solver_calls,
+                "last_full_plan_at": (
+                    self._last_full_plan_at.isoformat().replace("+00:00", "Z")
+                    if self._last_full_plan_at is not None
+                    else None
+                ),
+                "last_full_plan_trigger": self._full_plan_trigger,
+            }
             if (
                 previous_state != self.native_value
                 or previous_attributes != self._attributes
             ):
                 self.async_write_ha_state()
+            if committed:
+                self._publish_timeline_result()
+                # The coalesced physical sources can already be numeric before
+                # the first missing-data projection is published.  Re-check
+                # them after commit so that startup event ordering cannot defer
+                # a usable plan until the 120-second periodic pass.
+                self._schedule_available_required_input_recovery()
+            elif (
+                allow_deferred_retry
+                and stale_rejections == MAX_IMMEDIATE_RECALCULATIONS
+            ):
+                self._schedule_stale_result_retry()
 
     async def _async_refresh_forecast_accuracy(self) -> None:
         """Learn a conservative PV factor from complete local days."""
@@ -1122,6 +1995,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             learning_policy, _ = _forecast_learning_policy_snapshot(
                 self.hass,
                 now,
+                getattr(self, "_runtime", None),
             )
             policy_signature = _forecast_learning_policy_signature(
                 learning_policy
@@ -1129,9 +2003,12 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             if not learning_policy.enabled:
                 self._forecast_accuracy_refreshed_at = now
                 return
-            configured = _state_text(
+            configured = _resolved_forecast_entity_id(
                 self.hass,
-                TODAY_FORECAST_ENTITY_HELPER,
+                getattr(self, "_runtime", None),
+                broker_field="today",
+                new_helper=EMS_TODAY_FORECAST_ENTITY_HELPER,
+                legacy_helper=TODAY_FORECAST_ENTITY_HELPER,
             )
             forecast_entity, forecast_state = _first_numeric_state(
                 self.hass,
@@ -1139,6 +2016,14 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 configured,
             )
             if not forecast_entity or forecast_state is None:
+                return
+            source_policy = forecast_policy_for_source(
+                learning_policy, getattr(forecast_state, "attributes", {}),
+            )
+            if source_policy.mode == "solcast_adaptive":
+                # Solcast owns production-based calibration for this source.
+                # Retain the dormant local model, but perform no Recorder scan.
+                self._forecast_accuracy_refreshed_at = now
                 return
             actual_entity = "sensor.hoymiles_hit_pv_total_energy_today"
             start = now - timedelta(days=29)
@@ -1154,24 +2039,30 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 ),
             )
             forecast_by_day: dict[Any, list[float]] = {}
-            actual_by_day: dict[Any, list[float]] = {}
-            for entity_id, destination in (
-                (forecast_entity, forecast_by_day),
-                (actual_entity, actual_by_day),
-            ):
-                for item in raw.get(entity_id, []):
-                    updated = getattr(item, "last_updated", None)
-                    state_value = getattr(item, "state", None)
-                    if updated is None or state_value is None:
-                        continue
-                    try:
-                        numeric = max(float(state_value), 0.0)
-                    except (TypeError, ValueError):
-                        continue
-                    local_day = updated.astimezone(timezone).date()
-                    if local_day >= now.date():
-                        continue
-                    destination.setdefault(local_day, []).append(numeric)
+            actual_by_day: dict[Any, list[tuple[datetime, object]]] = {}
+            for item in raw.get(forecast_entity, []):
+                updated = getattr(item, "last_updated", None)
+                state_value = getattr(item, "state", None)
+                if updated is None or state_value is None:
+                    continue
+                try:
+                    numeric = float(state_value)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if not math.isfinite(numeric) or numeric < 0.0:
+                    continue
+                local_day = updated.astimezone(timezone).date()
+                if local_day < now.date():
+                    forecast_by_day.setdefault(local_day, []).append(numeric)
+            for item in raw.get(actual_entity, []):
+                updated = getattr(item, "last_updated", None)
+                if updated is None:
+                    continue
+                local_updated = updated.astimezone(timezone)
+                if local_updated.date() < now.date():
+                    actual_by_day.setdefault(local_updated.date(), []).append(
+                        (local_updated, getattr(item, "state", None))
+                    )
 
             export_allowed_history = [
                 (item.last_updated, item.state)
@@ -1200,13 +2091,18 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 ):
                     continue
                 forecasts = [value for value in forecast_by_day[day] if value > 0.5]
-                actuals = actual_by_day[day]
-                if not forecasts or not actuals:
+                sunset = get_astral_event_date(self.hass, "sunset", day)
+                if sunset is None:
+                    continue
+                actual = qualified_cumulative_energy_day(
+                    actual_by_day[day],
+                    day_start=day_start,
+                    day_end=day_end,
+                    production_end=sunset.astimezone(timezone),
+                )
+                if not forecasts or actual is None:
                     continue
                 forecast = median(forecasts)
-                actual = max(actuals)
-                if actual <= 0.5:
-                    continue
                 age_days = max((now.date() - day).days, 1)
                 dated_ratios.append(
                     (age_days, min(max(actual / forecast, 0.50), 1.10))
@@ -1214,6 +2110,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             current_policy, _ = _forecast_learning_policy_snapshot(
                 self.hass,
                 dt_util.now().astimezone(timezone),
+                getattr(self, "_runtime", None),
             )
             if (
                 not current_policy.enabled
@@ -1256,13 +2153,23 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
 
     async def _recalculate(self) -> None:
         """Serialize startup and event-driven optimizer runs."""
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            await self._pstryk.recalculate()
+            return
         async with self._optimizer_lock:
             for _attempt in range(MAX_IMMEDIATE_RECALCULATIONS):
                 if await self._recalculate_locked():
                     self._mark_result_current()
+                    self._publish_timeline_result()
                     return
 
     async def _recalculate_locked(self) -> bool:
+        if getattr(self, "_pstryk", None) is not None and self._pstryk.active:
+            await self._pstryk.recalculate()
+            return False
+        if not await self._async_wait_active_tariff_commitment_cohort():
+            self._mark_recalculation_pending()
+            return False
         if self._forecast_gcf_policy_evaluation_cancel is not None:
             # The current 258/259/generation reports are still a mixed HA
             # delivery cohort.  Keep the previous plan non-current until the
@@ -1279,11 +2186,19 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 # again after telemetry recovers.
                 self._live_pv_surplus_started_at = None
                 status_code = str(metadata.pop("_status_code", "missing_data"))
+                if self._retain_last_complete_plan(
+                    blocker_code=status_code,
+                    missing_entities=metadata.get("missing_entities", ()),
+                ):
+                    return False
+                self._result = None
+                self._timeline_metadata = dict(metadata)
                 self._attributes = {
                     "status_code": status_code,
                     "planned_slots": [],
                     "current_slot_planned": False,
                     "current_action": "none",
+                    "current_run_need_class": "none",
                     "current_run_start_eligible": False,
                     "current_run_suppression_reason": "live_data_missing",
                     "current_run_continue_eligible": False,
@@ -1292,16 +2207,30 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                     **metadata,
                 }
                 return True
+            self._full_plan_solver_calls += 1
             result = await self.hass.async_add_executor_job(
                 optimize_tariff_charging,
                 settings,
             )
-            if (
-                not self._input_revision.is_current(captured_revision)
-                or captured_fingerprint != self._current_input_fingerprint()
-            ):
+            if not await self._async_wait_active_tariff_commitment_cohort():
                 self._mark_recalculation_pending()
                 return False
+            if self._reject_stale_executor_result(
+                captured_revision,
+                captured_fingerprint,
+            ):
+                return False
+            self._result = result
+            self._timeline_metadata = dict(metadata)
+            broker_entity_id = getattr(
+                getattr(self, "_rce_plan_source", None),
+                "entity_id",
+                None,
+            )
+            if isinstance(broker_entity_id, str):
+                self._timeline_metadata["load_profile_broker_entity_id"] = (
+                    broker_entity_id
+                )
             planned_slots = [
                 {
                     "date": item.start.date().isoformat(),
@@ -1349,7 +2278,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             )
             current_run_intent = (
                 current_run_action_family,
-                result.current_slot_end,
+                result.current_grid_charge_run_end,
                 result.current_run_start_eligible,
                 result.current_run_suppression_reason,
             )
@@ -1395,7 +2324,29 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 "missing_entities": [],
                 "planned_slots": planned_slots,
                 "current_slot_planned": result.current_slot_planned,
+                # Keep the native partial interval and full precision. House
+                # import and the battery's command budget are separate gates.
+                "current_slot_planned_import_power_kw": (
+                    planned_grid_power_kw(
+                        result.timeline_trace.points[0].policy.planned_import_kwh,
+                        (result.timeline_trace.points[0].end
+                         - result.timeline_trace.points[0].start).total_seconds(),
+                    )
+                    if result.timeline_trace is not None and result.timeline_trace.points
+                    else None
+                ),
+                "current_slot_planned_charge_power_kw": (
+                    planned_battery_grid_power_kw(
+                        settings.charge_power_kw,
+                        result.timeline_trace.points[0].policy.direct_load_kwh,
+                        (result.timeline_trace.points[0].end
+                         - result.timeline_trace.points[0].start).total_seconds(),
+                    )
+                    if result.timeline_trace is not None and result.timeline_trace.points
+                    else None
+                ),
                 "current_action": result.current_action,
+                "current_run_need_class": result.current_run_need_class,
                 "current_run_start_eligible": current_run_start_eligible,
                 "current_run_suppression_reason": (
                     current_run_suppression_reason
@@ -1405,6 +2356,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 ),
                 "current_run_continue_reason": (
                     result.current_run_continue_reason
+                ),
+                "active_commitment_applied": (
+                    result.active_commitment_applied
                 ),
                 "current_run_grid_import_kwh": round(
                     result.current_run_grid_import_kwh,
@@ -1453,6 +2407,62 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                     result.base_reserve_soc_percent,
                     1,
                 ),
+                "protected_period_start": (
+                    result.protected_period_start.isoformat()
+                    if result.protected_period_start is not None
+                    else None
+                ),
+                "protected_period_end": (
+                    result.protected_period_end.isoformat()
+                    if result.protected_period_end is not None
+                    else None
+                ),
+                "protected_demand_kwh": round(
+                    result.protected_demand_kwh,
+                    3,
+                ),
+                "demand_margin_percent": round(
+                    result.demand_margin_percent,
+                    1,
+                ),
+                "demand_margin_requested_kwh": round(
+                    result.demand_margin_requested_kwh,
+                    3,
+                ),
+                "demand_margin_feasible_kwh": round(
+                    result.demand_margin_feasible_kwh,
+                    3,
+                ),
+                "demand_margin_unserved_kwh": round(
+                    result.demand_margin_unserved_kwh,
+                    3,
+                ),
+                "base_energy_shortfall_kwh": round(
+                    result.base_energy_shortfall_kwh,
+                    3,
+                ),
+                "requested_target_energy_kwh": round(
+                    result.requested_target_energy_kwh,
+                    3,
+                ),
+                "feasible_target_energy_kwh": round(
+                    result.feasible_target_energy_kwh,
+                    3,
+                ),
+                "demand_margin_constraint_reason": (
+                    result.demand_margin_constraint_reason
+                ),
+                "latest_feasible_start": (
+                    result.latest_feasible_start.isoformat()
+                    if result.latest_feasible_start is not None
+                    else None
+                ),
+                "latest_equivalent_start": (
+                    result.latest_equivalent_start.isoformat()
+                    if result.latest_equivalent_start is not None else None
+                ),
+                "latest_start_search_complete": result.latest_start_search_complete,
+                "layout_candidates_evaluated": result.layout_candidates_evaluated,
                 "hard_reserve_deficit_kwh": round(
                     result.hard_reserve_deficit_kwh,
                     3,
@@ -1547,6 +2557,11 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                     else None
                 ),
                 "target_soc_percent": round(result.target_soc_percent, 1),
+                "current_grid_charge_run_end": (
+                    result.current_grid_charge_run_end.isoformat()
+                    if result.current_grid_charge_run_end is not None
+                    else None
+                ),
                 "baseline_shortage_kwh": round(result.baseline_shortage_kwh, 2),
                 "remaining_shortage_kwh": round(result.remaining_shortage_kwh, 2),
                 "planned_grid_import_kwh": round(result.planned_grid_import_kwh, 2),
@@ -1612,7 +2627,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 "effective_charge_power_source": (
                     self._effective_charge_power_source
                 ),
-                "charge_power_feedback_version": 1,
+                "charge_power_feedback_version": CHARGE_POWER_FEEDBACK_VERSION,
                 "effective_charge_power_feedback_samples": feedback_samples,
                 "charge_power_feedback_state": feedback_state,
                 "charge_power_feedback_ready": feedback_ready,
@@ -1637,6 +2652,10 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                     self._charge_power_feedback_last_sample_at.isoformat()
                     if self._charge_power_feedback_last_sample_at is not None
                     else None
+                ),
+                "charge_power_feedback_source": "supervisor_accounting_v2",
+                "charge_power_feedback_evidence_fingerprint": (
+                    self._charge_power_feedback_last_evidence_fingerprint
                 ),
                 "charge_power_feedback_applied_factor": round(
                     result.effective_power_factor,
@@ -1714,6 +2733,10 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                     if settings.battery_discharge_power_kw is not None
                     else None
                 ),
+                "model_input_system_ac_power_kw": round(
+                    settings.system_ac_power_kw,
+                    2,
+                ),
                 "model_input_charge_efficiency_percent": round(
                     settings.charge_efficiency_percent,
                     1,
@@ -1756,21 +2779,29 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 "plan_stable_for_minutes": round(stable_seconds / 60.0, 1),
                 **metadata,
             }
+            self._last_full_plan_at = dt_util.utcnow()
             return True
         except Exception:  # noqa: BLE001 - automation must fail closed
-            if (
-                not self._input_revision.is_current(captured_revision)
-                or captured_fingerprint != self._current_input_fingerprint()
+            if self._reject_stale_executor_result(
+                captured_revision,
+                captured_fingerprint,
             ):
-                self._mark_recalculation_pending()
                 return False
             _LOGGER.exception("Cannot calculate the tariff charging plan")
+            if self._retain_last_complete_plan(
+                blocker_code="optimizer_error",
+                missing_entities=(),
+            ):
+                return False
+            self._result = None
+            self._timeline_metadata = {}
             self._attributes = {
                 "status_code": "optimizer_error",
                 "missing_entities": [],
                 "planned_slots": [],
                 "current_slot_planned": False,
                 "current_action": "none",
+                "current_run_need_class": "none",
                 "current_slot_end": None,
                 "current_run_start_eligible": False,
                 "current_run_suppression_reason": "live_data_missing",
@@ -1789,48 +2820,154 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             }
             return True
 
+    def _retain_last_complete_plan(
+        self,
+        *,
+        blocker_code: str,
+        missing_entities: Any,
+    ) -> bool:
+        """Keep one recent display plan while withdrawing all authority."""
+
+        completed_at = self._last_full_plan_at
+        if self._result is None or completed_at is None:
+            return False
+        try:
+            age_seconds = (dt_util.utcnow() - completed_at).total_seconds()
+        except (AttributeError, OverflowError, TypeError, ValueError):
+            return False
+        if age_seconds < -5.0 or age_seconds > _LAST_COMPLETE_PLAN_GRACE_SECONDS:
+            return False
+        self._attributes = {
+            **self._attributes,
+            "missing_entities": list(missing_entities),
+            "result_current": False,
+            "recalculation_pending": True,
+            "plan_display_available": True,
+            "plan_data_state": "last_complete_inputs_missing",
+            "execution_input_valid": False,
+            "execution_blocker_code": blocker_code,
+            "last_complete_age_seconds": round(max(age_seconds, 0.0), 1),
+        }
+        if self._timeline_sensor is not None:
+            self._timeline_sensor.publish_unavailable(
+                input_revision=self._input_revision.value,
+                blocker_code=blocker_code,
+            )
+        return True
+
     def _optimizer_input(
         self,
     ) -> tuple[TariffOptimizerInput | None, dict[str, Any]]:
         timezone = ZoneInfo(self.hass.config.time_zone)
         now = dt_util.now().astimezone(timezone)
         now_slot = floor_half_hour(now)
-        rce_state_raw = self.hass.states.get(
-            "sensor.hoymiles_hit_rce_optimized_plan"
+        active_commitment = self._active_tariff_commitment(now)
+        shared_snapshot = _shared_inputs_snapshot(self._runtime)
+        system_ac_power_sample = getattr(
+            getattr(shared_snapshot, "system", None),
+            "system_rated_power_kw",
+            None,
         )
-        load_profile_age_seconds = _state_age_seconds(rce_state_raw, now=now)
-        load_profile_broker_fresh = bool(
-            rce_state_raw is not None
-            and rce_state_raw.state
-            not in {STATE_UNKNOWN, STATE_UNAVAILABLE, "none"}
-            and load_profile_age_seconds is not None
-            and -5.0 <= load_profile_age_seconds <= LOAD_BROKER_MAX_AGE_SECONDS
-        )
-        load_profile_generated_at = None
-        if rce_state_raw is not None:
-            raw_generated_at = rce_state_raw.attributes.get(
-                "load_profile_generated_at"
-            )
-            if isinstance(raw_generated_at, str):
-                load_profile_generated_at = dt_util.parse_datetime(
-                    raw_generated_at
-                )
-        load_profile_snapshot_age_seconds = (
-            (now - load_profile_generated_at.astimezone(now.tzinfo)).total_seconds()
-            if load_profile_generated_at is not None
+        system_ac_power_raw = getattr(system_ac_power_sample, "value", None)
+        system_ac_power_kw = (
+            float(system_ac_power_raw)
+            if getattr(system_ac_power_sample, "fresh", None) is True
+            and type(system_ac_power_raw) in {int, float}
+            and math.isfinite(float(system_ac_power_raw))
+            and float(system_ac_power_raw) > 0.0
             else None
         )
-        load_profile_snapshot_fresh = bool(
-            load_profile_snapshot_age_seconds is not None
-            and -5.0 <= load_profile_snapshot_age_seconds <= 30 * 60 * 60
-        )
-        load_profile_broker_fresh = bool(
-            load_profile_broker_fresh and load_profile_snapshot_fresh
-        )
-        # Never consume stale recorder-derived LOAD attributes. A configured
-        # static fallback may still produce a preview, but stale broker data
-        # cannot authorize the current Grid Charge transaction.
-        rce_state = rce_state_raw if load_profile_broker_fresh else None
+        shared_load = getattr(shared_snapshot, "load", None)
+        shared_load_active = shared_load is not None
+        if shared_load_active:
+            rce_state_raw = None
+            rce_state = None
+            captured_at = getattr(shared_snapshot, "captured_at", None)
+            load_profile_age_seconds = (
+                (now - captured_at.astimezone(now.tzinfo)).total_seconds()
+                if isinstance(captured_at, datetime)
+                and captured_at.tzinfo is not None
+                and captured_at.utcoffset() is not None
+                else None
+            )
+            raw_generated_at = getattr(shared_load, "generated_at", None)
+            load_profile_generated_at = (
+                raw_generated_at
+                if isinstance(raw_generated_at, datetime)
+                else dt_util.parse_datetime(raw_generated_at)
+                if isinstance(raw_generated_at, str)
+                else None
+            )
+            load_profile_snapshot_age_seconds = (
+                (
+                    now
+                    - load_profile_generated_at.astimezone(now.tzinfo)
+                ).total_seconds()
+                if load_profile_generated_at is not None
+                else None
+            )
+            load_profile_snapshot_fresh = bool(
+                load_profile_snapshot_age_seconds is not None
+                and -5.0 <= load_profile_snapshot_age_seconds <= 30 * 60 * 60
+            )
+            shared_fallback_profile_ready = _shared_fallback_profile_ready(
+                shared_load,
+                getattr(shared_load, "average_daily_home_load_kwh", None),
+            )
+            load_profile_broker_fresh = bool(
+                getattr(shared_load, "ready", False) is True
+                and load_profile_age_seconds is not None
+                and -5.0
+                <= load_profile_age_seconds
+                <= LOAD_BROKER_MAX_AGE_SECONDS
+                and (
+                    load_profile_snapshot_fresh
+                    or qualified_load_history_is_usable(
+                        load_profile_generated_at,
+                        getattr(shared_load, "daily_total_dates", ()),
+                        now=now,
+                    )
+                    or shared_fallback_profile_ready
+                )
+            )
+        else:
+            shared_fallback_profile_ready = False
+            rce_state_raw = self._same_entry_rce_plan_state()
+            load_profile_age_seconds = _state_age_seconds(rce_state_raw, now=now)
+            load_profile_broker_fresh = bool(
+                rce_state_raw is not None
+                and rce_state_raw.state
+                not in {STATE_UNKNOWN, STATE_UNAVAILABLE, "none"}
+                and load_profile_age_seconds is not None
+                and -5.0 <= load_profile_age_seconds <= LOAD_BROKER_MAX_AGE_SECONDS
+            )
+            load_profile_generated_at = None
+            if rce_state_raw is not None:
+                raw_generated_at = rce_state_raw.attributes.get(
+                    "load_profile_generated_at"
+                )
+                if isinstance(raw_generated_at, str):
+                    load_profile_generated_at = dt_util.parse_datetime(
+                        raw_generated_at
+                    )
+            load_profile_snapshot_age_seconds = (
+                (
+                    now
+                    - load_profile_generated_at.astimezone(now.tzinfo)
+                ).total_seconds()
+                if load_profile_generated_at is not None
+                else None
+            )
+            load_profile_snapshot_fresh = bool(
+                load_profile_snapshot_age_seconds is not None
+                and -5.0 <= load_profile_snapshot_age_seconds <= 30 * 60 * 60
+            )
+            load_profile_broker_fresh = bool(
+                load_profile_broker_fresh and load_profile_snapshot_fresh
+            )
+            # Legacy runtimes retain only the explicitly wired same-entry RCE
+            # broker; there is no global first-match fallback.
+            rce_state = rce_state_raw if load_profile_broker_fresh else None
 
         (
             battery_soc_value,
@@ -1843,6 +2980,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             max_age_seconds=SLOW_TELEMETRY_MAX_AGE_SECONDS,
             minimum=0.0,
             maximum=100.0,
+            runtime=self._runtime,
+            shared_section="system",
+            shared_field="battery_soc_percent",
         )
         (
             self_use_soc_value,
@@ -1855,6 +2995,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             max_age_seconds=SLOW_TELEMETRY_MAX_AGE_SECONDS,
             minimum=10.0,
             maximum=100.0,
+            runtime=self._runtime,
+            shared_section="system",
+            shared_field="self_use_reserve_soc_percent",
         )
         (
             inverter_count_value,
@@ -1865,6 +3008,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "sensor.hoymiles_hit_number_of_machines_master_and_slave",
             now=now,
             max_age_seconds=SLOW_TELEMETRY_MAX_AGE_SECONDS,
+            runtime=self._runtime,
+            shared_section="system",
+            shared_field="inverter_count",
         )
         inverter_count_data_fresh = bool(
             inverter_count_data_fresh
@@ -1877,6 +3023,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 "sensor.hoymiles_hit_battery_voltage_bms",
                 now=now,
                 max_age_seconds=SLOW_TELEMETRY_MAX_AGE_SECONDS,
+                runtime=self._runtime,
+                shared_section="bms",
+                shared_field="voltage_v",
             )
         )
         bms_charge_current, bms_charge_current_fresh, bms_charge_current_age = (
@@ -1885,6 +3034,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 "sensor.hoymiles_hit_maximum_charge_current",
                 now=now,
                 max_age_seconds=SLOW_TELEMETRY_MAX_AGE_SECONDS,
+                runtime=self._runtime,
+                shared_section="bms",
+                shared_field="maximum_charge_current_a",
             )
         )
         (
@@ -1896,6 +3048,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "sensor.hoymiles_hit_maximum_discharge_current",
             now=now,
             max_age_seconds=SLOW_TELEMETRY_MAX_AGE_SECONDS,
+            runtime=self._runtime,
+            shared_section="bms",
+            shared_field="maximum_discharge_current_a",
         )
         bms_charge_data_fresh = bool(
             battery_voltage_fresh and bms_charge_current_fresh
@@ -1960,6 +3115,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             self.hass,
             "sensor.hoymiles_actual_load_power",
             max_age_seconds=LIVE_TELEMETRY_MAX_AGE_SECONDS,
+            now=now,
+            runtime=self._runtime,
+            shared_field="home_load_power_kw",
         )
         (
             current_pv_power_kw,
@@ -1969,6 +3127,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             self.hass,
             "sensor.hoymiles_hit_overview_pv_total_power",
             max_age_seconds=LIVE_TELEMETRY_MAX_AGE_SECONDS,
+            now=now,
+            runtime=self._runtime,
+            shared_field="pv_power_kw",
         )
         (
             current_battery_power_kw,
@@ -1979,6 +3140,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "sensor.hoymiles_hit_overview_battery_power",
             max_age_seconds=LIVE_TELEMETRY_MAX_AGE_SECONDS,
             non_negative=False,
+            now=now,
+            runtime=self._runtime,
+            shared_field="battery_power_kw",
         )
         live_power_data_fresh = all(
             source == "live"
@@ -1989,11 +3153,24 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             )
         )
 
+        battery_capacity = _policy_stable_number(
+            self._runtime,
+            "system",
+            "battery_capacity_kwh",
+            self.hass,
+            "sensor.hoymiles_hit_battery_capacity",
+            minimum=0.001,
+        )
+        shared_battery_to_home_efficiency = _shared_sample_value(
+            self._runtime,
+            "efficiency",
+            "battery_to_home_efficiency",
+        )
         required: dict[str, float | None] = {
-            "sensor.hoymiles_hit_battery_capacity": _state_number(
-                self.hass,
-                "sensor.hoymiles_hit_battery_capacity",
+            "sensor.hoymiles_hit_ems_shared_inputs.system_rated_power_kw": (
+                system_ac_power_kw
             ),
+            "sensor.hoymiles_hit_battery_capacity": battery_capacity,
             "sensor.hoymiles_hit_overview_battery_soc": battery_soc_value,
             "sensor.hoymiles_hit_ems_self_use_soc_readback": (
                 self_use_soc_value if self_use_soc_data_fresh else None
@@ -2013,13 +3190,22 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 self.hass,
                 "input_number.hoymiles_tariff_requested_charge_power",
             ),
+            # AC/grid -> battery remains a tariff-specific efficiency.  It is
+            # deliberately not read from the distinct PV -> battery sample.
             "input_number.hoymiles_tariff_charge_efficiency": _state_number(
                 self.hass,
                 "input_number.hoymiles_tariff_charge_efficiency",
             ),
-            "input_number.hoymiles_tariff_discharge_efficiency": _state_number(
-                self.hass,
-                "input_number.hoymiles_tariff_discharge_efficiency",
+            "input_number.hoymiles_tariff_discharge_efficiency": (
+                _state_number(
+                    self.hass,
+                    "input_number.hoymiles_tariff_discharge_efficiency",
+                )
+                if shared_battery_to_home_efficiency is _SHARED_INPUT_MISSING
+                else float(shared_battery_to_home_efficiency)
+                if type(shared_battery_to_home_efficiency) in {int, float}
+                and math.isfinite(float(shared_battery_to_home_efficiency))
+                else None
             ),
             "input_number.hoymiles_tariff_minimum_saving": _state_number(
                 self.hass,
@@ -2042,39 +3228,138 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 "input_number.hoymiles_tariff_peak_price",
             ),
         }
-        daily_load_from_broker = _state_attribute_number(
-            rce_state,
-            "selected_average_daily_load_kwh",
-        )
-        daily_load = daily_load_from_broker
-        night_load = _state_attribute_number(
-            rce_state,
-            "average_night_load_4d_kwh",
-        )
-        load_profile_source = "rce_recorder_broker"
-        if daily_load is None:
-            daily_load = _state_number(
-                self.hass,
-                "input_number.hoymiles_rce_fallback_daily_load",
+        def shared_load_number(field_name: str) -> float | None:
+            raw = getattr(shared_load, field_name, None)
+            return (
+                float(raw)
+                if type(raw) in {int, float} and math.isfinite(float(raw))
+                else None
             )
+
+        daily_total_dates: tuple[str, ...] = ()
+        current_day_energy: float | None = None
+        current_day_observed_at: datetime | None = None
+        persistence_delta_kw = 0.0
+        persistence_observed_at: datetime | None = None
+
+        if shared_load_active and load_profile_broker_fresh:
+            daily_load_from_broker = shared_load_number(
+                "average_daily_home_load_kwh"
+            )
+            night_load = shared_load_number("average_night_home_load_kwh")
+            complete_daily_loads = tuple(
+                getattr(shared_load, "daily_totals_kwh", ()) or ()
+            )
+            daily_total_dates = tuple(
+                getattr(shared_load, "daily_total_dates", ()) or ()
+            )
+            current_day_energy = shared_load_number("current_day_energy_kwh")
+            current_day_observed_at = getattr(
+                shared_load, "current_day_observed_at", None
+            )
+            persistence_delta_kw = shared_load_number(
+                "persistence_delta_kw"
+            ) or 0.0
+            persistence_observed_at = getattr(
+                shared_load, "persistence_observed_at", None
+            )
+            provisional_load = shared_load_number(
+                "provisional_daily_load_projection_kwh"
+            )
+            average_load_profile = tuple(
+                getattr(shared_load, "average_profile_30m_kwh", ()) or ()
+            )
+            weekday_load_profile = tuple(
+                getattr(shared_load, "weekday_profile_30m_kwh", ()) or ()
+            )
+            weekend_load_profile = tuple(
+                getattr(shared_load, "weekend_profile_30m_kwh", ()) or ()
+            )
+        else:
+            daily_load_from_broker = _state_attribute_number(
+                rce_state,
+                "selected_average_daily_load_kwh",
+            )
+            night_load = _state_attribute_number(
+                rce_state,
+                "average_night_load_4d_kwh",
+            )
+            complete_daily_loads = _state_attribute_daily_values(
+                rce_state,
+                "recorder_load_daily_kwh",
+            )
+            provisional_load = _state_attribute_number(
+                rce_state,
+                "provisional_daily_load_projection_kwh",
+            )
+            average_load_profile = _state_attribute_profile(
+                rce_state,
+                "recorder_load_profile_30m_kwh",
+            )
+            if not average_load_profile:
+                average_load_profile = _state_attribute_profile(
+                    rce_state,
+                    "recorder_load_average_profile_30m_kwh",
+                )
+            weekday_load_profile = _state_attribute_profile(
+                rce_state,
+                "recorder_load_weekday_profile_30m_kwh",
+            )
+            weekend_load_profile = _state_attribute_profile(
+                rce_state,
+                "recorder_load_weekend_profile_30m_kwh",
+            )
+        daily_load = daily_load_from_broker
+        load_profile_source = (
+            "configured_daily_fallback"
+            if shared_load_active and shared_fallback_profile_ready
+            else str(getattr(shared_load, "source", "shared_load_model"))
+            if shared_load_active
+            else "rce_recorder_broker"
+        )
+        if daily_load is None:
+            shared_fallback = _shared_sample_value(
+                self._runtime,
+                "load",
+                "fallback_daily_home_load_kwh",
+            )
+            if shared_fallback is _SHARED_INPUT_MISSING:
+                daily_load = _preferred_number_helper(
+                    self.hass,
+                    "input_number.hoymiles_ems_fallback_daily_home_load",
+                    "input_number.hoymiles_rce_fallback_daily_load",
+                )
+            else:
+                daily_load = (
+                    float(shared_fallback)
+                    if type(shared_fallback) in {int, float}
+                    and math.isfinite(float(shared_fallback))
+                    else None
+                )
             load_profile_source = "configured_daily_fallback"
+        configured_daily_fallback_kwh = (
+            daily_load if load_profile_source == "configured_daily_fallback" else None
+        )
         load_profile_data_fresh = bool(
             (
                 daily_load_from_broker is not None
                 and load_profile_broker_fresh
             )
             or (
-                rce_state_raw is None
+                load_profile_source == "configured_daily_fallback"
+                and shared_fallback_profile_ready
+                and daily_load is not None
+                and daily_load > 0.0
+            )
+            or (
+                not shared_load_active
+                and rce_state_raw is None
                 and daily_load is not None
                 and daily_load > 0.0
             )
         )
         if daily_load is None:
             required["sensor.hoymiles_load_average_4_days"] = None
-        complete_daily_loads = _state_attribute_daily_values(
-            rce_state,
-            "recorder_load_daily_kwh",
-        )
         (
             robust_daily_load,
             load_uncertainty_ratio,
@@ -2084,39 +3369,36 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             conservative_daily_load,
             conservative_load_days,
         ) = robust_weighted_upper_estimate(complete_daily_loads)
-        provisional_load = _state_attribute_number(
-            rce_state,
-            "provisional_daily_load_projection_kwh",
-        )
-        if robust_daily_load is not None and robust_load_days >= 5:
-            # Complete days provide the stable baseline.  Today's live
-            # projection may only raise it, which reacts to exceptional demand
-            # without allowing an incomplete morning to understate the home.
-            daily_load = max(robust_daily_load, provisional_load or 0.0)
-        average_load_profile = _state_attribute_profile(
-            rce_state,
-            "recorder_load_profile_30m_kwh",
-        )
-        if not average_load_profile:
-            average_load_profile = _state_attribute_profile(
-                rce_state,
-                "recorder_load_average_profile_30m_kwh",
+        if daily_total_dates and len(daily_total_dates) == len(complete_daily_loads):
+            ages = daily_ages_days(daily_total_dates, as_of=now.date())
+            robust_daily_load, load_uncertainty_ratio, robust_load_days = (
+                robust_weighted_estimate(complete_daily_loads, ages_days=ages)
             )
-        weekday_load_profile = _state_attribute_profile(
-            rce_state,
-            "recorder_load_weekday_profile_30m_kwh",
+            conservative_daily_load, conservative_load_days = (
+                robust_weighted_upper_estimate(complete_daily_loads, ages_days=ages)
+            )
+        if not shared_load_active and robust_daily_load is not None and robust_load_days >= 5:
+            daily_load = max(robust_daily_load, provisional_load or 0.0)
+        shared_rated_power = _shared_sample_value(
+            self._runtime,
+            "system",
+            "inverter_rated_power_each_kw",
         )
-        weekend_load_profile = _state_attribute_profile(
-            rce_state,
-            "recorder_load_weekend_profile_30m_kwh",
-        )
-
-        rated_power = _select_number(
-            self.hass,
-            "input_select.hoymiles_rce_inverter_rated_power",
-        )
+        if shared_rated_power is _SHARED_INPUT_MISSING:
+            rated_power = _preferred_select_number(
+                self.hass,
+                EMS_INVERTER_RATED_POWER_HELPER,
+                LEGACY_INVERTER_RATED_POWER_HELPER,
+            )
+        else:
+            rated_power = (
+                float(shared_rated_power)
+                if type(shared_rated_power) in {int, float}
+                and math.isfinite(float(shared_rated_power))
+                else None
+            )
         if rated_power is None:
-            required["input_select.hoymiles_rce_inverter_rated_power"] = None
+            required[EMS_INVERTER_RATED_POWER_HELPER] = None
 
         window_entities = (
             "input_datetime.hoymiles_tariff_cheap_1_start",
@@ -2133,7 +3415,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         required.update(window_values)
 
         tariff_type = _state_text(self.hass, "input_select.hoymiles_tariff_type")
-        if tariff_type not in {"G11", "G12", "G12w", "G13"}:
+        if tariff_type not in SUPPORTED_GROUPS:
             required["input_select.hoymiles_tariff_type"] = None
         operator = _state_text(
             self.hass,
@@ -2149,21 +3431,40 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         )
         unsupported_profile = (
             operator != MANUAL_OPERATOR
-            and tariff_type in {"G11", "G12", "G12w", "G13"}
+            and tariff_type in SUPPORTED_GROUPS
             and profile is None
         )
 
-        today_configured = _state_text(
+        today_configured = _resolved_forecast_entity_id(
             self.hass,
-            TODAY_FORECAST_ENTITY_HELPER,
+            self._runtime,
+            broker_field="today",
+            new_helper=EMS_TODAY_FORECAST_ENTITY_HELPER,
+            legacy_helper=TODAY_FORECAST_ENTITY_HELPER,
         )
-        tomorrow_configured = _state_text(
+        tomorrow_configured = _resolved_forecast_entity_id(
             self.hass,
-            TOMORROW_FORECAST_ENTITY_HELPER,
+            self._runtime,
+            broker_field="tomorrow",
+            new_helper=EMS_TOMORROW_FORECAST_ENTITY_HELPER,
+            legacy_helper=TOMORROW_FORECAST_ENTITY_HELPER,
         )
-        day_3_configured = _state_text(
+        day_3_configured = _resolved_forecast_entity_id(
             self.hass,
-            DAY3_FORECAST_ENTITY_HELPER,
+            self._runtime,
+            broker_field="day3",
+            new_helper=EMS_DAY3_FORECAST_ENTITY_HELPER,
+            legacy_helper=DAY3_FORECAST_ENTITY_HELPER,
+        )
+        remaining_shared = _shared_input_field(
+            self._runtime,
+            "forecast",
+            "remaining_today",
+        )
+        remaining_configured = (
+            getattr(remaining_shared, "entity_id", None)
+            if remaining_shared is not _SHARED_INPUT_MISSING
+            else None
         )
         today_entity, today_state = _first_numeric_state(
             self.hass,
@@ -2178,35 +3479,46 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         remaining_entity, remaining_state = _first_numeric_state(
             self.hass,
             REMAINING_TODAY_CANDIDATES,
+            remaining_configured,
         )
         day_3_entity, day_3_state = _first_numeric_state(
             self.hass,
             DAY3_FORECAST_CANDIDATES,
             day_3_configured,
         )
-        today_forecast_sample = numeric_state_sample(
+        forecast_update_state = resolve_solcast_update_state(self.hass.states)
+        forecast_sun_state = self.hass.states.get("sun.sun")
+        today_forecast_sample = evaluate_pv_forecast_usefulness(
             today_state,
             now,
+            target_date=now.date(),
             max_age_seconds=FORECAST_MAX_AGE_SECONDS,
-            minimum=0.0,
+            update_state=forecast_update_state,
+            sun_state=forecast_sun_state,
         )
-        tomorrow_forecast_sample = numeric_state_sample(
+        tomorrow_forecast_sample = evaluate_pv_forecast_usefulness(
             tomorrow_state,
             now,
+            target_date=now.date() + timedelta(days=1),
             max_age_seconds=FORECAST_MAX_AGE_SECONDS,
-            minimum=0.0,
+            update_state=forecast_update_state,
+            sun_state=forecast_sun_state,
         )
-        remaining_forecast_sample = numeric_state_sample(
+        remaining_forecast_sample = evaluate_pv_forecast_usefulness(
             remaining_state,
             now,
+            target_date=now.date(),
             max_age_seconds=FORECAST_MAX_AGE_SECONDS,
-            minimum=0.0,
+            update_state=forecast_update_state,
+            sun_state=forecast_sun_state,
         )
-        day_3_forecast_sample = numeric_state_sample(
+        day_3_forecast_sample = evaluate_pv_forecast_usefulness(
             day_3_state,
             now,
+            target_date=now.date() + timedelta(days=2),
             max_age_seconds=FORECAST_MAX_AGE_SECONDS,
-            minimum=0.0,
+            update_state=forecast_update_state,
+            sun_state=forecast_sun_state,
         )
         forecast_fresh = bool(
             today_forecast_sample.fresh
@@ -2310,7 +3622,13 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             required["sun.sun"] = None
 
         control_input_block_reason = "none"
-        if not self_use_soc_data_fresh:
+        if system_ac_power_kw is None:
+            control_input_block_reason = (
+                "system_ac_power_data_missing"
+                if system_ac_power_raw is None
+                else "system_ac_power_data_stale"
+            )
+        elif not self_use_soc_data_fresh:
             control_input_block_reason = (
                 "self_use_soc_data_missing"
                 if self_use_soc_value is None
@@ -2350,35 +3668,87 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
 
         missing = sorted(key for key, value in required.items() if value is None)
         learning_policy, learning_diagnostics = (
-            _forecast_learning_policy_snapshot(self.hass, now)
+            _forecast_learning_policy_snapshot(
+                self.hass,
+                now,
+                getattr(self, "_runtime", None),
+            )
         )
         self._forecast_gcf_policy_signature = (
             _forecast_learning_policy_signature(learning_policy)
         )
+        today_learning_policy, tomorrow_learning_policy, day3_learning_policy = (
+            forecast_policy_for_source(
+                learning_policy, getattr(state, "attributes", {}),
+            )
+            for state in (today_state, tomorrow_state, day_3_state)
+        )
         forecast_factor_used = forecast_factor_for_policy(
-            learning_policy,
-            self._forecast_accuracy_factor,
+            today_learning_policy, self._forecast_accuracy_factor,
+        )
+        tomorrow_forecast_factor = forecast_factor_for_policy(
+            tomorrow_learning_policy, self._forecast_accuracy_factor,
+        )
+        day3_forecast_factor = forecast_factor_for_policy(
+            day3_learning_policy, self._forecast_accuracy_factor,
         )
         forecast_history_days_used = (
-            self._forecast_accuracy_days if learning_policy.enabled else 0
+            self._forecast_accuracy_days if today_learning_policy.enabled else 0
         )
         forecast_uncertainty_used = (
             self._forecast_accuracy_uncertainty
-            if learning_policy.enabled
+            if today_learning_policy.enabled
             else 0.10
         )
         metadata: dict[str, Any] = {
             **learning_diagnostics,
-            "forecast_learning_enabled": learning_policy.enabled,
-            "forecast_learning_mode": learning_policy.mode,
+            "current_live_power_sampled_at": now.isoformat(),
+            "current_live_power_max_age_seconds": LIVE_TELEMETRY_MAX_AGE_SECONDS,
+            "current_live_power_shared_revision": getattr(shared_snapshot, "revision", None),
+            "forecast_learning_enabled": today_learning_policy.enabled,
+            "forecast_learning_mode": today_learning_policy.mode,
             "forecast_learning_excluded_reason": (
-                learning_policy.excluded_reason
+                today_learning_policy.excluded_reason
             ),
             "forecast_factor_used": round(forecast_factor_used, 3),
+            "forecast_tomorrow_factor_used": round(tomorrow_forecast_factor, 3),
+            "forecast_day3_factor_used": round(day3_forecast_factor, 3),
+            "forecast_tomorrow_learning_mode": tomorrow_learning_policy.mode,
+            "forecast_day3_learning_mode": day3_learning_policy.mode,
             "forecast_learning_history_days_used": forecast_history_days_used,
             "missing_entities": missing,
             "control_inputs_fresh": control_inputs_fresh,
             "control_input_block_reason": control_input_block_reason,
+            "active_commitment_available": active_commitment is not None,
+            "active_commitment_transaction_id": (
+                active_commitment.transaction_id
+                if active_commitment is not None
+                else None
+            ),
+            "active_commitment_action": (
+                active_commitment.action
+                if active_commitment is not None
+                else None
+            ),
+            "active_commitment_hard_deadline": (
+                active_commitment.hard_deadline.isoformat()
+                if active_commitment is not None
+                else None
+            ),
+            "system_ac_power_data_fresh": system_ac_power_kw is not None,
+            "system_ac_power_age_seconds": (
+                round(float(system_ac_power_sample.age_seconds), 1)
+                if system_ac_power_sample is not None
+                and type(getattr(system_ac_power_sample, "age_seconds", None))
+                in {int, float}
+                and math.isfinite(float(system_ac_power_sample.age_seconds))
+                else None
+            ),
+            "system_ac_power_provenance": getattr(
+                system_ac_power_sample,
+                "provenance",
+                "unavailable",
+            ),
             "soc_data_fresh": soc_data_fresh,
             "soc_age_seconds": (
                 round(soc_age_seconds, 1)
@@ -2413,6 +3783,52 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "bms_discharge_available": bms_discharge_available,
             "load_profile_data_fresh": load_profile_data_fresh,
             "load_profile_source": load_profile_source,
+            "configured_daily_fallback_kwh": configured_daily_fallback_kwh,
+            "input_change_reason": self._last_input_change_reason,
+            "input_change_previous_value": self._last_input_change_previous_value,
+            "input_change_new_value": self._last_input_change_new_value,
+            "load_model_schema": (
+                str(getattr(shared_load, "model_schema", "unavailable"))
+                if shared_load_active
+                else "legacy_rce_load_broker"
+            ),
+            "load_model_quality": (
+                str(getattr(shared_load, "model_quality", "unavailable"))
+                if shared_load_active
+                else "legacy"
+            ),
+            "load_model_revision": (
+                getattr(shared_snapshot, "revision", None)
+                if shared_load_active
+                else None
+            ),
+            "load_daily_coverage_ratio": (
+                shared_load_number("daily_coverage_ratio")
+                if shared_load_active
+                else None
+            ),
+            "load_profile_coverage_ratio": (
+                shared_load_number("profile_coverage_ratio")
+                if shared_load_active
+                else None
+            ),
+            "load_current_day_energy_kwh": current_day_energy,
+            "load_current_day_observed_at": (
+                current_day_observed_at.isoformat()
+                if isinstance(current_day_observed_at, datetime)
+                else None
+            ),
+            "load_persistence_delta_kw": persistence_delta_kw,
+            "load_persistence_observed_at": (
+                persistence_observed_at.isoformat()
+                if isinstance(persistence_observed_at, datetime)
+                else None
+            ),
+            "load_profile_generated_at": (
+                load_profile_generated_at.isoformat()
+                if load_profile_generated_at is not None
+                else None
+            ),
             "load_profile_broker_fresh": load_profile_broker_fresh,
             "load_profile_age_seconds": (
                 round(max(load_profile_age_seconds, 0.0), 1)
@@ -2463,6 +3879,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "forecast_day_3_data_fresh": day_3_forecast_sample.fresh,
             "forecast_day_3_data_complete": day_3_status == "fresh",
             "forecast_day_3_data_reason": day_3_forecast_sample.reason,
+            "forecast_day_3_source_fresh": day_3_forecast_sample.source_fresh,
+            "forecast_day_3_usability_mode": day_3_forecast_sample.mode,
+            "forecast_day_3_usable": day_3_forecast_sample.usable,
             "forecast_day_3_age_seconds": (
                 round(day_3_forecast_sample.age_seconds, 1)
                 if day_3_forecast_sample.age_seconds is not None
@@ -2471,6 +3890,9 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "forecast_data_fresh": forecast_fresh,
             "forecast_today_data_fresh": today_forecast_sample.fresh,
             "forecast_today_data_reason": today_forecast_sample.reason,
+            "forecast_today_source_fresh": today_forecast_sample.source_fresh,
+            "forecast_today_usability_mode": today_forecast_sample.mode,
+            "forecast_today_usable": today_forecast_sample.usable,
             "forecast_today_age_seconds": (
                 round(today_forecast_sample.age_seconds, 1)
                 if today_forecast_sample.age_seconds is not None
@@ -2478,6 +3900,11 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             ),
             "forecast_tomorrow_data_fresh": tomorrow_forecast_sample.fresh,
             "forecast_tomorrow_data_reason": tomorrow_forecast_sample.reason,
+            "forecast_tomorrow_source_fresh": (
+                tomorrow_forecast_sample.source_fresh
+            ),
+            "forecast_tomorrow_usability_mode": tomorrow_forecast_sample.mode,
+            "forecast_tomorrow_usable": tomorrow_forecast_sample.usable,
             "forecast_tomorrow_age_seconds": (
                 round(tomorrow_forecast_sample.age_seconds, 1)
                 if tomorrow_forecast_sample.age_seconds is not None
@@ -2489,6 +3916,13 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "forecast_remaining_today_data_reason": (
                 remaining_forecast_sample.reason
             ),
+            "forecast_remaining_today_source_fresh": (
+                remaining_forecast_sample.source_fresh
+            ),
+            "forecast_remaining_today_usability_mode": (
+                remaining_forecast_sample.mode
+            ),
+            "forecast_remaining_today_usable": remaining_forecast_sample.usable,
             "forecast_remaining_today_age_seconds": (
                 round(remaining_forecast_sample.age_seconds, 1)
                 if remaining_forecast_sample.age_seconds is not None
@@ -2499,6 +3933,33 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 if today_forecast_age is not None
                 else None
             ),
+            "forecast_last_success": (
+                today_forecast_sample.last_success_at.isoformat()
+                if today_forecast_sample.last_success_at is not None
+                else None
+            ),
+            "forecast_next_update": (
+                today_forecast_sample.next_update_at.isoformat()
+                if today_forecast_sample.next_update_at is not None
+                else None
+            ),
+            "forecast_valid_until": (
+                today_forecast_sample.valid_until.isoformat()
+                if today_forecast_sample.valid_until is not None
+                else None
+            ),
+            "forecast_target_date": today_forecast_sample.target_date.isoformat(),
+            "forecast_coverage_start_date": (
+                today_forecast_sample.coverage_start_date.isoformat()
+                if today_forecast_sample.coverage_start_date is not None
+                else None
+            ),
+            "forecast_coverage_end_date": (
+                today_forecast_sample.coverage_end_date.isoformat()
+                if today_forecast_sample.coverage_end_date is not None
+                else None
+            ),
+            "forecast_coverage_complete": today_forecast_sample.coverage_complete,
             "forecast_tomorrow_age_minutes": (
                 round(tomorrow_forecast_age, 1)
                 if tomorrow_forecast_age is not None
@@ -2534,7 +3995,12 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 round(night_load, 2) if night_load is not None else None
             ),
             "history_complete": (
-                bool(rce_state.attributes.get("history_complete"))
+                bool(
+                    getattr(shared_load, "ready", False)
+                    and int(getattr(shared_load, "daily_history_days", 0)) >= 3
+                )
+                if shared_load_active
+                else bool(rce_state.attributes.get("history_complete"))
                 if rce_state is not None
                 else False
             ),
@@ -2635,6 +4101,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             return None, metadata
 
         assert daily_load is not None
+        assert system_ac_power_kw is not None
         assert rated_power is not None
         assert today_state is not None
         assert tomorrow_state is not None
@@ -2665,7 +4132,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             now,
         )
         live_adjustment_eligible = (
-            learning_policy.enabled
+            today_learning_policy.enabled
             and now >= sunrise_today_local + timedelta(minutes=90)
             and now <= sunset_today_local + timedelta(minutes=30)
         )
@@ -2682,7 +4149,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         today_p10, _, today_p90 = _forecast_interval_kwh(today_state)
         tomorrow_p10, _, tomorrow_p90 = _forecast_interval_kwh(tomorrow_state)
         day_3_p10, _, day_3_p90 = _forecast_interval_kwh(day_3_state)
-        risk_weight = uncertainty_risk_weight(
+        raw_risk_weight = uncertainty_risk_weight(
             history_days=forecast_history_days_used,
             live_confidence=live_forecast_confidence,
             uncertainty_available=(
@@ -2690,6 +4157,10 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 or tomorrow_p10 is not None
                 or day_3_p10 is not None
             ),
+        )
+        risk_weight = _tariff_forecast_risk_weight(
+            learning_policy,
+            raw_risk_weight,
         )
         forecast_tomorrow_conservative_raw = blend_low_expected(
             tomorrow_p10
@@ -2699,7 +4170,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             risk_weight,
         )
         forecast_tomorrow = (
-            forecast_tomorrow_conservative_raw * forecast_factor_used
+            forecast_tomorrow_conservative_raw * tomorrow_forecast_factor
         )
         forecast_day_3_conservative_raw = blend_low_expected(
             day_3_p10 if day_3_p10 is not None else forecast_day_3_raw,
@@ -2707,7 +4178,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             risk_weight,
         )
         forecast_day_3 = (
-            forecast_day_3_conservative_raw * forecast_factor_used
+            forecast_day_3_conservative_raw * day3_forecast_factor
         )
         remaining_today_raw = (
             max(float(remaining_state.state), 0.0)
@@ -2791,7 +4262,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         if tomorrow_p10 is not None:
             tomorrow_p10_effective = (
                 min(tomorrow_p10, forecast_tomorrow_raw)
-                * forecast_factor_used
+                * tomorrow_forecast_factor
             )
             pv_tomorrow_p10 = _detailed_pv_map(
                 tomorrow_state,
@@ -2855,7 +4326,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             if day_3_p10 is not None:
                 day_3_p10_effective = (
                     min(day_3_p10, forecast_day_3_raw)
-                    * forecast_factor_used
+                    * day3_forecast_factor
                 )
                 pv_day_3_p10 = _detailed_pv_map(
                     day_3_state,
@@ -2880,30 +4351,53 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                     )
                 pv_p10_available_dates.add(day_3_date)
 
+        night_start = (
+            sunset_today_local.hour * 60 + sunset_today_local.minute - 90
+        ) % (24 * 60)
+        night_end = (
+            sunrise_tomorrow_local.hour * 60 + sunrise_tomorrow_local.minute + 90
+        ) % (24 * 60)
+        if shared_load is not None:
+            night_start = getattr(shared_load, "night_start_minute", night_start)
+            night_end = getattr(shared_load, "night_end_minute", night_end)
         load_by_slot: dict[datetime, float] | None = None
-        if average_load_profile or weekday_load_profile or weekend_load_profile:
-            load_by_slot = {}
+        if daily_load is not None:
             horizon_end = selected_horizon_end
             cursor_utc = dt_util.as_utc(now_slot)
             horizon_end_utc = dt_util.as_utc(horizon_end)
+            load_starts: list[datetime] = []
             while cursor_utc < horizon_end_utc:
-                cursor = cursor_utc.astimezone(timezone)
-                category_profile = (
-                    weekend_load_profile
-                    if cursor.weekday() >= 5
-                    else weekday_load_profile
-                )
-                # Keep the selected tariff profile intact.  Reusing the name
-                # ``profile`` here replaced TariffProfile with a 48-slot load
-                # tuple and broke every automatic (non-Manual) operator after
-                # recorder history became available.
-                slot_profile = category_profile or average_load_profile
-                if slot_profile:
-                    profile_total = sum(slot_profile)
-                    scale = daily_load / profile_total if profile_total > 0 else 1.0
-                    slot = cursor.hour * 2 + cursor.minute // 30
-                    load_by_slot[cursor] = slot_profile[slot] * scale
+                load_starts.append(cursor_utc)
                 cursor_utc += timedelta(minutes=30)
+            load_forecast = expected_load_by_slot(
+                load_starts,
+                now=now,
+                daily_energy_kwh=daily_load,
+                average_profile_30m_kwh=average_load_profile,
+                weekday_profile_30m_kwh=weekday_load_profile,
+                weekend_profile_30m_kwh=weekend_load_profile,
+                night_energy_kwh=night_load,
+                night_start_minute=night_start,
+                night_end_minute=night_end,
+                current_day_energy_kwh=current_day_energy,
+                current_day_observed_at=current_day_observed_at,
+                persistence_delta_kw=persistence_delta_kw,
+                persistence_observed_at=persistence_observed_at,
+            )
+            load_by_slot = dict(load_forecast.by_slot_kwh)
+            metadata.update(
+                {
+                    "load_current_day_correction_ratio": round(
+                        load_forecast.current_day_correction_ratio, 4
+                    ),
+                    "load_current_day_correction_kwh": round(
+                        load_forecast.current_day_correction_kwh, 3
+                    ),
+                    "load_expected_horizon_kwh": round(
+                        sum(load_forecast.by_slot_kwh.values()), 3
+                    ),
+                }
+            )
 
         # Only the unfinished current interval is corrected from the fresh
         # power samples captured together with the control-input contract.
@@ -2944,12 +4438,12 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             "input_number.hoymiles_tariff_requested_charge_power"
         ]
         assert requested_percent is not None
+        # Quantize the prospective command before deriving model power and
+        # publishing execution authority. Raw inputs/fingerprints stay intact.
+        requested_percent = float(math.floor(requested_percent))
         requested_power_kw = system_power_kw * requested_percent / 100.0
-        # Maximum Charge Power is the complete AC budget used by Grid Charge.
-        # The inverter supplies LOAD first and directs only the remainder to
-        # the battery.  The BMS value therefore limits the battery branch, not
-        # the complete grid input; combining them here would subtract LOAD
-        # twice and systematically undercharge the storage.
+        # Maximum Charge Power controls battery charging. Grid-supplied LOAD
+        # does not consume that setting; the BMS remains a battery-side limit.
         effective_power_kw = requested_power_kw * min(
             max(self._effective_charge_power_factor, 0.50),
             1.0,
@@ -3001,7 +4495,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             cheap_windows=cheap_windows,  # type: ignore[arg-type]
             medium_windows=medium_windows,  # type: ignore[arg-type]
             weekend_low_price=(
-                tariff_type in {"G12w", "G13"}
+                tariff_type in {"G12w", "G12e", "G13"}
                 and self.hass.states.is_state(
                     "input_boolean.hoymiles_tariff_weekend_low_price",
                     "on",
@@ -3017,15 +4511,15 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
         self_use_reserve_soc = required[
             "sensor.hoymiles_hit_ems_self_use_soc_readback"
         ]
-        safety_margin_soc = required[
+        demand_margin_percent = required[
             "input_number.hoymiles_tariff_soc_safety_margin"
         ]
         assert self_use_reserve_soc is not None
-        assert safety_margin_soc is not None
-        reserve_soc = min(
-            max(self_use_reserve_soc + safety_margin_soc, 0.0),
-            100.0,
-        )
+        assert demand_margin_percent is not None
+        # This helper is a percentage of the next protected period's energy
+        # need. It is consumable headroom, not SOC percentage points and not a
+        # higher physical Self-Use floor.
+        reserve_soc = min(max(self_use_reserve_soc, 0.0), 100.0)
         capacity_kwh = required["sensor.hoymiles_hit_battery_capacity"]
         assert capacity_kwh is not None
         # With at least five complete days the P90 scenario is already applied
@@ -3091,12 +4585,6 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
             reserve_soc + terminal_margin_kwh / max(capacity_kwh, 0.001) * 100.0,
             maximum_soc,
         )
-        night_start = (
-            sunset_today_local.hour * 60 + sunset_today_local.minute - 90
-        ) % (24 * 60)
-        night_end = (
-            sunrise_tomorrow_local.hour * 60 + sunrise_tomorrow_local.minute + 90
-        ) % (24 * 60)
         metadata.update(
             {
                 "forecast_remaining_today_kwh": round(remaining_today, 2),
@@ -3195,6 +4683,15 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                     else None
                 ),
                 "forecast_uncertainty_risk_weight": round(risk_weight, 3),
+                "forecast_uncertainty_raw_risk_weight": round(
+                    raw_risk_weight,
+                    3,
+                ),
+                "forecast_margin_policy": (
+                    "fixed_factor_expected_separate_p10_safety"
+                    if learning_policy.mode == "fixed_zero_export"
+                    else "factor_plus_p10_blend"
+                ),
                 "forecast_today_p10_kwh": (
                     round(today_p10, 2) if today_p10 is not None else None
                 ),
@@ -3253,10 +4750,11 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                     self_use_reserve_soc,
                     1,
                 ),
-                "safety_margin_soc_percentage_points": round(
-                    safety_margin_soc,
+                "demand_margin_percent": round(
+                    demand_margin_percent,
                     1,
                 ),
+                "demand_margin_semantics": "protected_energy_percent_v2",
                 "inverter_count": inverter_count,
                 "inverter_power_each_kw": rated_power,
                 "system_power_kw": round(system_power_kw, 2),
@@ -3356,6 +4854,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 night_start_minute=night_start,
                 night_end_minute=night_end,
                 charge_power_kw=effective_power_kw,
+                system_ac_power_kw=system_ac_power_kw,
                 requested_charge_power_kw=requested_power_kw,
                 battery_charge_power_kw=bms_power_kw,
                 battery_discharge_power_kw=bms_discharge_power_kw,
@@ -3374,6 +4873,7 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 horizon_days=horizon_days,
                 terminal_reserve_soc_percent=terminal_reserve_soc,
                 base_reserve_soc_percent=self_use_reserve_soc,
+                demand_margin_percent=demand_margin_percent,
                 conservative_daily_load_kwh=conservative_daily_load,
                 load_uncertainty_ratio=load_uncertainty_ratio,
                 load_history_days=robust_load_days,
@@ -3389,6 +4889,10 @@ class HoymilesTariffOptimizerSensor(SensorEntity, RestoreEntity):
                 current_battery_power_kw=current_battery_power_kw,
                 control_inputs_fresh=control_inputs_fresh,
                 control_input_block_reason=control_input_block_reason,
+                export_state=_tariff_export_state_from_shared_snapshot(
+                    shared_snapshot
+                ),
+                active_commitment=active_commitment,
             ),
             metadata,
         )

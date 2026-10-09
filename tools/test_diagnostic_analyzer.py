@@ -1851,7 +1851,35 @@ def _run_history_archive_regressions(
     )
 
 
+def test_rich_event_replacement_budget() -> None:
+    """Enrich overlapping history only within the same global memory bound."""
+    from diagnostics_analysis import analyzer
+    from diagnostics_analysis.extractors import is_unknown
+    assert is_unknown("[REDACTED_ID]") and is_unknown("[DEPTH_LIMIT]")
+    event = {"installation_key": "installation", "entity_id": "sensor.hoymiles_hit_ems_supervisor",
+             "last_updated": BASE_TIME.isoformat(), "state": "executing", "archive_key": "b"}
+    rich = {**event, "archive_key": "c", "attributes": {"transaction_id": "tx-known", "reason": "no_current_plan"}}
+    retained, sizes, heap = {}, {}, []
+    counters = dict(candidates=0, drop_operations=0, evictions=0, oversized_events=0, retained_estimated_bytes=0)
+    analyzer._retain_control_events([event], retained, sizes, heap, counters)
+    old_bytes = counters["retained_estimated_bytes"]
+    limit = analyzer.MAX_RETAINED_CONTROL_EVENT_BYTES
+    try:
+        analyzer.MAX_RETAINED_CONTROL_EVENT_BYTES = old_bytes
+        analyzer._retain_control_events([rich], retained, sizes, heap, counters)
+        assert counters["drop_operations"] == 1
+        assert counters["retained_estimated_bytes"] == old_bytes
+        assert "attributes" not in next(iter(retained.values()))
+    finally:
+        analyzer.MAX_RETAINED_CONTROL_EVENT_BYTES = limit
+    analyzer._retain_control_events([rich, {**event, "archive_key": "a"}], retained, sizes, heap, counters)
+    assert next(iter(retained.values())) == rich
+    assert counters["retained_estimated_bytes"] == sum(sizes.values())
+    assert counters["retained_estimated_bytes"] > old_bytes
+
+
 def main() -> None:
+    test_rich_event_replacement_budget()
     require(UUID(INSTALLATION_A).version == 4, "Fixture ID A is not UUID v4")
     require(
         {

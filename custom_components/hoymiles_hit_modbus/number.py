@@ -18,6 +18,21 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import DOMAIN
 from .entity import HoymilesProxyEntity
 from .models import RuntimeData
+from .supervisor_sensor import async_dispatch_manual_ems_proxy_write
+
+
+_SUPERVISOR_CONTROLLED_EMS_SOURCE_IDS = frozenset(
+    {
+        "battery_max_charge_power_306",
+        "ems_complete_block_charge_rollback_command",
+        "gcf_export_soft_limit_ratio_259",
+        "self_used_soc_4301",
+        "force_charge_soc_4303",
+        "maximum_charge_power_4304",
+        "force_discharge_soc_4305",
+        "maximum_discharge_power_4306",
+    }
+)
 
 
 async def async_setup_entry(
@@ -87,13 +102,28 @@ class HoymilesNumber(HoymilesProxyEntity, NumberEntity):
             raise HomeAssistantError(
                 "This setting requires a newer Hoymiles ESPHome firmware"
             )
-        await self.hass.services.async_call(
-            NUMBER_DOMAIN,
-            SERVICE_SET_VALUE,
-            {
-                ATTR_ENTITY_ID: self._source_entity_id,
-                ATTR_VALUE: value,
-            },
-            blocking=True,
-            context=self._context,
-        )
+        async def dispatch() -> None:
+            await self.hass.services.async_call(
+                NUMBER_DOMAIN,
+                SERVICE_SET_VALUE,
+                {
+                    ATTR_ENTITY_ID: self._source_entity_id,
+                    ATTR_VALUE: value,
+                },
+                blocking=True,
+                context=self._context,
+            )
+
+        if self._catalog.get("source_id") in _SUPERVISOR_CONTROLLED_EMS_SOURCE_IDS:
+            if not await async_dispatch_manual_ems_proxy_write(
+                self.hass,
+                self._entry.entry_id,
+                self._catalog.get("source_id"),
+                value,
+            ):
+                raise HomeAssistantError(
+                    "This inverter actuator is controlled by EMS Supervisor; "
+                    "set it Off and wait for confirmed idle ownership release"
+                )
+            return
+        await dispatch()

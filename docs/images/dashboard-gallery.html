@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aurora v1.5.8 — four live views</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #070e16; color: #edf6fc; font: 20px Arial, sans-serif; }
+  main { width: 2240px; padding: 32px; }
+  header { display: flex; align-items: end; justify-content: space-between; margin-bottom: 24px; }
+  h1 { margin: 0; font-size: 42px; letter-spacing: -1px; }
+  header p { margin: 0; color: #9eb7ca; font-size: 19px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  figure { margin: 0; border: 1px solid #2b414f; border-radius: 16px; background: #0b141e; overflow: hidden; }
+  figcaption { padding: 18px 22px; font-size: 22px; font-weight: bold; border-bottom: 1px solid #233745; }
+  b { color: #49d5ff; margin-right: 16px; }
+  span { float: right; font-size: 16px; font-weight: normal; color: #a4bbcd; line-height: 26px; }
+  .screen { height: 728px; display: flex; align-items: center; background: #090f17; }
+  img { display: block; width: 100%; height: auto; }
+  footer { padding-top: 22px; color: #8faabe; display: flex; justify-content: space-between; font-size: 17px; }
+</style>
+<main>
+  <header>
+    <h1>Aurora <b>EMS 1.5.8</b></h1>
+    <p>Live installation · Rzeczywista instalacja · 09.09.2026 · UI 1.5.8.72</p>
+  </header>
+  <div class="grid">
+    <figure>
+      <figcaption><b>01</b>Przegląd <span>Overview · live power</span></figcaption>
+      <div class="screen"><img src="dashboard-start-v1.5.8.png" alt="Actual PV, grid, household and battery power with the next EMS action"></div>
+    </figure>
+    <figure>
+      <figcaption><b>02</b>EMS <span>Energy plan · SOC · grid flows</span></figcaption>
+      <div class="screen"><img src="dashboard-ems-v1.5.8.png" alt="Energy plan and selected RCE interval: forecast SOC and expected export"></div>
+    </figure>
+    <figure>
+      <figcaption><b>03</b>Ładowanie taryfowe <span>Tariff charging settings</span></figcaption>
+      <div class="screen"><img src="dashboard-tariff-v1.5.8.png" alt="Tariff policy settings: supplier, tariff, charging power and SOC margin"></div>
+    </figure>
+    <figure>
+      <figcaption><b>04</b>RCEm <span>Voltage and battery headroom</span></figcaption>
+      <div class="screen"><img src="dashboard-rcem-v1.5.8.png" alt="Measured phase voltages, risk state and experimental energy-management options"></div>
+    </figure>
+  </div>
+  <footer>
+    <div>Przykładowe odczyty i ustawienia · Example readings and settings</div>
+    <div>Prognoza ≠ pomiar · Forecast ≠ measurement</div>
+  </footer>
+</main>
+</html>

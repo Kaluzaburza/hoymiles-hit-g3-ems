@@ -261,11 +261,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Active Power (Direct)",
-      "pl": "Odbiorniki czynna moc (Direct)"
+      "pl": "Zużycie domu czynna moc (Direct)"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Active Power (Direct).",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki czynna moc (Direct)."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu czynna moc (Direct)."
     },
     "options": []
   },
@@ -279,11 +279,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Energy Use Total",
-      "pl": "Odbiorniki energia Use łącznie"
+      "pl": "Zużycie domu — energia łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Energy Use Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki energia Use łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu — energia łącznie."
     },
     "options": []
   },
@@ -297,11 +297,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Energy Use L1n Total",
-      "pl": "Odbiorniki energia Use L1n łącznie"
+      "pl": "Zużycie domu — energia L1 łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Energy Use L1n Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki energia Use L1n łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu — energia L1 łącznie."
     },
     "options": []
   },
@@ -315,11 +315,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Energy Use L2n Total",
-      "pl": "Odbiorniki energia Use L2n łącznie"
+      "pl": "Zużycie domu — energia L2 łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Energy Use L2n Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki energia Use L2n łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu — energia L2 łącznie."
     },
     "options": []
   },
@@ -333,11 +333,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Energy Use L3n Total",
-      "pl": "Odbiorniki energia Use L3n łącznie"
+      "pl": "Zużycie domu — energia L3 łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Energy Use L3n Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki energia Use L3n łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu — energia L3 łącznie."
     },
     "options": []
   },
@@ -351,11 +351,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Energy Use Today",
-      "pl": "Odbiorniki energia Use dzisiaj"
+      "pl": "Zużycie domu — energia dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Energy Use Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki energia Use dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu — energia dzisiaj."
     },
     "options": []
   },
@@ -369,11 +369,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Energy Use L1n Today",
-      "pl": "Odbiorniki energia Use L1n dzisiaj"
+      "pl": "Zużycie domu — energia L1 dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Energy Use L1n Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki energia Use L1n dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu — energia L1 dzisiaj."
     },
     "options": []
   },
@@ -387,11 +387,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Energy Use L2n Today",
-      "pl": "Odbiorniki energia Use L2n dzisiaj"
+      "pl": "Zużycie domu — energia L2 dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Energy Use L2n Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki energia Use L2n dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu — energia L2 dzisiaj."
     },
     "options": []
   },
@@ -405,11 +405,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Energy Use L3n Today",
-      "pl": "Odbiorniki energia Use L3n dzisiaj"
+      "pl": "Zużycie domu — energia L3 dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Energy Use L3n Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki energia Use L3n dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu — energia L3 dzisiaj."
     },
     "options": []
   },
@@ -423,11 +423,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Power Total",
-      "pl": "Odbiorniki moc łącznie"
+      "pl": "Zużycie domu moc łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Power Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki moc łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu moc łącznie."
     },
     "options": []
   },
@@ -441,11 +441,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Power L1n",
-      "pl": "Odbiorniki moc L1n"
+      "pl": "Zużycie domu moc L1n"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Power L1n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki moc L1n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu moc L1n."
     },
     "options": []
   },
@@ -459,11 +459,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Power L2n",
-      "pl": "Odbiorniki moc L2n"
+      "pl": "Zużycie domu moc L2n"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Power L2n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki moc L2n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu moc L2n."
     },
     "options": []
   },
@@ -477,11 +477,11 @@
     "entity_category": null,
     "name": {
       "en": "Load Power L3n",
-      "pl": "Odbiorniki moc L3n"
+      "pl": "Zużycie domu moc L3n"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load Power L3n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki moc L3n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Zużycie domu moc L3n."
     },
     "options": []
   },
@@ -495,11 +495,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery Capacity",
-      "pl": "Bateria pojemność"
+      "pl": "Pojemność magazynu energii"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Capacity.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Bateria pojemność."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Pojemność magazynu energii."
     },
     "options": []
   },
@@ -531,11 +531,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery SOC (BMS)",
-      "pl": "Bateria SOC (BMS)"
+      "pl": "SOC baterii (BMS)"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery SOC (BMS).",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Bateria SOC (BMS)."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: SOC baterii (BMS)."
     },
     "options": []
   },
@@ -549,11 +549,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery SOH",
-      "pl": "Bateria SOH"
+      "pl": "Stan zdrowia magazynu energii (SOH)"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery SOH.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Bateria SOH."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Stan zdrowia magazynu energii (SOH)."
     },
     "options": []
   },
@@ -657,11 +657,11 @@
     "entity_category": null,
     "name": {
       "en": "Charge Cut-off Voltage",
-      "pl": "Ładowanie Cut-off napięcie"
+      "pl": "Napięcie odcięcia ładowania"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Charge Cut-off Voltage.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Ładowanie Cut-off napięcie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Napięcie odcięcia ładowania."
     },
     "options": []
   },
@@ -675,11 +675,11 @@
     "entity_category": null,
     "name": {
       "en": "Discharge Cut-off Voltage",
-      "pl": "Rozładowanie Cut-off napięcie"
+      "pl": "Napięcie odcięcia rozładowania"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Discharge Cut-off Voltage.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Rozładowanie Cut-off napięcie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Napięcie odcięcia rozładowania."
     },
     "options": []
   },
@@ -729,11 +729,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery Charge Energy Today",
-      "pl": "Bateria ładowanie energia dzisiaj"
+      "pl": "Energia ładowania magazynu energii dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Charge Energy Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Bateria ładowanie energia dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia ładowania magazynu energii dzisiaj."
     },
     "options": []
   },
@@ -747,11 +747,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery Discharge Energy Today",
-      "pl": "Bateria rozładowanie energia dzisiaj"
+      "pl": "Energia rozładowania magazynu energii dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Discharge Energy Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Bateria rozładowanie energia dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia rozładowania magazynu energii dzisiaj."
     },
     "options": []
   },
@@ -765,11 +765,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery Total Power (Energy Block)",
-      "pl": "Bateria łącznie moc (energia Block)"
+      "pl": "Magazyn energii — moc łączna (blok pomiarowy)"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Total Power (Energy Block).",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Bateria łącznie moc (energia Block)."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Magazyn energii — moc łączna (blok pomiarowy)."
     },
     "options": []
   },
@@ -909,11 +909,11 @@
     "entity_category": null,
     "name": {
       "en": "Energy From PV Total",
-      "pl": "Energia From PV łącznie"
+      "pl": "Energia z PV łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Energy From PV Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia From PV łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia z PV łącznie."
     },
     "options": []
   },
@@ -927,11 +927,11 @@
     "entity_category": null,
     "name": {
       "en": "Energy From Battery Total",
-      "pl": "Energia From bateria łącznie"
+      "pl": "Energia oddana przez magazyn energii — łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Energy From Battery Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia From bateria łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia oddana przez magazyn energii — łącznie."
     },
     "options": []
   },
@@ -945,11 +945,11 @@
     "entity_category": null,
     "name": {
       "en": "Energy From Grid Total",
-      "pl": "Energia From sieć łącznie"
+      "pl": "Energia z sieci łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Energy From Grid Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia From sieć łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia z sieci łącznie."
     },
     "options": []
   },
@@ -963,11 +963,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Battery Energy Today",
-      "pl": "PV to bateria energia dzisiaj"
+      "pl": "PV → magazyn energii — energia dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Battery Energy Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to bateria energia dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → magazyn energii — energia dzisiaj."
     },
     "options": []
   },
@@ -981,11 +981,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Load Energy Today",
-      "pl": "PV to odbiorniki energia dzisiaj"
+      "pl": "PV → dom — energia dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Load Energy Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to odbiorniki energia dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → dom — energia dzisiaj."
     },
     "options": []
   },
@@ -999,11 +999,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Grid Energy Today",
-      "pl": "PV to sieć energia dzisiaj"
+      "pl": "PV → sieć — energia dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Grid Energy Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to sieć energia dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → sieć — energia dzisiaj."
     },
     "options": []
   },
@@ -1017,11 +1017,11 @@
     "entity_category": null,
     "name": {
       "en": "Energy From PV Today",
-      "pl": "Energia From PV dzisiaj"
+      "pl": "Energia z PV dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Energy From PV Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia From PV dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia z PV dzisiaj."
     },
     "options": []
   },
@@ -1035,11 +1035,11 @@
     "entity_category": null,
     "name": {
       "en": "Energy From Battery Today",
-      "pl": "Energia From bateria dzisiaj"
+      "pl": "Energia oddana przez magazyn energii — dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Energy From Battery Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia From bateria dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia oddana przez magazyn energii — dzisiaj."
     },
     "options": []
   },
@@ -1053,11 +1053,11 @@
     "entity_category": null,
     "name": {
       "en": "Energy From Grid Today",
-      "pl": "Energia From sieć dzisiaj"
+      "pl": "Energia z sieci dzisiaj"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Energy From Grid Today.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia From sieć dzisiaj."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Energia z sieci dzisiaj."
     },
     "options": []
   },
@@ -1071,11 +1071,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Battery Power",
-      "pl": "PV to bateria moc"
+      "pl": "PV → magazyn energii — moc"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Battery Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to bateria moc."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → magazyn energii — moc."
     },
     "options": []
   },
@@ -1089,11 +1089,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Load Power",
-      "pl": "PV to odbiorniki moc"
+      "pl": "PV → dom — moc"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Load Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to odbiorniki moc."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → dom — moc."
     },
     "options": []
   },
@@ -1107,11 +1107,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Grid Power",
-      "pl": "PV to sieć moc"
+      "pl": "PV → sieć — moc"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Grid Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to sieć moc."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → sieć — moc."
     },
     "options": []
   },
@@ -1125,11 +1125,11 @@
     "entity_category": null,
     "name": {
       "en": "Load From PV Power",
-      "pl": "Odbiorniki From PV moc"
+      "pl": "Dom z PV — moc"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Load From PV Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odbiorniki From PV moc."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Dom z PV — moc."
     },
     "options": []
   },
@@ -2331,11 +2331,11 @@
     "entity_category": null,
     "name": {
       "en": "Meter Grid Frequency",
-      "pl": "Meter sieć częstotliwość"
+      "pl": "Licznik sieci — częstotliwość"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Meter Grid Frequency.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Meter sieć częstotliwość."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Licznik sieci — częstotliwość."
     },
     "options": []
   },
@@ -2367,11 +2367,11 @@
     "entity_category": null,
     "name": {
       "en": "Meter Grid Active Power L1",
-      "pl": "Meter sieć czynna moc L1"
+      "pl": "Licznik sieci — moc czynna L1"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Meter Grid Active Power L1.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Meter sieć czynna moc L1."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Licznik sieci — moc czynna L1."
     },
     "options": []
   },
@@ -2385,11 +2385,11 @@
     "entity_category": null,
     "name": {
       "en": "Meter Grid Active Power L2",
-      "pl": "Meter sieć czynna moc L2"
+      "pl": "Licznik sieci — moc czynna L2"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Meter Grid Active Power L2.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Meter sieć czynna moc L2."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Licznik sieci — moc czynna L2."
     },
     "options": []
   },
@@ -2403,11 +2403,11 @@
     "entity_category": null,
     "name": {
       "en": "Meter Grid Active Power L3",
-      "pl": "Meter sieć czynna moc L3"
+      "pl": "Licznik sieci — moc czynna L3"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Meter Grid Active Power L3.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Meter sieć czynna moc L3."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Licznik sieci — moc czynna L3."
     },
     "options": []
   },
@@ -2421,11 +2421,11 @@
     "entity_category": null,
     "name": {
       "en": "Meter Grid Total Active Power",
-      "pl": "Meter sieć łącznie czynna moc"
+      "pl": "Licznik sieci — łączna moc czynna"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Meter Grid Total Active Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Meter sieć łącznie czynna moc."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Licznik sieci — łączna moc czynna."
     },
     "options": []
   },
@@ -2511,11 +2511,11 @@
     "entity_category": null,
     "name": {
       "en": "Grid Power Factor",
-      "pl": "Sieć moc Factor"
+      "pl": "Współczynnik mocy sieci"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Grid Power Factor.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Sieć moc Factor."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Współczynnik mocy sieci."
     },
     "options": []
   },
@@ -2529,11 +2529,11 @@
     "entity_category": null,
     "name": {
       "en": "Grid Power Factor L1n",
-      "pl": "Sieć moc Factor L1n"
+      "pl": "Współczynnik mocy sieci — L1"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Grid Power Factor L1n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Sieć moc Factor L1n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Współczynnik mocy sieci — L1."
     },
     "options": []
   },
@@ -2547,11 +2547,11 @@
     "entity_category": null,
     "name": {
       "en": "Grid Power Factor L2n",
-      "pl": "Sieć moc Factor L2n"
+      "pl": "Współczynnik mocy sieci — L2"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Grid Power Factor L2n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Sieć moc Factor L2n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Współczynnik mocy sieci — L2."
     },
     "options": []
   },
@@ -2565,11 +2565,11 @@
     "entity_category": null,
     "name": {
       "en": "Grid Power Factor L3n",
-      "pl": "Sieć moc Factor L3n"
+      "pl": "Współczynnik mocy sieci — L3"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Grid Power Factor L3n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Sieć moc Factor L3n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Współczynnik mocy sieci — L3."
     },
     "options": []
   },
@@ -2853,11 +2853,11 @@
     "entity_category": null,
     "name": {
       "en": "PV Power Factor",
-      "pl": "PV moc Factor"
+      "pl": "Współczynnik mocy PV"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV Power Factor.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV moc Factor."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Współczynnik mocy PV."
     },
     "options": []
   },
@@ -2871,11 +2871,11 @@
     "entity_category": null,
     "name": {
       "en": "PV Power Factor L1n",
-      "pl": "PV moc Factor L1n"
+      "pl": "Współczynnik mocy PV — L1"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV Power Factor L1n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV moc Factor L1n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Współczynnik mocy PV — L1."
     },
     "options": []
   },
@@ -2889,11 +2889,11 @@
     "entity_category": null,
     "name": {
       "en": "PV Power Factor L2n",
-      "pl": "PV moc Factor L2n"
+      "pl": "Współczynnik mocy PV — L2"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV Power Factor L2n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV moc Factor L2n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Współczynnik mocy PV — L2."
     },
     "options": []
   },
@@ -2907,11 +2907,11 @@
     "entity_category": null,
     "name": {
       "en": "PV Power Factor L3n",
-      "pl": "PV moc Factor L3n"
+      "pl": "Współczynnik mocy PV — L3"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV Power Factor L3n.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV moc Factor L3n."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Współczynnik mocy PV — L3."
     },
     "options": []
   },
@@ -3015,11 +3015,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Internal PV Total Power",
-      "pl": "Podgląd łącznej mocy wewnętrznych wejść PV"
+      "pl": "Łączna moc wewnętrznych wejść PV"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Internal PV Total Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd łącznej mocy wewnętrznych wejść PV."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Łączna moc wewnętrznych wejść PV."
     },
     "options": []
   },
@@ -3033,11 +3033,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview External PV Total Power",
-      "pl": "Podgląd łącznej mocy zewnętrznych źródeł PV"
+      "pl": "Łączna moc zewnętrznych źródeł PV"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview External PV Total Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd łącznej mocy zewnętrznych źródeł PV."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Łączna moc zewnętrznych źródeł PV."
     },
     "options": []
   },
@@ -3051,11 +3051,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Generator Active Power",
-      "pl": "Podgląd mocy czynnej generatora"
+      "pl": "Moc czynna generatora"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Generator Active Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd mocy czynnej generatora."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Moc czynna generatora."
     },
     "options": []
   },
@@ -3069,11 +3069,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Smart Load Active Power",
-      "pl": "Podgląd mocy czynnej Smart Load"
+      "pl": "Moc czynna inteligentnego obciążenia"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Smart Load Active Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd mocy czynnej Smart Load."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Moc czynna inteligentnego obciążenia."
     },
     "options": []
   },
@@ -3087,11 +3087,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview PV Total Power",
-      "pl": "Podgląd łącznej mocy PV"
+      "pl": "Łączna moc PV"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview PV Total Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd łącznej mocy PV."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Łączna moc PV."
     },
     "options": []
   },
@@ -3105,11 +3105,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Inverter Active Power",
-      "pl": "Podgląd mocy czynnej falownika"
+      "pl": "Moc czynna falownika"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Inverter Active Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd mocy czynnej falownika."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Moc czynna falownika."
     },
     "options": []
   },
@@ -3123,11 +3123,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Battery Power",
-      "pl": "Podgląd mocy baterii"
+      "pl": "Moc magazynu energii"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Battery Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd mocy baterii."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Moc magazynu energii."
     },
     "options": []
   },
@@ -3141,11 +3141,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Grid Total Active Power",
-      "pl": "Podgląd łącznej mocy czynnej sieci"
+      "pl": "Łączna moc czynna sieci"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Grid Total Active Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd łącznej mocy czynnej sieci."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Łączna moc czynna sieci."
     },
     "options": []
   },
@@ -3159,11 +3159,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Load Active Power",
-      "pl": "Podgląd mocy czynnej odbiorników"
+      "pl": "Moc zużycia domu"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Load Active Power.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd mocy czynnej odbiorników."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Moc zużycia domu."
     },
     "options": []
   },
@@ -3177,11 +3177,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Battery SOC",
-      "pl": "Podgląd stanu naładowania baterii"
+      "pl": "Poziom magazynu energii"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Battery SOC.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd stanu naładowania baterii."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Poziom magazynu energii."
     },
     "options": []
   },
@@ -3735,11 +3735,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery Total Power (Direct)",
-      "pl": "Bateria łącznie moc (Direct)"
+      "pl": "Magazyn energii — moc łączna bezpośrednia"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Total Power (Direct).",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Bateria łącznie moc (Direct)."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Magazyn energii — moc łączna bezpośrednia."
     },
     "options": []
   },
@@ -3753,11 +3753,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery 1 Voltage",
-      "pl": "Napięcie baterii (falownik)"
+      "pl": "Napięcie magazynu energii (falownik)"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery 1 Voltage.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Napięcie baterii (falownik)."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Napięcie magazynu energii (falownik)."
     },
     "options": []
   },
@@ -3771,11 +3771,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery Current (Inverter)",
-      "pl": "Prąd baterii (falownik)"
+      "pl": "Prąd magazynu energii (falownik)"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Current (Inverter).",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Prąd baterii (falownik)."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Prąd magazynu energii (falownik)."
     },
     "options": []
   },
@@ -3951,11 +3951,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Battery Energy Total",
-      "pl": "PV to bateria energia łącznie"
+      "pl": "PV → magazyn energii — energia łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Battery Energy Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to bateria energia łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → magazyn energii — energia łącznie."
     },
     "options": []
   },
@@ -3969,11 +3969,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Load Energy Total",
-      "pl": "PV to odbiorniki energia łącznie"
+      "pl": "PV → dom — energia łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Load Energy Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to odbiorniki energia łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → dom — energia łącznie."
     },
     "options": []
   },
@@ -3987,11 +3987,11 @@
     "entity_category": null,
     "name": {
       "en": "PV to Grid Energy Total",
-      "pl": "PV to sieć energia łącznie"
+      "pl": "PV → sieć — energia łącznie"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: PV to Grid Energy Total.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV to sieć energia łącznie."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: PV → sieć — energia łącznie."
     },
     "options": []
   },
@@ -4339,6 +4339,42 @@
   },
   {
     "domain": "sensor",
+    "source_component": "text_sensor",
+    "translation_key": "ems_control_lease_state",
+    "source_name": "EMS Control Lease State",
+    "source_id": "ems_control_lease_state_text",
+    "source_object_id": "ems_control_lease_state",
+    "entity_category": "diagnostic",
+    "name": {
+      "en": "EMS Control Lease State",
+      "pl": "EMS Control Lease State"
+    },
+    "description": {
+      "en": "Hoymiles HIT xxL G3 Modbus value: EMS Control Lease State.",
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: EMS Control Lease State."
+    },
+    "options": []
+  },
+  {
+    "domain": "sensor",
+    "source_component": "sensor",
+    "translation_key": "ems_safety_lease_protocol_version",
+    "source_name": "EMS Safety Lease Protocol Version",
+    "source_id": "ems_safety_lease_protocol_version",
+    "source_object_id": "ems_safety_lease_protocol_version",
+    "entity_category": "diagnostic",
+    "name": {
+      "en": "EMS Safety Lease Protocol Version",
+      "pl": "EMS Safety Lease Protocol Version"
+    },
+    "description": {
+      "en": "Hoymiles HIT xxL G3 Modbus value: EMS Safety Lease Protocol Version.",
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: EMS Safety Lease Protocol Version."
+    },
+    "options": []
+  },
+  {
+    "domain": "sensor",
     "source_component": "sensor",
     "translation_key": "ems_control_readback_generation",
     "source_name": "EMS Control Readback Generation",
@@ -4383,11 +4419,11 @@
     "entity_category": "diagnostic",
     "name": {
       "en": "Battery Charge Power Readback Generation",
-      "pl": "Generacja odczytu mocy ładowania baterii"
+      "pl": "Generacja odczytu mocy ładowania magazynu energii"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Charge Power Readback Generation.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Generacja odczytu mocy ładowania baterii."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Generacja odczytu mocy ładowania magazynu energii."
     },
     "options": []
   },
@@ -4509,11 +4545,11 @@
     "entity_category": "diagnostic",
     "name": {
       "en": "Battery Max Charge Power Readback",
-      "pl": "Odczyt maksymalnej mocy ładowania baterii"
+      "pl": "Odczyt maksymalnej mocy ładowania magazynu energii"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Max Charge Power Readback.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odczyt maksymalnej mocy ładowania baterii."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Odczyt maksymalnej mocy ładowania magazynu energii."
     },
     "options": []
   },
@@ -4766,11 +4802,11 @@
     "entity_category": "config",
     "name": {
       "en": "Battery Type Setting",
-      "pl": "Typ baterii"
+      "pl": "Typ magazynu energii"
     },
     "description": {
       "en": "Writable Hoymiles HIT xxL G3 setting: Battery Type Setting.",
-      "pl": "Zapisywalne ustawienie falownika Hoymiles HIT xxL G3: Typ baterii."
+      "pl": "Zapisywalne ustawienie falownika Hoymiles HIT xxL G3: Typ magazynu energii."
     },
     "options": [
       {
@@ -5098,11 +5134,11 @@
     "entity_category": "config",
     "name": {
       "en": "Battery Max Charge Power",
-      "pl": "Maksymalna moc ładowania baterii"
+      "pl": "Maksymalna moc ładowania magazynu energii"
     },
     "description": {
       "en": "Writable Hoymiles HIT xxL G3 setting: Battery Max Charge Power.",
-      "pl": "Zapisywalne ustawienie falownika Hoymiles HIT xxL G3: Maksymalna moc ładowania baterii."
+      "pl": "Zapisywalne ustawienie falownika Hoymiles HIT xxL G3: Maksymalna moc ładowania magazynu energii."
     },
     "options": []
   },
@@ -5116,11 +5152,11 @@
     "entity_category": "config",
     "name": {
       "en": "Battery Max Discharge Power",
-      "pl": "Maksymalna moc rozładowania baterii"
+      "pl": "Maksymalna moc rozładowania magazynu energii"
     },
     "description": {
       "en": "Writable Hoymiles HIT xxL G3 setting: Battery Max Discharge Power.",
-      "pl": "Zapisywalne ustawienie falownika Hoymiles HIT xxL G3: Maksymalna moc rozładowania baterii."
+      "pl": "Zapisywalne ustawienie falownika Hoymiles HIT xxL G3: Maksymalna moc rozładowania magazynu energii."
     },
     "options": []
   },
@@ -5404,11 +5440,11 @@
     "entity_category": null,
     "name": {
       "en": "Battery Link Status",
-      "pl": "Stan łącza baterii"
+      "pl": "Stan łącza magazynu energii"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Battery Link Status.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Stan łącza baterii."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Stan łącza magazynu energii."
     },
     "options": []
   },
@@ -5458,11 +5494,11 @@
     "entity_category": null,
     "name": {
       "en": "Overview Battery Work Status",
-      "pl": "Podgląd stanu pracy baterii"
+      "pl": "Podgląd stanu pracy magazynu energii"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Battery Work Status.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd stanu pracy baterii."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd stanu pracy magazynu energii."
     },
     "options": []
   },
@@ -5494,11 +5530,11 @@
     "entity_category": "diagnostic",
     "name": {
       "en": "Overview Battery Faults",
-      "pl": "Podgląd błędów baterii"
+      "pl": "Podgląd błędów magazynu energii"
     },
     "description": {
       "en": "Hoymiles HIT xxL G3 Modbus value: Overview Battery Faults.",
-      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd błędów baterii."
+      "pl": "Wartość Modbus falownika Hoymiles HIT xxL G3: Podgląd błędów magazynu energii."
     },
     "options": []
   },

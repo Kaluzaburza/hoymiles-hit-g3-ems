@@ -9,10 +9,11 @@ for HIT 10/15/20 kW and a two-inverter 40 kW system.
 from __future__ import annotations
 
 import argparse
+import ast
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from math import ceil, sin, pi
+from math import ceil, floor, sin, pi
 from pathlib import Path
 from random import Random
 import sys
@@ -284,7 +285,7 @@ def run_rce_matrix(
 
 
 def assert_tariff_invariants(settings: TariffOptimizerInput, result) -> None:
-    """Check battery bounds, shared Grid Charge power and economic monotonicity."""
+    """Check battery bounds, charge power and independent house-grid supply."""
 
     assert -EPSILON <= result.ending_battery_kwh <= settings.battery_capacity_kwh + EPSILON
     assert 0.0 <= result.ending_battery_soc_percent <= 100.0 + EPSILON
@@ -297,7 +298,7 @@ def assert_tariff_invariants(settings: TariffOptimizerInput, result) -> None:
     reserve_cost = reserve_gap / max(settings.charge_efficiency_percent / 100.0, 0.01) * settings.schedule.low_price_pln_kwh
     assert result.optimized_grid_cost_pln <= result.baseline_grid_cost_pln + reserve_cost + 0.02
     for item in result.planned_charges:
-        assert item.grid_import_kwh <= result.charge_power_kw * 0.5 + EPSILON
+        assert item.grid_import_kwh - item.direct_load_kwh <= result.charge_power_kw * 0.5 + EPSILON
         assert item.direct_load_kwh <= item.grid_import_kwh + EPSILON
         assert item.stored_energy_kwh <= max(item.grid_import_kwh - item.direct_load_kwh, 0.0) * settings.charge_efficiency_percent / 100.0 + EPSILON
         if settings.battery_charge_power_kw is not None:
@@ -347,6 +348,7 @@ def run_tariff_matrix(*, exhaustive: bool = True) -> tuple[int, Counter[str]]:
                             night_start_minute=20 * 60,
                             night_end_minute=7 * 60,
                             charge_power_kw=charge_power,
+                            system_ac_power_kw=model.system_kw,
                             charge_efficiency_percent=93.0,
                             discharge_efficiency_percent=94.0,
                             minimum_saving_pln_kwh=0.04,
@@ -615,7 +617,9 @@ def assert_automation_interlocks() -> None:
         "input_boolean.hoymiles_tariff_charge_enabled",
         "id: hoymiles_rcm_voltage_charge_control",
         "id: hoymiles_rcm_pre_discharge_control",
-        "input_boolean.hoymiles_rcm_shadow_mode",
+        "input_select.hoymiles_ems_supervisor_mode",
+        "legacy_control_blocked_in_active",
+        "action: hoymiles_hit_modbus.master_stop",
         "input_boolean.hoymiles_discharge_cycle_active",
         "input_boolean.hoymiles_charge_cycle_active",
         "is_state('timer.hoymiles_discharge', 'active')",
@@ -642,7 +646,7 @@ def assert_automation_interlocks() -> None:
         "forecast_today_age_minutes",
         "forecast_tomorrow_age_minutes",
         "input_text.hoymiles_ems_last_push_fingerprint",
-        "as_timestamp(now()) - last >= 300",
+        "as_timestamp(now()) - last_push >= 300",
         "end - as_timestamp(now()) >= 300",
         "Falownik nie potwierdził limitu ładowania",
         "Falownik nie potwierdził nowego limitu ładowania",
@@ -650,6 +654,24 @@ def assert_automation_interlocks() -> None:
     )
     for marker in required_markers:
         assert marker in source, f"Missing automation interlock marker: {marker}"
+
+    legacy_gate = source.split(
+        "value_template: &legacy_control_blocked_in_active", 1
+    )[1].split("{{ option in", 1)[0]
+    for marker in (
+        "hoymiles_ems_supervisor_mode', 'Off'",
+        "hoymiles_hit_ems_supervisor', 'off'",
+        "'execution_phase') == 'idle'",
+        "'owner') == 'none'",
+        "'transaction_owner') == 'none'",
+        "'transaction_id') is none",
+        "'owner_conflict') is sameas false",
+        "'supervisor_execution_authorized') is sameas false",
+    ):
+        assert marker in legacy_gate, f"Legacy authority gate lacks {marker}"
+    assert "not is_state" not in legacy_gate, (
+        "Unknown/unavailable Supervisor mode must not reopen legacy writers"
+    )
 
     # Day 3 remains an optional direct-source override.  A scheduler-side
     # minute-refresh proxy or auto-detection mutation would hide source age and
@@ -673,7 +695,9 @@ def assert_automation_interlocks() -> None:
         "sensor.hoymiles_hit_rce_optimized_plan",
         "'result_current') == true",
         "'bms_discharge_data_fresh') == true",
+        "'bms_discharge_data_available') == true",
         "'bms_discharge_power_limit_kw'",
+        "'bms_discharge_power_limit_kw') | float(0)) > 0",
         "bms_data_age_seconds",
         "physical_limit_source",
     ):
@@ -686,6 +710,7 @@ def assert_automation_interlocks() -> None:
     )[1].split('name: "Hoymiles EMS Export Allowed"', 1)[0]
     for marker in (
         "'result_current') is sameas true",
+        "'recalculation_pending') is sameas false",
         "'rce_today_data_fresh') is sameas true",
         "'rce_today_age_seconds'",
         "is_number(rce_age)",
@@ -695,8 +720,105 @@ def assert_automation_interlocks() -> None:
         "is_number(forecast_age)",
         "(forecast_age | float(-999)) >= -5",
         "plan_age >= -5 and plan_age <= 300",
+        "states.sensor.hoymiles_hit_overview_battery_soc",
+        "states.sensor.hoymiles_hit_ems_force_discharge_soc_readback",
+        "soc_age >= -5 and soc_age <= 120",
+        "physical_floor_age >= -5 and physical_floor_age <= 180",
+        "* (bms_voltage.state | float(0)) / 1000 * 0.95",
+        "execution_power_kw <= live_bms_power_kw + 0.05",
     ):
         assert marker in rce_ready, f"RCE authoritative readiness lacks {marker}"
+
+    for unique_id, next_unique_id in (
+        (
+            "hoymiles_rce_control_data_ready",
+            "hoymiles_ems_export_allowed",
+        ),
+        (
+            "hoymiles_tariff_control_data_ready",
+            "hoymiles_ems_control_conflict",
+        ),
+        (
+            "hoymiles_rcm_risk_window_active",
+            "hoymiles_battery_balancing_apply_authorized",
+        ),
+        (
+            "hoymiles_rce_price_above_threshold",
+            "hoymiles_tariff_planned_charge_slot",
+        ),
+        (
+            "hoymiles_tariff_planned_charge_slot",
+            "hoymiles_rce_reserve_ready",
+        ),
+        (
+            "hoymiles_rce_reserve_ready",
+            "hoymiles_sale_block_active",
+        ),
+    ):
+        helper = source.split(f"unique_id: {unique_id}", 1)[1].split(
+            f"unique_id: {next_unique_id}", 1
+        )[0]
+        assert "'result_current') is sameas true" in helper, (
+            f"Plan-derived helper can retain stale ON: {unique_id}"
+        )
+        assert "'recalculation_pending') is sameas false" in helper, (
+            f"Plan-derived helper accepts an incoherent pending result: {unique_id}"
+        )
+
+    def rce_live_execution_ready(
+        *,
+        soc: float,
+        floor: float,
+        protected_floor: float,
+        current_a: float,
+        voltage_v: float,
+        system_power_kw: float,
+        command_percent: float,
+        current_age: float = 0.0,
+        voltage_age: float = 0.0,
+        soc_age: float = 0.0,
+        floor_age: float = 0.0,
+    ) -> bool:
+        live_bms_power_kw = current_a * voltage_v / 1000.0 * 0.95
+        command_power_kw = command_percent * system_power_kw / 100.0
+        return (
+            0.0 < current_a < 1_000_000_000.0
+            and 0.0 < voltage_v < 1_000_000_000.0
+            and -5.0 <= current_age <= 300.0
+            and -5.0 <= voltage_age <= 300.0
+            and -5.0 <= soc_age <= 120.0
+            and -5.0 <= floor_age <= 180.0
+            and 0.0 <= soc <= 100.0
+            and 0.0 <= floor <= 100.0
+            and soc > max(floor, protected_floor)
+            and system_power_kw > 0.0
+            and command_power_kw <= live_bms_power_kw + 0.05
+        )
+
+    rce_live_baseline = dict(
+        soc=70.0,
+        floor=25.0,
+        protected_floor=30.0,
+        current_a=100.0,
+        voltage_v=52.0,
+        system_power_kw=10.0,
+        command_percent=40.0,
+    )
+    assert rce_live_execution_ready(**rce_live_baseline)
+    for mutation in (
+        {"current_a": 0.0},
+        {"voltage_v": 0.0},
+        {"current_age": 301.0},
+        {"voltage_age": -6.0},
+        {"soc_age": 121.0},
+        {"floor_age": 181.0},
+        {"soc": 30.0},
+        {"current_a": 50.0},
+    ):
+        mutant = {**rce_live_baseline, **mutation}
+        assert not rce_live_execution_ready(**mutant), (
+            f"RCE live BMS/SOC mutant retained authority: {mutation}"
+        )
     for forbidden in (
         "price_reported",
         "source_reported",
@@ -720,333 +842,356 @@ def assert_automation_interlocks() -> None:
         "is_state('sensor.hoymiles_ems_hardware_mode', 'grid_discharge') }}"
         in source
     ), "RCE command acknowledgement is not based on the actual EMS readback"
+    balancing_scripts = source.split(
+        "  hoymiles_notify_battery_balancing_lifecycle:", 1
+    )[1].split("\nautomation:", 1)[0]
     balancing_start = source.split(
         "hoymiles_start_battery_balancing:", 1
     )[1].split("hoymiles_stop_battery_balancing:", 1)[0]
-    assert balancing_start.index(
-        "input_boolean.hoymiles_battery_balancing_active"
-    ) < balancing_start.index('value: "handover"')
     balancing_stop = source.split(
         "hoymiles_stop_battery_balancing:", 1
     )[1].split("automation:", 1)[0]
+    balancing_abort = balancing_scripts.split(
+        "hoymiles_abort_or_pause_battery_balancing:", 1
+    )[1].split("hoymiles_battery_balancing_soft_gap_guard:", 1)[0]
+    balancing_control = source.split(
+        "- id: hoymiles_battery_balancing_control", 1
+    )[1].split("- id: hoymiles_ems_push_status_notification", 1)[0]
+    balancing_worker = source.split(
+        "hoymiles_battery_balancing_transaction_worker:", 1
+    )[1].split("\nautomation:", 1)[0]
+
+    # The wrapper queues one worker. The worker reserves ownership first,
+    # captures a provenance-bound b2 snapshot and revalidates it before the
+    # first physical write.
+    assert "mode: queued" in balancing_start
+    assert "script.turn_on" in balancing_start
+    assert "script.hoymiles_battery_balancing_transaction_worker" in balancing_start
+    assert not any(
+        helper in balancing_start
+        for helper in (
+            "script.hoymiles_verified_set_ems_maximum_charge_power",
+            "script.hoymiles_verified_set_ems_force_charge_soc",
+            "script.hoymiles_verified_set_ems_mode",
+        )
+    )
     for marker in (
-        "stopping_complete",
-        "stopping_abort",
-        "Ownership is released only",
-        "is_state('sensor.hoymiles_ems_hardware_mode', 'self_use')",
+        "next_sequence",
+        "input_number.hoymiles_battery_balancing_cycle_sequence",
+        'transaction_state: "REQUESTED"',
+        'transaction_state: "OWNER_ACQUIRED"',
+        "captured_mode",
+        "sensor.hoymiles_hit_ems_maximum_charge_power_readback",
+        "sensor.hoymiles_hit_ems_force_charge_soc_readback",
+        "captured_ems_generation",
+        "captured_topology_generation",
+        'transaction_state: "SNAPSHOT_VALID"',
+        "snapshot_valid: true",
+        "snapshot_still_equal",
+        "snapshot_changed_before_transaction",
+        "write_started: true",
+    ):
+        assert marker in balancing_worker, f"Balancing transaction lacks {marker}"
+    owner_ack = balancing_worker.index('transaction_state: "OWNER_ACQUIRED"')
+    snapshot_capture = balancing_worker.index("captured_mode", owner_ack)
+    snapshot_commit = balancing_worker.index('transaction_state: "SNAPSHOT_VALID"', snapshot_capture)
+    snapshot_recheck = balancing_worker.index("snapshot_still_equal", snapshot_commit)
+    write_started = balancing_worker.index("write_started: true", snapshot_recheck)
+    first_apply_write = balancing_worker.index(
+        "script.hoymiles_verified_set_ems_maximum_charge_power", write_started
+    )
+    assert owner_ack < snapshot_capture < snapshot_commit < snapshot_recheck
+    assert snapshot_recheck < write_started < first_apply_write
+
+    # Active foreign writers and manual timers are preserved by a hard start
+    # gate, not cancelled and reconstructed from guessed state.
+    for marker in (
+        "input_boolean.hoymiles_discharge_cycle_active",
+        "input_boolean.hoymiles_charge_cycle_active",
+        "input_boolean.hoymiles_rce_discharge_active",
+        "input_boolean.hoymiles_tariff_charge_active",
+        "input_boolean.hoymiles_rcm_active",
+        "input_boolean.hoymiles_rcm_pre_discharge_active",
+        "binary_sensor.hoymiles_ems_control_conflict",
+        "timer.hoymiles_discharge",
+        "timer.hoymiles_charge",
+    ):
+        assert marker in balancing_worker
+    start_transaction = balancing_worker.split(
+        "# Only the worker creates a monotonic cycle", 1
+    )[1].split("default:\n          # Routine reconcile", 1)[0]
+    assert "action: timer.cancel" not in start_transaction
+
+    # Mode-aware power uses one 400 W aggregate constant, exact topology,
+    # downward 0.1% quantization and no post-cap minimum.
+    assert source.count("BALANCING_SLOW_TARGET_KW = 0.4") == 1
+    power_block = source.split(
+        'name: "Hoymiles Battery Balancing BMS Safe Charge Power"', 1
+    )[1].split(
+        'name: "Hoymiles Battery Balancing Next Run"', 1
+    )[0]
+    for marker in (
+        "self_use_percent",
+        "grid_charge_percent",
+        "round(0, 'floor')",
+        "self_use_semantics: direct_battery_charge_cap",
+        "grid_charge_semantics: common_ac_budget_including_load",
+        "(machine_count | int(-1)) == 1",
+        "(machine_count | int(-1)) >= 2",
+        "(machine_count | int(-1)) <= 10",
+    ):
+        assert marker in power_block, f"Balancing power contract lacks {marker}"
+    assert "[2 + home_power" not in power_block
+    assert "[[desired_budget" not in power_block
+    assert "| max | round(1)" not in power_block
+
+    # Readiness exposes deterministic hard/soft provenance rather than treating
+    # the combined binary sensor as an unconditional stop.
+    readiness = source.split(
+        'name: "Hoymiles Battery Balancing Control Data Ready"', 1
+    )[1].split('name: "Hoymiles RCE Planned Export Slot"', 1)[0]
+    for marker in (
+        "failure_class:",
+        "reason_code:",
+        "soc_age >= -5 and soc_age <= 120",
+        "load_age >= -5 and load_age <= 120",
+        "current_age >= -5 and current_age <= 300",
+        "voltage_age >= -5 and voltage_age <= 300",
+        "topology_age >= -5 and topology_age <= 180",
+        "bms_fault",
+        "inverter_fault",
+        "invalid_topology",
+        "data_stale",
+    ):
+        assert marker in readiness, f"Balancing readiness lacks {marker}"
+
+    # The accepted soft-gap deadline/generation is durable, restart-rearmed and
+    # backward-clock safe. The guard only emits a generation-bound event; the
+    # short controller classifies the single abort.
+    soft_guard = balancing_scripts.split(
+        "hoymiles_battery_balancing_soft_gap_guard:", 1
+    )[1].split("hoymiles_apply_battery_balancing_target:", 1)[0]
+    for marker in (
+        "mode: restart",
+        "guarded_start_ms",
+        "guarded_deadline_ms",
+        "guarded_start_ms | int(-1) + 60000",
+        "remaining_seconds",
+        "hoymiles_battery_balancing_soft_gap_deadline",
+        "gap_generation",
+    ):
+        assert marker in soft_guard, f"Balancing soft-gap guard lacks {marker}"
+    for marker in (
+        "mode: queued",
+        "timing_state == 'GAP'",
+        "gap_generation",
+        "gap_start_epoch_ms",
+        "gap_deadline_epoch_ms",
+        "new_gap_deadline_ms",
+        "{{ (now_epoch_ms | int(0)) + 60000 }}",
+        "clock_anomaly",
+        "data_stale_timeout",
+        "script.turn_on",
+        "hoymiles_battery_balancing_soft_gap_guard",
+    ):
+        assert marker in balancing_control, (
+            f"Restart-safe balancing soft-gap controller lacks {marker}"
+        )
+    assert balancing_control.count("timing_state == 'NONE'") == 2
+    assert balancing_control.count(
+        "script.hoymiles_battery_balancing_soft_gap_guard"
+    ) == 2
+
+    # A missed watchdog event is recovered from durable transaction state.
+    for marker in (
+        "timer.hoymiles_battery_balancing_watchdog",
+        'state: "idle"',
+        "transaction_state in [",
+        "script.hoymiles_battery_balancing_request_abort",
+        'reason_code: "watchdog_timeout"',
+    ):
+        assert marker in balancing_control, (
+            f"Balancing watchdog recovery lacks {marker}"
+        )
+
+    # Slow remains latched from 95%; HOLD_ARMING and its absolute deadline are
+    # durable before timer.start, then one acknowledged timer becomes HOLDING.
+    for marker in (
+        ">= 95",
+        ">= 99.9",
+        "entry_state in ['SLOW', 'HOLD_ARMING', 'HOLDING']",
+        "HOLD_ARMING",
+        "HOLDING",
+        "hold_generation",
+        "hold_deadline_epoch_ms",
+    ):
+        assert marker in balancing_worker
+    hold_reset = balancing_worker.split(
+        "# A drop below 99.9%", 1
+    )[1].split("# Startup and periodic hold reconciliation", 1)[0]
+    assert "< 99.9" in hold_reset
+    assert "action: timer.cancel" in hold_reset
+    assert 'transaction_state: "SLOW"' in hold_reset
+    hold_completion = balancing_worker.split(
+        "# Startup and periodic hold reconciliation", 1
+    )[1].split("# Timer/deadline completion", 1)[0]
+    for marker in (
+        "hold_timing_cycle == entry_cycle",
+        "hold_generation",
+        "hold_deadline_ms",
+        "timer.hoymiles_battery_balancing_hold",
+        "duration: >-",
+        'timing_state: "HOLDING"',
+        'transaction_state: "HOLDING"',
+    ):
+        assert marker in hold_completion, (
+            f"Balancing hold restart reconciliation lacks {marker}"
+        )
+    apply_target = balancing_worker.split("# Routine reconcile:", 1)[1]
+    hold_arm = apply_target.split("# HOLD_ARMING and absolute deadline", 1)[1]
+    hold_arm_start = apply_target.index("# HOLD_ARMING and absolute deadline")
+    timer_start = hold_arm_start + hold_arm.index("action: timer.start")
+    final_ack = apply_target.index("final_transaction_ack")
+    assert final_ack < timer_start
+    hold_arming = hold_arm_start + hold_arm.index('timing_state: "HOLD_ARMING"')
+    holding = hold_arm_start + hold_arm.index('timing_state: "HOLDING"')
+    assert hold_arming < timer_start < holding
+
+    # Every target is re-read at its physical boundary; no positive fallback
+    # or direct writable entity path exists.
+    for marker in (
+        "pre_target",
+        "final_target",
+        "corrected_target",
+        "committed_target",
+        "is_number(pre_target)",
+        "is_number(final_target)",
+        "is_number(committed_target)",
+    ):
+        assert marker in apply_target
+    balancing_runtime = balancing_scripts + balancing_control
+    for forbidden in (
+        "| float(20)",
+        "| float(10)",
+        "| float(1)",
+        "modbus.write_register",
+        "modbus.write_registers",
+        "number.hoymiles_hit_",
+    ):
+        assert forbidden not in balancing_runtime, (
+            f"Balancing runtime contains unsafe/bypass marker {forbidden}"
+        )
+    for action in (
+        "script.hoymiles_verified_set_ems_maximum_charge_power",
+        "script.hoymiles_verified_set_ems_force_charge_soc",
+        "script.hoymiles_verified_set_ems_mode",
+    ):
+        assert action in apply_target
+        assert action in balancing_worker
+
+    # Restore exact b2 snapshot values, retain Off-Grid, and release only after
+    # a final live ACK/generation recheck. Notification enqueue follows physical
+    # closeout and never calls the phone provider here.
+    restore_path = balancing_worker.split(
+        "# Restoration or provisional-owner release always wins", 1
+    )[1].split("# Only the worker creates a monotonic cycle", 1)[0]
+    for marker in (
+        "trusted_snapshot",
+        "snapshot_valid",
+        "snapshot_cycle_id",
+        "saved_mode",
+        "saved_4303",
+        "saved_4304",
+        "off_grid_owner",
+        "binary_sensor.hoymiles_battery_balancing_restore_authorized",
+        "final_restore_ack",
+        "release_abort_generation",
         "sensor.hoymiles_hit_ems_maximum_charge_power_readback",
         "sensor.hoymiles_hit_ems_force_charge_soc_readback",
     ):
-        assert marker in balancing_stop, f"Balancing restore lacks {marker}"
-    release = balancing_stop.rsplit("input_boolean.turn_off", 1)[1]
-    assert "input_boolean.hoymiles_battery_balancing_active" in release
-    balancing_control = source.split(
-        "- id: hoymiles_battery_balancing_control", 1
-    )[1].split("id: hoymiles_rce", 1)[0]
-    assert 'state: "handover"' in balancing_control
-    assert "stopping_complete" in balancing_control
-    assert "stopping_handover" in balancing_control
-    assert "daylight PV phase has a hard Self-Use invariant" in balancing_control
-    handover = balancing_control.split('state: "handover"', 1)[1].split(
-        "daylight PV phase has a hard Self-Use invariant", 1
-    )[0]
-    assert "input_boolean.hoymiles_rcm_export_control_active" in handover, (
-        "Balancing periodic handover can race an RCEm export restore"
+        assert marker in restore_path, f"Balancing restore lacks {marker}"
+    restore_ack = restore_path.index("final_restore_ack")
+    release = restore_path.rindex("action: input_boolean.turn_off")
+    terminal_push = restore_path.rindex(
+        "script.hoymiles_notify_battery_balancing_lifecycle"
     )
-    assert handover.index(
-        "input_number.hoymiles_battery_balancing_saved_charge_power"
-    ) < handover.index('value: "pv"')
-    assert handover.index(
-        "input_number.hoymiles_battery_balancing_saved_force_charge_soc"
-    ) < handover.index('value: "pv"')
-    for snapshot_block in (balancing_start, handover):
-        transition = snapshot_block.rsplit('value: "pv"', 1)[0]
-        assert "is_number(states(\n" in transition
-        assert "sensor.hoymiles_hit_ems_maximum_charge_power_readback" in transition
-        assert "sensor.hoymiles_hit_ems_force_charge_soc_readback" in transition
-        snapshot_tail = transition.rsplit(
-            "input_number.hoymiles_battery_balancing_saved_charge_power",
-            1,
-        )[-1]
-        assert "| float(50)" not in snapshot_tail
-        assert "| float(100)" not in snapshot_tail
+    assert restore_ack < release < terminal_push
+
+    # Terminal lifecycle messages become durable stable-ID outbox records.
+    # STARTED remains a physical fact but is excluded from the phone outbox.
+    # The independent provider stores DELIVERING before calling the phone and
+    # never retries an ambiguous timeout.
+    notify_script = source.split(
+        "  hoymiles_notify_battery_balancing_lifecycle:", 1
+    )[1].split("hoymiles_battery_balancing_update_outbox_delivery:", 1)[0]
     for marker in (
-        'name: "Hoymiles Battery Balancing Control Data Ready"',
-        'name: "Hoymiles Battery Balancing BMS Safe Charge Power"',
-        "binary_sensor.hoymiles_battery_balancing_control_data_ready",
-        "soc_age >= -5 and soc_age <= 120",
-        "current_age >= -5 and current_age <= 300",
-        "voltage_age >= -5 and voltage_age <= 300",
-        "sensor.hoymiles_battery_balancing_bms_safe_charge_power",
+        "event_id",
+        "stable_tag",
+        "event_already_present",
+        'slot_1_delivery_state: "PENDING"',
+        'slot_2_delivery_state: "PENDING"',
     ):
-        assert marker in source, f"Balancing freshness/cap contract lacks {marker}"
-    assert "and (soc.state | float(-1)) >= 0" in source
-    assert "and (soc.state | float(101)) <= 100" in source
-    balancing_control = source.split(
-        "- id: hoymiles_battery_balancing_control", 1
-    )[1].split("id: hoymiles_rce", 1)[0]
-    hold_completion = balancing_control.split("id: hold_finished", 1)[1].split(
-        "# Wy", 1
+        assert marker in notify_script
+    assert "notify.send_message" not in notify_script
+    assert "'started': 'ST'" not in notify_script
+    assert "'failed': 'AB'" in notify_script
+    dispatcher = balancing_scripts.split(
+        "hoymiles_battery_balancing_notification_dispatcher:", 1
+    )[1].split("hoymiles_battery_balancing_request_abort:", 1)[0]
+    delivering = dispatcher.index('next_delivery_state: "DELIVERING"')
+    provider = dispatcher.index("action: notify.send_message", delivering)
+    delivered = dispatcher.index('next_delivery_state: "DELIVERED"', provider)
+    assert delivering < provider < delivered
+    assert "PERMANENT_FAILURE" in dispatcher
+    assert "Id zdarzenia" not in dispatcher
+    assert not any(action in dispatcher for action in (
+        "script.hoymiles_verified_set_ems_maximum_charge_power",
+        "script.hoymiles_verified_set_ems_force_charge_soc",
+        "script.hoymiles_verified_set_ems_mode",
+        "input_boolean.turn_off",
+    ))
+    assert 'event: "started"' in apply_target
+    physical_balancing_control = balancing_control.split(
+        "- id: hoymiles_battery_balancing_morning_notification", 1
     )[0]
-    restart_completion = balancing_control.split("# Po restarcie HA", 1)[1].split(
-        "# Cykl", 1
-    )[0]
-    for completion in (hold_completion, restart_completion):
-        assert "sensor.hoymiles_hit_overview_battery_soc" in completion
-        assert "| float(-1)) >= 99.9" in completion
-        assert "| float(101)) <= 100" in completion
-    hold_reset = balancing_control.split(
-        "Falling below full SOC invalidates the entire accumulated hold", 1
-    )[1].split("id: hold_finished", 1)[0]
-    assert "| float(0)) < 99.9" in hold_reset
-    assert "action: timer.cancel" in hold_reset
-    assert "timer.hoymiles_battery_balancing_hold" in hold_reset
-    assert 'value: "slow"' in hold_reset
-    hold_reset_position = balancing_control.index(
-        "Falling below full SOC invalidates the entire accumulated hold"
-    )
-    assert hold_reset_position < balancing_control.index(
-        "id: hold_finished", hold_reset_position
-    )
-    assert "and is_number(soc) and (soc | float(0)) >= 99.9" in balancing_stop
-    assert balancing_start.index(
-        "binary_sensor.hoymiles_battery_balancing_control_data_ready"
-    ) < balancing_start.index("action: input_boolean.turn_on")
-    data_loss = balancing_control.index(
-        "Any stale SOC, BMS limit, LOAD or writable-register readback"
-    )
-    automatic_start = balancing_control.index(
-        "Cykl należny w danym dniu rozpoczyna się dopiero po wschodzie"
-    )
-    full_hold = balancing_control.index("Pełny magazyn:")
-    assert data_loss < automatic_start < full_hold
-    hold_block = balancing_control[full_hold:].split(
-        "Po zachodzie PV nie odbuduje już magazynu", 1
-    )[0]
-    assert hold_block.index('option: "grid_charge"') < hold_block.index(
-        '- delay: "00:00:05"'
-    ) < hold_block.index("wait_template") < hold_block.index(
-        "action: timer.start"
-    )
-    assert "continue_on_timeout: false" in hold_block
+    assert "notify.send_message" not in physical_balancing_control
 
-    # Every paired balancing register update blocks after the first verified
-    # helper ACK. A late code3/readiness/owner transition must be observed
-    # before the second 4304/4306 write, including the sunset branch.
-    balancing_abort = (
-        "Wyrównywanie przerwane przed kolejnym zapisem operacyjnym"
-    )
-    abort_positions = []
-    cursor = 0
-    while True:
-        position = balancing_control.find(balancing_abort, cursor)
-        if position < 0:
-            break
-        abort_positions.append(position)
-        cursor = position + len(balancing_abort)
-    assert len(abort_positions) == 5
-    for abort_position in abort_positions:
-        guard_window = balancing_control[max(0, abort_position - 5500) : abort_position]
-        owner_guard = guard_window.rfind(
-            "input_boolean.hoymiles_battery_balancing_active"
-        )
-        policy_guard = guard_window.rfind(
-            "input_boolean.hoymiles_battery_balancing_enabled"
-        )
-        conflict_guard = guard_window.rfind(
-            "binary_sensor.hoymiles_ems_control_conflict"
-        )
-        readiness_guard = guard_window.rfind(
-            "binary_sensor.hoymiles_battery_balancing_control_data_ready"
-        )
-        mode_guard = guard_window.rfind(
-            "not in ['off_grid', 'unknown', 'unavailable'"
-        )
-        guarded_write = max(
-            guard_window.rfind(
-                "script.hoymiles_verified_set_ems_force_charge_soc"
-            ),
-            guard_window.rfind(
-                "script.hoymiles_verified_set_ems_maximum_charge_power"
-            ),
-        )
-        assert 0 <= owner_guard < guarded_write
-        assert 0 <= policy_guard < guarded_write
-        assert 0 <= conflict_guard < guarded_write
-        assert 0 <= readiness_guard < guarded_write
-        assert 0 <= mode_guard < guarded_write
-        assert "script.hoymiles_stop_battery_balancing" in balancing_control[
-            guarded_write:abort_position
-        ]
-
-    # The second verified register helper has its own ACK wait. Revalidate the
-    # same full authorization a second time immediately before each possible
-    # Grid Charge mode command; mode:single drops toggle/conflict triggers.
-    balancing_mode_abort = (
-        "Wyrównywanie przerwane przed zmianą trybu Grid Charge"
-    )
-    mode_abort_positions = []
-    cursor = 0
-    while True:
-        position = balancing_control.find(balancing_mode_abort, cursor)
-        if position < 0:
-            break
-        mode_abort_positions.append(position)
-        cursor = position + len(balancing_mode_abort)
-    assert len(mode_abort_positions) == 5
-    for abort_position in mode_abort_positions:
-        guard_window = balancing_control[max(0, abort_position - 5000) : abort_position]
-        mode_write = guard_window.rfind("script.hoymiles_verified_set_ems_mode")
-        assert mode_write >= 0
-        for marker in (
-            "input_boolean.hoymiles_battery_balancing_active",
-            "input_boolean.hoymiles_battery_balancing_enabled",
-            "binary_sensor.hoymiles_ems_control_conflict",
-            "binary_sensor.hoymiles_battery_balancing_control_data_ready",
-            "not in ['off_grid', 'unknown', 'unavailable'",
-        ):
-            assert 0 <= guard_window.rfind(marker) < mode_write
-        assert "script.hoymiles_stop_battery_balancing" in balancing_control[
-            mode_write:abort_position
-        ]
-
-    # A verified mode call has its own ACK wait. Each of the five branches must
-    # therefore re-check authorization, expected phase and exact readbacks after
-    # the call returns, before accepting the new phase/timer state.
-    post_mode_abort = "Balancing authorization lost after"
-    post_mode_positions = []
-    cursor = 0
-    while True:
-        position = balancing_control.find(post_mode_abort, cursor)
-        if position < 0:
-            break
-        post_mode_positions.append(position)
-        cursor = position + len(post_mode_abort)
-    assert len(post_mode_positions) == 5
-    for abort_position in post_mode_positions:
-        guard_window = balancing_control[max(0, abort_position - 7500) : abort_position]
-        mode_write = guard_window.rfind("script.hoymiles_verified_set_ems_mode")
-        assert mode_write >= 0
-        post_ack_guard = guard_window[mode_write:]
-        for marker in (
-            "input_boolean.hoymiles_battery_balancing_active",
-            "input_boolean.hoymiles_battery_balancing_enabled",
-            "binary_sensor.hoymiles_ems_control_conflict",
-            "binary_sensor.hoymiles_battery_balancing_control_data_ready",
-            "sensor.hoymiles_ems_hardware_mode",
-            'state: "grid_charge"',
-            "input_text.hoymiles_battery_balancing_phase",
-            "sensor.hoymiles_hit_ems_maximum_charge_power_readback",
-            "sensor.hoymiles_hit_ems_force_charge_soc_readback",
-            "script.hoymiles_stop_battery_balancing",
-        ):
-            assert marker in post_ack_guard, (
-                f"Balancing post-mode ACK guard lacks {marker}"
-            )
-    assert ">= 99.9" in balancing_control.split(
-        "full-SOC", 1
-    )[1].split("Balancing authorization lost after Grid Charge ACK", 1)[0]
-    holding_post_guard = balancing_control.split(
-        "Balancing authorization lost after holding mode ACK", 1
-    )[0].rsplit("- choose:", 1)[1]
-    assert ">= 99.9" in holding_post_guard
-
-    # Literal marker counts previously missed a slow-phase guard accidentally
-    # nested under the enabled=off branch. When PyYAML is available, prove the
-    # post-ACK guard is a later sibling inside the actual slow branch.
+    # Parser-level shape protects against valid block scalars swallowing an
+    # action and proves all balancing writes use the three shared helpers.
     if yaml is not None:
-        package = yaml.safe_load(source)
-        balancing_automation = next(
-            item
-            for item in package["automation"]
-            if item.get("id") == "hoymiles_battery_balancing_control"
-        )
-        top_choose = next(
-            item["choose"]
-            for item in balancing_automation["actions"]
-            if isinstance(item, dict) and "choose" in item
-        )
-
-        def nested_contains(value, needle: str) -> bool:
-            if isinstance(value, str):
-                return needle in value
+        def nested_dicts(value):
             if isinstance(value, dict):
-                return any(nested_contains(item, needle) for item in value.values())
-            if isinstance(value, list):
-                return any(nested_contains(item, needle) for item in value)
-            return False
+                yield value
+                for child in value.values():
+                    yield from nested_dicts(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from nested_dicts(child)
 
-        def has_state_condition(branch, entity_id: str, state: str) -> bool:
-            return any(
-                condition.get("entity_id") == entity_id
-                and condition.get("state") == state
-                for condition in branch.get("conditions", [])
-                if isinstance(condition, dict)
-            )
-
-        disabled_branch = next(
-            branch
-            for branch in top_choose
-            if has_state_condition(
-                branch,
-                "input_boolean.hoymiles_battery_balancing_enabled",
-                "off",
-            )
-        )
-        assert not nested_contains(
-            disabled_branch,
-            "Balancing authorization lost after slow phase mode ACK",
-        ), "Slow post-mode guard is still nested in the enabled=off branch"
-
-        slow_branch = next(
-            branch
-            for branch in top_choose
-            if has_state_condition(
-                branch,
-                "input_text.hoymiles_battery_balancing_phase",
-                "slow",
-            )
-            and nested_contains(
-                branch,
-                "script.hoymiles_verified_set_ems_mode",
-            )
-        )
-        slow_sequence = slow_branch["sequence"]
-        slow_mode_index = next(
-            index
-            for index, item in enumerate(slow_sequence)
-            if nested_contains(item, "script.hoymiles_verified_set_ems_mode")
-        )
-        slow_post_index = next(
-            index
-            for index, item in enumerate(slow_sequence)
-            if nested_contains(
-                item,
-                "Balancing authorization lost after slow phase mode ACK",
-            )
-        )
-        assert slow_mode_index < slow_post_index
-        slow_post_branch = slow_sequence[slow_post_index]["choose"][0]
-        for entity_id, state in (
-            ("input_boolean.hoymiles_battery_balancing_active", "on"),
-            ("input_boolean.hoymiles_battery_balancing_enabled", "on"),
-            ("binary_sensor.hoymiles_ems_control_conflict", "off"),
-            (
-                "binary_sensor.hoymiles_battery_balancing_control_data_ready",
-                "on",
-            ),
-            ("sensor.hoymiles_ems_hardware_mode", "grid_charge"),
-            ("input_text.hoymiles_battery_balancing_phase", "slow"),
-        ):
-            assert has_state_condition(slow_post_branch, entity_id, state)
-        assert nested_contains(
-            slow_post_branch,
-            "sensor.hoymiles_hit_ems_maximum_charge_power_readback",
-        )
-        assert nested_contains(
-            slow_post_branch,
-            "sensor.hoymiles_hit_ems_force_charge_soc_readback",
-        )
+        package = yaml.safe_load(source)
+        scripts = package["script"]
+        physical_by_script = {
+            script_name: {
+                item.get("action")
+                for item in nested_dicts(script_body)
+                if isinstance(item.get("action"), str)
+                and item.get("action") in {
+                    "script.hoymiles_verified_set_ems_maximum_charge_power",
+                    "script.hoymiles_verified_set_ems_force_charge_soc",
+                    "script.hoymiles_verified_set_ems_mode",
+                }
+            }
+            for script_name, script_body in scripts.items()
+            if "battery_balancing" in script_name
+        }
+        assert physical_by_script.pop(
+            "hoymiles_battery_balancing_transaction_worker"
+        ) == {
+            "script.hoymiles_verified_set_ems_maximum_charge_power",
+            "script.hoymiles_verified_set_ems_force_charge_soc",
+            "script.hoymiles_verified_set_ems_mode",
+        }
+        assert all(not actions for actions in physical_by_script.values())
 
     # Model the dropped-trigger interleaving of a mode:single automation: the
     # first ACK returns after the inverter has moved to code3. The follow-up
@@ -1232,28 +1377,24 @@ def assert_manual_cycle_finalization_contracts() -> None:
     assert "timer.hoymiles_charge\n        state: \"idle\"" in explicit_stop
     assert "continue_on_timeout: false" in explicit_stop
 
-    # The balancing handover cancels timers while its own owner blocks normal
-    # finish automations. It must close manual owners itself, but only after
-    # exact Self-Use and both idle timer readbacks.
-    balancing = scheduler.split(
-        "hoymiles_start_battery_balancing:", 1
-    )[1].split("hoymiles_stop_battery_balancing:", 1)[0]
-    handover_clear = balancing.split(
-        "The balancing owner intentionally blocks the normal manual finalizers",
-        1,
-    )[1]
+    # Balancing now preserves an already active manual owner/timer by refusing
+    # to start over it. No timer is cancelled and reconstructed from a guess.
+    balancing_worker = scheduler.split(
+        "hoymiles_battery_balancing_transaction_worker:", 1
+    )[1].split("\nautomation:", 1)[0]
+    balancing = balancing_worker.split(
+        "# Only the worker creates a monotonic cycle", 1
+    )[1].split("default:\n          # Routine reconcile", 1)[0]
     for marker in (
-        'state: "self_use"',
         "timer.hoymiles_discharge",
         "timer.hoymiles_charge",
-        'state: "idle"',
+        "'idle'",
         "input_boolean.hoymiles_discharge_cycle_active",
         "input_boolean.hoymiles_charge_cycle_active",
     ):
-        assert marker in handover_clear
-    assert handover_clear.index('state: "self_use"') < handover_clear.index(
-        "action: input_boolean.turn_off"
-    )
+        assert marker in balancing
+    assert "action: timer.cancel" not in balancing
+    assert "input_boolean.turn_off" not in balancing
 
     finish_specs = (
         (
@@ -1307,6 +1448,23 @@ def assert_manual_cycle_finalization_contracts() -> None:
         "id: hoymiles_restore_ems_cycle_after_ha_restart",
         1,
     )[1].split("id: hoymiles_rcm_voltage_charge_control", 1)[0]
+    restart_guard = restart.split("      - choose:", 1)[0]
+    for marker in (
+        '- delay: "00:00:15"',
+        "input_boolean.hoymiles_discharge_cycle_active",
+        "input_boolean.hoymiles_charge_cycle_active",
+        "timer.hoymiles_discharge",
+        "timer.hoymiles_charge",
+        "script.hoymiles_stop_scheduled_cycle",
+        "Przywrócony ręczny cykl zakończony bez wznowienia",
+        "error: false",
+    ):
+        assert marker in restart_guard, f"Manual restart guard lacks {marker}"
+    assert 'option: "grid_charge"' not in restart_guard
+    assert 'option: "grid_discharge"' not in restart_guard
+    assert restart_guard.index("script.hoymiles_stop_scheduled_cycle") < (
+        restart_guard.index("- stop:")
+    )
     restore_choices = restart.split("      - choose:", 1)[1]
     discharge_restore, charge_restore = restore_choices.split(
         "      - choose:", 1
@@ -1442,15 +1600,65 @@ def assert_tariff_startup_contracts() -> None:
     )
     for marker in (
         "'result_current') is sameas true",
+        "'recalculation_pending') is sameas false",
         "'forecast_data_fresh') is sameas true",
         "'forecast_today_age_minutes'",
         "'forecast_tomorrow_age_minutes'",
         "is_number(forecast_today_age)",
         "is_number(forecast_tomorrow_age)",
         "plan_age >= -5 and plan_age <= 300",
+        "states.sensor.hoymiles_hit_overview_battery_soc",
+        "soc_age >= -5 and soc_age <= 120",
+        "'system_power_kw'",
+        "'command_charge_power_percent'",
+        "* (bms_voltage.state | float(0)) / 1000",
+        "live_bms_power_kw + 0.05",
+        "command_power_kw <= live_bms_power_kw + 0.05",
     ):
         assert marker in ready_block, (
             f"Tariff authoritative readiness lacks {marker}"
+        )
+
+    def tariff_live_capacity_ready(
+        *,
+        current_a: float,
+        voltage_v: float,
+        command_power_kw: float,
+        soc: float = 55.0,
+        current_age: float = 0.0,
+        voltage_age: float = 0.0,
+        soc_age: float = 0.0,
+    ) -> bool:
+        live_bms_power_kw = current_a * voltage_v / 1000.0
+        return (
+            0.0 < current_a < 1_000_000_000.0
+            and 0.0 < voltage_v < 1_000_000_000.0
+            and -5.0 <= current_age <= 300.0
+            and -5.0 <= voltage_age <= 300.0
+            and -5.0 <= soc_age <= 120.0
+            and 0.0 <= soc <= 100.0
+            and command_power_kw > 0.0
+            and command_power_kw <= live_bms_power_kw + 0.05
+        )
+
+    tariff_live_baseline = dict(
+        current_a=100.0,
+        voltage_v=52.0,
+        command_power_kw=3.0,
+    )
+    assert tariff_live_capacity_ready(**tariff_live_baseline)
+    for mutation in (
+        {"current_a": 0.0},
+        {"voltage_v": 0.0},
+        {"current_age": 301.0},
+        {"voltage_age": -6.0},
+        {"soc_age": 121.0},
+        {"soc": 101.0},
+        {"current_a": 50.0},
+    ):
+        mutant = {**tariff_live_baseline, **mutation}
+        assert not tariff_live_capacity_ready(**mutant), (
+            f"Tariff live BMS/SOC mutant retained authority: {mutation}"
         )
     for forbidden in (
         "states.sensor.hoymiles_solcast_forecast_today",
@@ -1744,6 +1952,10 @@ def assert_tariff_execution_contracts() -> None:
     ) == 1
     command_position = rollback.index("action: number.set_value")
     no_op_guard_position = rollback.index("rollback_write_required")
+    authority_recheck_position = rollback.index(
+        "value_template: *legacy_control_blocked_in_active",
+        no_op_guard_position,
+    )
     no_op_generation_position = rollback.index(
         "rollback_generation_before_transaction"
     )
@@ -1754,7 +1966,12 @@ def assert_tariff_execution_contracts() -> None:
     no_op_comment_position = rollback.index("# A logical no-op emits no FC16")
     no_op_ack_position = rollback.index("- wait_template:", no_op_comment_position)
     owner_release_position = rollback.rindex("action: input_boolean.turn_off")
-    assert no_op_guard_position < no_op_generation_position < command_position
+    assert (
+        no_op_guard_position
+        < no_op_generation_position
+        < authority_recheck_position
+        < command_position
+    )
     assert command_position < generation_position < ack_position
     assert ack_position < no_op_comment_position < no_op_ack_position
     assert no_op_ack_position < owner_release_position
@@ -1876,12 +2093,16 @@ def assert_tariff_execution_contracts() -> None:
                 "data": {"value": "{{ rollback_payload }}"},
             }
         ]
-        assert len(then_sequence) == 3
-        assert "variables" in then_sequence[1]
-        assert set(then_sequence[1]["variables"]) == {
+        authority_gate = package["script"]["hoymiles_verified_set_ems_mode"][
+            "sequence"
+        ][0]
+        assert then_sequence[0] == authority_gate
+        assert len(then_sequence) == 4
+        assert "variables" in then_sequence[2]
+        assert set(then_sequence[2]["variables"]) == {
             "rollback_generation_after_write"
         }
-        write_wait = then_sequence[2]
+        write_wait = then_sequence[3]
         no_op_wait = else_sequence[0]
         for wait in (write_wait, no_op_wait):
             assert set(wait) == {
@@ -2276,11 +2497,58 @@ def assert_rce_execution_contracts() -> None:
         "current_slot_execution_power_percent",
         "current_slot_execution_export_power_kw",
         "current_slot_execution_discharge_power_kw",
-        "[requested, bms_percent, planned, 100] | min",
+        "sensor.hoymiles_rce_bms_safe_discharge_power",
+        "[requested, planned, 100] | min",
+        "raw | round(0, 'floor')",
+        "if raw >= 1 else 0",
     ):
         assert marker in power_template, (
             f"RCE execution power is not bounded by the plan: {marker}"
         )
+    assert "| min, 0] | max)\n             | round(1)" not in power_template, (
+        "RCE helper may round a BMS-binding command above its safe limit"
+    )
+    assert "bms_percent" not in power_template, (
+        "An export-only BMS diagnostic must not cap total-AC register 4306"
+    )
+
+    def helper_command_percent(
+        requested: float,
+        planned: float,
+        *,
+        result_current: bool = True,
+        bms_fresh: bool = True,
+        bms_available: bool = True,
+        bms_export_power_kw: float | None = 8.0,
+    ) -> float | None:
+        if (
+            not result_current
+            or not bms_fresh
+            or not bms_available
+            or bms_export_power_kw is None
+            or bms_export_power_kw <= 0.0
+        ):
+            return None
+        raw = max(min(requested, planned, 100.0), 0.0)
+        return float(floor(raw)) if raw >= 1.0 else 0.0
+
+    # The optimizer's mixed-efficiency current-slot cap already protects the
+    # shared DC budget.  An 8 kW export-only diagnostic must not reduce its
+    # 9.263 kW total-AC budget (whole-percent command 92%) to the old 80%.
+    assert helper_command_percent(100.0, 92.6) == 92.0
+    assert helper_command_percent(19.99, 100.0) == 19.0
+    assert helper_command_percent(100.0, 19.9) == 19.0
+    assert helper_command_percent(100.0, 0.099) == 0.0
+    assert helper_command_percent(100.0, 0.999) == 0.0
+    assert helper_command_percent(100.0, 1.0) == 1.0
+    for invalid in (
+        {"result_current": False},
+        {"bms_fresh": False},
+        {"bms_available": False},
+        {"bms_export_power_kw": None},
+        {"bms_export_power_kw": 0.0},
+    ):
+        assert helper_command_percent(100.0, 92.6, **invalid) is None
     for marker in (
         "input_datetime.hoymiles_rce_latched_slot_end",
         "input_number.hoymiles_rce_latched_minimum_soc",
@@ -2314,6 +2582,149 @@ def assert_rce_execution_contracts() -> None:
     ):
         assert marker in active_power_guard
         assert active_power_guard.index(marker) < active_power_write
+
+    active_power_update = active_power_guard[active_power_write:]
+    frozen_target = active_power_guard.index("rce_power_update_target")
+    assert frozen_target < active_power_write
+    for marker in (
+        'value: "{{ rce_power_update_target }}"',
+        "rce_power_update_generation_before",
+        "rce_power_update_generation_after_helper",
+        "rce_power_update_helper_saw_new_generation",
+        "rce_power_update_exact_ack_after_helper",
+        "rce_power_update_generation_newer_than_recovery",
+        "rce_power_update_full_block_current",
+        "rce_power_update_live_authorized",
+        "rce_power_update_within_live_safe_cap",
+        "rce_power_update_safe_under_command",
+        "rce_power_update_target | float(-998)",
+        "rce_power_update_live_safe_target | float(0)]",
+        "| min + 0.5",
+        "or newer or not authorized",
+        "script.hoymiles_rollback_rce_transaction",
+        "16000000",
+    ):
+        assert marker in active_power_update, (
+            f"RCE active 4306 recovery lacks {marker}"
+        )
+    exact_ack = active_power_update.split(
+        "rce_power_update_exact_ack_after_helper:", 1
+    )[1].split("# The helper already spent", 1)[0]
+    assert "sensor.hoymiles_rce_effective_discharge_power_percent" not in exact_ack, (
+        "A moving live target can still redefine the frozen physical ACK"
+    )
+    assert "rce_power_update_current_generation" in exact_ack
+    assert "rce_power_update_generation_before" in exact_ack
+    assert "rce_power_update_full_block_current" in exact_ack
+    assert "rce_power_update_target" in exact_ack
+
+    def active_4306_outcome(
+        *,
+        exact_physical_ack: bool,
+        helper_saw_new_generation: bool,
+        newer_recovery_generation: bool,
+        full_block_preserved: bool,
+        live_authorized: bool,
+        physical_4306: float,
+        frozen_target: float,
+        live_safe_target: float,
+    ) -> str:
+        """Model the reviewed asymmetric active-4306 decision contract."""
+
+        within_live_cap = physical_4306 <= live_safe_target + 0.5
+        if exact_physical_ack and live_authorized and within_live_cap:
+            return "continue"
+        safe_under_command = (
+            not helper_saw_new_generation
+            and newer_recovery_generation
+            and full_block_preserved
+            and live_authorized
+            and physical_4306 > 0
+            and physical_4306 <= min(frozen_target, live_safe_target) + 0.5
+        )
+        return "defer" if safe_under_command else "rollback"
+
+    assert active_4306_outcome(
+        exact_physical_ack=True,
+        helper_saw_new_generation=True,
+        newer_recovery_generation=False,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=17.4,
+        frozen_target=17.4,
+        live_safe_target=18.0,
+    ) == "continue"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=False,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=17.4,
+        live_safe_target=18.0,
+    ) == "defer"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=False,
+        newer_recovery_generation=False,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=17.4,
+        live_safe_target=18.0,
+    ) == "rollback"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=False,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=12.0,
+        live_safe_target=12.0,
+    ) == "rollback"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=False,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=11.8,
+        frozen_target=12.0,
+        live_safe_target=12.0,
+    ) == "defer"
+    for full_block_preserved, live_authorized in ((False, True), (True, False)):
+        assert active_4306_outcome(
+            exact_physical_ack=False,
+            helper_saw_new_generation=False,
+            newer_recovery_generation=True,
+            full_block_preserved=full_block_preserved,
+            live_authorized=live_authorized,
+            physical_4306=15.6,
+            frozen_target=17.4,
+            live_safe_target=18.0,
+        ) == "rollback"
+    assert active_4306_outcome(
+        exact_physical_ack=True,
+        helper_saw_new_generation=True,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=15.6,
+        live_safe_target=12.0,
+    ) == "rollback"
+    assert active_4306_outcome(
+        exact_physical_ack=False,
+        helper_saw_new_generation=True,
+        newer_recovery_generation=True,
+        full_block_preserved=True,
+        live_authorized=True,
+        physical_4306=15.6,
+        frozen_target=17.4,
+        live_safe_target=18.0,
+    ) == "rollback"
     deadline_extension = block.split(
         "# Latch the complete contiguous run", 1
     )[1].split("# The Force Discharge floor", 1)[0]
@@ -2435,9 +2846,16 @@ def assert_rce_execution_contracts() -> None:
         "# Ownership is already active, so the first export sample", 1
     )[0]
     assert "binary_sensor.hoymiles_ems_control_conflict" in final_start_guard
+    frozen_target_drift_check = (
+        "sensor.hoymiles_rce_effective_discharge_power_percent') "
+        "| float(-999)) - (rce_start_power"
+    )
+    assert frozen_target_drift_check not in " ".join(final_start_guard.split())
     post_mode_start_guard = start.split(
         "# A successful mode ACK is not permission to accept an obsolete", 1
-    )[1]
+    )[1].split(
+        "# A recalculation withdraws planning authority", 1
+    )[0]
     for marker in (
         "binary_sensor.hoymiles_ems_control_conflict",
         "input_boolean.hoymiles_rce_discharge_active",
@@ -2447,7 +2865,6 @@ def assert_rce_execution_contracts() -> None:
         "binary_sensor.hoymiles_sale_block_active",
         "binary_sensor.hoymiles_rce_reserve_ready",
         "current_slot_planned",
-        "current_slot_start_eligible",
         "current_slot_continue_eligible",
         "current_run_end",
         "rce_start_power",
@@ -2460,6 +2877,61 @@ def assert_rce_execution_contracts() -> None:
         assert marker in post_mode_start_guard, (
             f"RCE post-mode ACK guard lacks {marker}"
         )
+    assert "current_slot_start_eligible" not in post_mode_start_guard, (
+        "A physically confirmed RCE cycle still depends on new-start eligibility"
+    )
+    post_mode_guard_normalized = " ".join(post_mode_start_guard.split())
+    assert frozen_target_drift_check not in post_mode_guard_normalized
+    assert (
+        "'current_slot_continue_eligible') is sameas true"
+        in post_mode_guard_normalized
+    )
+    assert "current_slot_continue_stable_seconds" not in post_mode_start_guard
+    assert (
+        "sensor.hoymiles_rce_effective_discharge_power_percent') | float(0)) > 0"
+        in post_mode_guard_normalized
+    )
+
+    def rce_post_ack_slot_authorized(
+        *,
+        planned: bool,
+        start_eligible: bool,
+        continue_eligible: bool,
+        slot_seconds_remaining: float,
+    ) -> bool:
+        del start_eligible
+        return planned and continue_eligible and slot_seconds_remaining > 0
+
+    assert rce_post_ack_slot_authorized(
+        planned=True,
+        start_eligible=False,
+        continue_eligible=True,
+        slot_seconds_remaining=249.0,
+    ), "The under-five-minute new-start gate rolled back a confirmed RCE cycle"
+    assert not rce_post_ack_slot_authorized(
+        planned=True,
+        start_eligible=True,
+        continue_eligible=False,
+        slot_seconds_remaining=249.0,
+    ), "Loss of continuation eligibility did not stop an ACK-confirmed cycle"
+    assert not rce_post_ack_slot_authorized(
+        planned=False,
+        start_eligible=True,
+        continue_eligible=True,
+        slot_seconds_remaining=249.0,
+    ), "Loss of the planned slot did not stop an ACK-confirmed cycle"
+    assert rce_post_ack_slot_authorized(
+        planned=True,
+        start_eligible=False,
+        continue_eligible=True,
+        slot_seconds_remaining=1800.0,
+    ), "A consecutive planned slot boundary rolled back the active RCE run"
+    assert not rce_post_ack_slot_authorized(
+        planned=False,
+        start_eligible=False,
+        continue_eligible=True,
+        slot_seconds_remaining=0.0,
+    ), "The end of the last planned slot did not stop RCE"
 
     def active_rce_update_allowed(
         enabled: bool,
@@ -2472,7 +2944,6 @@ def assert_rce_execution_contracts() -> None:
         planned: bool,
         latched_seconds_remaining: float,
         continue_eligible: bool,
-        continue_stable_seconds: float,
     ) -> bool:
         return (
             enabled
@@ -2484,7 +2955,7 @@ def assert_rce_execution_contracts() -> None:
             and physical_mode == "grid_discharge"
             and planned
             and latched_seconds_remaining > 0
-            and (continue_eligible or continue_stable_seconds < 60)
+            and continue_eligible
         )
 
     rce_live = dict(
@@ -2498,7 +2969,6 @@ def assert_rce_execution_contracts() -> None:
         planned=True,
         latched_seconds_remaining=300.0,
         continue_eligible=True,
-        continue_stable_seconds=0.0,
     )
     assert active_rce_update_allowed(**rce_live)
     for changed in (
@@ -2511,7 +2981,7 @@ def assert_rce_execution_contracts() -> None:
         {"physical_mode": "off_grid"},
         {"planned": False},
         {"latched_seconds_remaining": 0.0},
-        {"continue_eligible": False, "continue_stable_seconds": 60.0},
+        {"continue_eligible": False},
     ):
         assert not active_rce_update_allowed(**(rce_live | changed)), (
             "RCE interleaving can write or extend after authorization loss"
@@ -2527,6 +2997,8 @@ def assert_rce_execution_contracts() -> None:
         enabled: bool,
         result_current: bool,
         recalculation_pending: bool,
+        control_data_ready: bool | None,
+        plan_age_seconds: float | None,
         execution_ready: bool,
         export_allowed: bool,
         sale_block: bool,
@@ -2539,7 +3011,7 @@ def assert_rce_execution_contracts() -> None:
         committed_power_percent: float | None,
         physical_power_percent: float | None,
         price_above_floor: bool,
-        continue_stop_confirmed: bool,
+        continue_eligible: bool | None,
         soc_percent: float | None,
         floor_percent: float | None,
         latched_floor_percent: float | None,
@@ -2581,14 +3053,24 @@ def assert_rce_execution_contracts() -> None:
             and committed_power_percent is not None
             and committed_power_percent > 0
             and price_above_floor
-            and not continue_stop_confirmed
+            and continue_eligible is True
         )
         if not active:
             return "unowned"
         if not live_safety or not committed_execution:
             return "rollback"
-        if not result_current:
-            return "hold" if recalculation_pending else "rollback"
+        optimizer_pending = not result_current and recalculation_pending
+        current_cohort_settling = (
+            result_current
+            and not recalculation_pending
+            and control_data_ready is False
+            and plan_age_seconds is not None
+            and 0 <= plan_age_seconds <= 5
+        )
+        if optimizer_pending or current_cohort_settling:
+            return "hold"
+        if not result_current or not control_data_ready:
+            return "rollback"
         return "continue"
 
     rce_latched = dict(
@@ -2596,6 +3078,8 @@ def assert_rce_execution_contracts() -> None:
         enabled=True,
         result_current=True,
         recalculation_pending=False,
+        control_data_ready=True,
+        plan_age_seconds=0.0,
         execution_ready=True,
         export_allowed=True,
         sale_block=False,
@@ -2608,7 +3092,7 @@ def assert_rce_execution_contracts() -> None:
         committed_power_percent=50.0,
         physical_power_percent=50.0,
         price_above_floor=True,
-        continue_stop_confirmed=False,
+        continue_eligible=True,
         soc_percent=70.0,
         floor_percent=30.0,
         latched_floor_percent=30.0,
@@ -2621,10 +3105,15 @@ def assert_rce_execution_contracts() -> None:
     harmless_recalculation = rce_latched | {
         "result_current": False,
         "recalculation_pending": True,
+        "control_data_ready": False,
+    }
+    current_cohort_settling = rce_latched | {
+        "control_data_ready": False,
+        "plan_age_seconds": 0.0,
     }
     harmless_event_orders = (
         harmless_recalculation,
-        harmless_recalculation,
+        current_cohort_settling,
     )
     lifecycle_sequence = [rce_lifecycle_action(**rce_latched)] + [
         rce_lifecycle_action(**event) for event in harmless_event_orders
@@ -2636,12 +3125,24 @@ def assert_rce_execution_contracts() -> None:
     assert rce_lifecycle_action(**harmless_recalculation) == "hold", (
         "A harmless price/PV/LOAD recalculation rolled back a latched RCE cycle"
     )
+    assert rce_lifecycle_action(**current_cohort_settling) == "hold", (
+        "A current plan rolled back before its derived readiness cohort settled"
+    )
+    assert rce_lifecycle_action(
+        **(current_cohort_settling | {"plan_age_seconds": 5.1})
+    ) == "rollback", "A missing derived readiness cohort was held without a bound"
+    assert rce_lifecycle_action(
+        **(current_cohort_settling | {"control_data_ready": None})
+    ) == "rollback", "Unavailable derived readiness was treated as cohort settling"
     assert rce_lifecycle_action(**rce_latched) == "continue", (
         "A compatible committed replacement plan did not resume normal continuation"
     )
     assert rce_lifecycle_action(
         **(rce_latched | {"planned": False})
     ) == "rollback", "A current replacement plan requiring stop was ignored"
+    assert rce_lifecycle_action(
+        **(rce_latched | {"continue_eligible": False})
+    ) == "rollback", "Lost continuation eligibility did not stop active RCE"
     assert rce_lifecycle_action(
         **(harmless_recalculation | {"bms_current_a": 0.0})
     ) == "rollback", "BMS zero was hidden by optimizer pending"
@@ -2693,6 +3194,8 @@ def assert_rce_execution_contracts() -> None:
         recalculation_pending: bool,
         control_data_ready: bool,
         physical_mode: str,
+        planned: bool,
+        start_eligible: bool,
     ) -> bool:
         return (
             not active
@@ -2700,6 +3203,8 @@ def assert_rce_execution_contracts() -> None:
             and not recalculation_pending
             and control_data_ready
             and physical_mode == "self_use"
+            and planned
+            and start_eligible
         )
 
     assert rce_new_start_allowed(
@@ -2708,18 +3213,168 @@ def assert_rce_execution_contracts() -> None:
         recalculation_pending=False,
         control_data_ready=True,
         physical_mode="self_use",
+        planned=True,
+        start_eligible=True,
     )
+    assert not rce_new_start_allowed(
+        active=False,
+        result_current=True,
+        recalculation_pending=False,
+        control_data_ready=True,
+        physical_mode="self_use",
+        planned=True,
+        start_eligible=False,
+    ), "start_eligible=false authorized a new pre-ACK cycle"
     assert not rce_new_start_allowed(
         active=False,
         result_current=False,
         recalculation_pending=True,
         control_data_ready=False,
         physical_mode="self_use",
+        planned=True,
+        start_eligible=True,
     ), "A pending optimizer result authorized a new RCE start"
+
+    def cohort_transition(
+        *,
+        active: bool = True,
+        ack_confirmed: bool = True,
+        owner_rce: bool = True,
+        conflict: bool = False,
+        physical_mode: str = "grid_discharge",
+        result_current: bool | None = True,
+        recalculation_pending: bool = False,
+        control_data_ready: bool | None = False,
+        revision: int = 100,
+        revision_started_at: float = 1000.0,
+        now_epoch: float = 1000.0,
+        hard_stop: bool = False,
+        planned: bool = True,
+        continue_eligible: bool = True,
+        latched_target_kw: float = 32.0,
+    ) -> tuple[str, int, float]:
+        """Mirror the bounded, no-write cohort transition contract."""
+
+        del revision
+        if not active or not ack_confirmed:
+            return "rollback", 0, latched_target_kw
+        if not result_current and recalculation_pending:
+            return "optimizer_pending", 0, latched_target_kw
+        if control_data_ready is True and result_current is True:
+            return "continue", 0, latched_target_kw
+        age = now_epoch - revision_started_at
+        bridge = (
+            owner_rce
+            and not conflict
+            and physical_mode == "grid_discharge"
+            and result_current is True
+            and not recalculation_pending
+            and control_data_ready is False
+            and not hard_stop
+            and planned
+            and continue_eligible
+            and 0 <= age <= 5
+        )
+        return (
+            ("bridge" if bridge else "rollback"),
+            0,
+            latched_target_kw,
+        )
+
+    assert cohort_transition(control_data_ready=True)[0] == "continue"
+    assert cohort_transition(now_epoch=1004.0)[0] == "bridge"
+    assert cohort_transition(now_epoch=1004.0, control_data_ready=True)[0] == (
+        "continue"
+    )
+    assert cohort_transition(now_epoch=1005.001)[0] == "rollback"
+    assert cohort_transition(result_current=None)[0] == "rollback"
+    assert cohort_transition(
+        result_current=False,
+        recalculation_pending=True,
+    )[0] == "optimizer_pending"
+    assert cohort_transition(hard_stop=True)[0] == "rollback"
+    assert cohort_transition(conflict=True)[0] == "rollback"
+    assert cohort_transition(physical_mode="self_use")[0] == "rollback"
+    same_revision_after_toggle = cohort_transition(
+        revision=100,
+        revision_started_at=1000.0,
+        now_epoch=1006.0,
+        control_data_ready=False,
+    )
+    assert same_revision_after_toggle[0] == "rollback", (
+        "The same source revision renewed its five-second bridge"
+    )
+    new_revision = cohort_transition(
+        revision=101,
+        revision_started_at=1006.0,
+        now_epoch=1006.0,
+    )
+    assert new_revision[0] == "bridge"
+    for transition in (
+        cohort_transition(now_epoch=1004.0),
+        same_revision_after_toggle,
+        new_revision,
+    ):
+        assert transition[1] == 0, "Cohort bridge issued a service/write call"
+        assert transition[2] == 32.0, "Cohort bridge changed the latched target"
+
+    # Reproduce the accepted field chronology without wall-clock sleeps.  The
+    # last transition is a normal end of the planned run, not a false rollback.
+    field_lifecycle = [
+        "start",
+        "physical_ack",
+        "verifier_confirmed",
+        cohort_transition(now_epoch=1001.0)[0],
+        cohort_transition(now_epoch=1002.0, control_data_ready=True)[0],
+        (
+            "continue"
+            if rce_post_ack_slot_authorized(
+                planned=True,
+                start_eligible=False,
+                continue_eligible=True,
+                slot_seconds_remaining=120.0,
+            )
+            else "rollback"
+        ),
+        (
+            "continue"
+            if rce_post_ack_slot_authorized(
+                planned=True,
+                start_eligible=False,
+                continue_eligible=True,
+                slot_seconds_remaining=900.0,
+            )
+            else "rollback"
+        ),
+        "active_at_30_minutes",
+        (
+            "rollback"
+            if rce_post_ack_slot_authorized(
+                planned=False,
+                start_eligible=False,
+                continue_eligible=False,
+                slot_seconds_remaining=0.0,
+            )
+            else "normal_stop"
+        ),
+    ]
+    assert field_lifecycle == [
+        "start",
+        "physical_ack",
+        "verifier_confirmed",
+        "bridge",
+        "continue",
+        "continue",
+        "continue",
+        "active_at_30_minutes",
+        "normal_stop",
+    ]
+    assert "rollback" not in field_lifecycle
 
     pending_marker = "rce_pending_latched_execution_safe"
     pending_stop = (
-        "RCE przelicza plan; aktywny zatwierdzony cykl pozostaje bez zmian"
+        "RCE synchronizuje kohortę planu; aktywny zatwierdzony cykl "
+        "pozostaje bez zmian"
     )
     assert scheduler.count(f"&{pending_marker}") == 1
     assert scheduler.count(f"*{pending_marker}") == 5
@@ -2729,15 +3384,41 @@ def assert_rce_execution_contracts() -> None:
     )[0]
     pending_normalized = " ".join(pending_source.split())
     pending_compact = "".join(pending_source.split())
-    assert "'result_current') is sameas false" in pending_normalized
-    assert "'recalculation_pending') is sameas true" in pending_normalized
+    assert "{% set plan_reported = plan.last_updated %}" in pending_source
+    assert "rce_control_data_ready.last_updated" not in pending_source, (
+        "Readiness toggles, rather than a source revision, renew the bridge"
+    )
+    assert "result_current is sameas false" in pending_normalized
+    assert "recalculation_pending is sameas true" in pending_normalized
+    assert "current_cohort_settling" in pending_normalized
+    assert "plan_age >= 0 and plan_age <= 5" in pending_normalized
+    assert "binary_sensor.hoymiles_rce_control_data_ready" in pending_normalized
     assert "<= (committed_power | float(0)) + 0.5" in pending_normalized
     assert ">= (latched_floor | float(100)) - 0.5" in pending_normalized
+    assert "physical_discharge_power_kw" in pending_normalized
+    assert "live_bms_power_kw" in pending_normalized
+    assert (
+        "physical_discharge_power_kw<=live_bms_power_kw+0.05"
+        in pending_compact
+    ), "Pending RCE continuation ignores a lower live BMS discharge cap"
+
+    post_ack_authority = scheduler.split(
+        "# The parallel-response helper can outlive a normal", 1
+    )[1].split(
+        "entity_id: binary_sensor.hoymiles_ems_export_allowed", 1
+    )[0]
+    assert "condition: and" in post_ack_authority
+    assert "binary_sensor.hoymiles_rce_control_data_ready" in post_ack_authority
+    assert "binary_sensor.hoymiles_rce_reserve_ready" in post_ack_authority
+    assert "value_template: *rce_pending_latched_execution_safe" in post_ack_authority
     for exact_contract in (
-        "state_attr('sensor.hoymiles_hit_rce_optimized_plan',"
-        "'result_current')issameasfalse",
-        "state_attr('sensor.hoymiles_hit_rce_optimized_plan',"
-        "'recalculation_pending')issameastrue",
+        "result_currentissameasfalse",
+        "recalculation_pendingissameastrue",
+        "result_currentissameastrue",
+        "recalculation_pendingissameasfalse",
+        "is_state('binary_sensor.hoymiles_rce_control_data_ready','off')",
+        "plan_age>=0andplan_age<=5",
+        "optimizer_pendingorcurrent_cohort_settling",
         "is_state('input_boolean.hoymiles_rce_discharge_active','on')",
         "is_state('input_boolean.hoymiles_rce_discharge_enabled','on')",
         "is_state('binary_sensor.hoymiles_ems_execution_ready','on')",
@@ -2750,8 +3431,7 @@ def assert_rce_execution_contracts() -> None:
         "is_state('input_boolean.hoymiles_rcm_active','off')",
         "is_state('input_boolean.hoymiles_rcm_pre_discharge_active','off')",
         "is_state('input_boolean.hoymiles_rcm_export_control_active','off')",
-        "(is_state('input_boolean.hoymiles_rcm_enabled','off')"
-        "oris_state('input_boolean.hoymiles_rcm_shadow_mode','on'))",
+        "is_state('input_boolean.hoymiles_rcm_enabled','off')",
         "is_state('input_boolean.hoymiles_battery_balancing_active','off')",
         "is_state('input_boolean.hoymiles_discharge_cycle_active','off')",
         "is_state('input_boolean.hoymiles_charge_cycle_active','off')",
@@ -2767,7 +3447,7 @@ def assert_rce_execution_contracts() -> None:
         "as_timestamp(states('input_datetime.hoymiles_rce_latched_slot_end'),0)"
         ">now_ts",
         "'current_slot_planned')|default(false,true)",
-        "andnotcommitted_stop",
+        "continue_eligibleissameastrue",
         "andnotprice_stop",
         "(power.state|float(999))<=(committed_power|float(0))+0.5",
         "(floor.state|float(-999))>=(latched_floor|float(100))-0.5",
@@ -2780,6 +3460,9 @@ def assert_rce_execution_contracts() -> None:
     for marker in (
         "result_current",
         "recalculation_pending",
+        "current_cohort_settling",
+        "plan_age >= 0 and plan_age <= 5",
+        "binary_sensor.hoymiles_rce_control_data_ready",
         "binary_sensor.hoymiles_ems_execution_ready",
         "binary_sensor.hoymiles_ems_export_allowed",
         "binary_sensor.hoymiles_sale_block_active",
@@ -2808,7 +3491,6 @@ def assert_rce_execution_contracts() -> None:
         assert marker in pending_source, (
             f"RCE pending execution safety predicate lacks {marker}"
         )
-    assert "binary_sensor.hoymiles_rce_control_data_ready" not in pending_source
     assert "sensor.hoymiles_rce_effective_discharge_power_percent" not in pending_source
     for marker in (
         "binary_sensor.hoymiles_ems_execution_ready",
@@ -2863,7 +3545,7 @@ def assert_rce_execution_contracts() -> None:
             assert len(sequence) == 1 and set(sequence[0]) == {"stop"}
             assert tree_contains(branch, "result_current")
             assert tree_contains(branch, "recalculation_pending")
-            assert not tree_contains(
+            assert tree_contains(
                 branch, "binary_sensor.hoymiles_rce_control_data_ready"
             )
             assert not tree_contains(
@@ -2908,6 +3590,18 @@ def assert_rce_execution_contracts() -> None:
                 current_branch, "binary_sensor.hoymiles_rce_control_data_ready"
             )
             assert tree_contains(current_branch, "current_slot_planned")
+            current_conditions = current_branch.get("conditions", [])
+            assert isinstance(current_conditions, list)
+            assert any(
+                isinstance(condition, dict)
+                and condition.get("condition") == "template"
+                and "current_slot_continue_eligible"
+                in str(condition.get("value_template", ""))
+                for condition in current_conditions
+            ), (
+                "Active RCE continuation authority was folded into another "
+                "YAML scalar instead of remaining a separate condition"
+            )
             assert tree_contains(
                 rollback_branch, "input_boolean.hoymiles_rce_discharge_active"
             )
@@ -2941,12 +3635,14 @@ def assert_rce_execution_contracts() -> None:
     assert "binary_sensor.hoymiles_rce_price_above_threshold" not in stop
     for marker in (
         "current_slot_continue_eligible",
-        "current_slot_continue_stable_seconds",
-        ">= 60",
         "current_price_pln_kwh",
         "automatic_price_floor_pln_kwh",
     ):
         assert marker in stop, f"RCE active stop lacks {marker}"
+    assert (
+        "'current_slot_continue_eligible') is not sameas true"
+        in " ".join(stop.split())
+    ), "RCE does not stop immediately when continuation authority disappears"
     ready = scheduler.split(
         'name: "Hoymiles RCE Control Data Ready"', 1
     )[1].split('name: "Hoymiles EMS Export Allowed"', 1)[0]
@@ -3169,6 +3865,104 @@ def assert_rcm_execution_contracts() -> None:
         "RCEm export rollback still depends on the execution/GCF path"
     )
 
+    # Cleanup is restart-safe and idempotent. A verified helper advances the
+    # physical generation, which retriggers this mode:restart automation. On
+    # that next run, an already matching fresh readback must skip the proxy and
+    # proceed directly to releasing the durable helper ownership.
+    restore_all = main.split(
+        "# Zwolnienie własności parametru zawsze odtwarza", 1
+    )[1].split("# Odtwórz limit eksportu także po restarcie", 1)[0]
+
+    def assert_idempotent_restore_path(
+        block: str,
+        *,
+        helper: str,
+        freshness: str,
+        saved: str,
+        readback: str,
+        released_owner: str,
+    ) -> None:
+        write = block.index(f"action: script.{helper}")
+        mismatch_guard = block.rfind("| abs >= 1.0", 0, write)
+        assert mismatch_guard >= 0, f"{helper} restore lacks an idempotent guard"
+        outer_gate = block[:mismatch_guard]
+        assert freshness in outer_gate
+        assert saved in outer_gate
+        assert readback in outer_gate
+        assert outer_gate.count("is_number(states(") >= 2, (
+            f"{helper} restore can use an unknown saved target/readback"
+        )
+        wait = block.index("wait_template:", write)
+        release = block.index(f"entity_id: {released_owner}", wait)
+        assert mismatch_guard < write < wait < release
+
+    assert_idempotent_restore_path(
+        restore_all,
+        helper="hoymiles_verified_set_battery_max_charge_power",
+        freshness="charge_actuator_data_fresh",
+        saved="input_number.hoymiles_rcm_saved_battery_charge_power",
+        readback="sensor.hoymiles_hit_battery_max_charge_power_readback",
+        released_owner="input_boolean.hoymiles_rcm_active",
+    )
+    assert_idempotent_restore_path(
+        restore_all,
+        helper="hoymiles_verified_set_gcf_export_limit",
+        freshness="export_register_data_fresh",
+        saved="input_number.hoymiles_rcm_saved_export_limit",
+        readback="sensor.hoymiles_hit_gcf_maximum_export_power_readback",
+        released_owner="input_boolean.hoymiles_rcm_export_control_active",
+    )
+    assert_idempotent_restore_path(
+        restore_export,
+        helper="hoymiles_verified_set_gcf_export_limit",
+        freshness="export_register_data_fresh",
+        saved="input_number.hoymiles_rcm_saved_export_limit",
+        readback="sensor.hoymiles_hit_gcf_maximum_export_power_readback",
+        released_owner="input_boolean.hoymiles_rcm_export_control_active",
+    )
+
+    def restore_cleanup_step(
+        *,
+        fresh: bool,
+        saved_numeric: bool,
+        readback_numeric: bool,
+        saved_value: float,
+        readback_value: float,
+    ) -> tuple[bool, bool]:
+        evaluable = fresh and saved_numeric and readback_numeric
+        matches = evaluable and abs(readback_value - saved_value) < 1.0
+        return evaluable and not matches, matches
+
+    for saved_value in (0.0, 100.0):
+        # First pass writes a mismatching value and retains ownership while the
+        # generation-bound proxy waits for its newer physical readback.
+        assert restore_cleanup_step(
+            fresh=True,
+            saved_numeric=True,
+            readback_numeric=True,
+            saved_value=saved_value,
+            readback_value=saved_value + 10.0,
+        ) == (True, False)
+        # The ACK-triggered restart observes the confirmed target, performs no
+        # duplicate write/wait, and can therefore reach helper release.
+        assert restore_cleanup_step(
+            fresh=True,
+            saved_numeric=True,
+            readback_numeric=True,
+            saved_value=saved_value,
+            readback_value=saved_value,
+        ) == (False, True)
+    for incomplete in (
+        {"fresh": False, "saved_numeric": True, "readback_numeric": True},
+        {"fresh": True, "saved_numeric": False, "readback_numeric": True},
+        {"fresh": True, "saved_numeric": True, "readback_numeric": False},
+    ):
+        assert restore_cleanup_step(
+            **incomplete,
+            saved_value=100.0,
+            readback_value=100.0,
+        ) == (False, False), "Incomplete cleanup evidence must fail closed"
+
     normal_start = main.split(
         "# Normalny regulator zaczyna",
         1,
@@ -3205,7 +3999,6 @@ def assert_rcm_execution_contracts() -> None:
         "age >= 0 and age <= 60",
         "result_current",
         "input_boolean.hoymiles_rcm_enabled",
-        "input_boolean.hoymiles_rcm_shadow_mode",
         "input_boolean.hoymiles_rcm_active",
         "input_boolean.hoymiles_rcm_pre_discharge_active",
         "input_boolean.hoymiles_rce_discharge_enabled",
@@ -3273,7 +4066,6 @@ def assert_rcm_execution_contracts() -> None:
         "last_reported",
         "age >= 0 and age <= 60",
         "input_boolean.hoymiles_rcm_enabled",
-        "input_boolean.hoymiles_rcm_shadow_mode",
         "input_boolean.hoymiles_rcm_active",
         "input_boolean.hoymiles_rcm_pre_discharge_active",
         "binary_sensor.hoymiles_direct_register_execution_ready",
@@ -3303,7 +4095,6 @@ def assert_rcm_execution_contracts() -> None:
         "last_reported",
         "age >= 0 and age <= 60",
         "input_boolean.hoymiles_rcm_enabled",
-        "input_boolean.hoymiles_rcm_shadow_mode",
         "not rcm_blocked",
         "binary_sensor.hoymiles_direct_register_execution_ready",
         "result_current",
@@ -3385,7 +4176,6 @@ def assert_rcm_execution_contracts() -> None:
         "age >= 0 and age <= 60",
         "result_current",
         "input_boolean.hoymiles_rcm_enabled",
-        "input_boolean.hoymiles_rcm_shadow_mode",
         "input_boolean.hoymiles_rcm_active",
         "binary_sensor.hoymiles_ems_control_conflict",
         "input_boolean.hoymiles_rce_discharge_enabled",
@@ -3423,7 +4213,6 @@ def assert_rcm_execution_contracts() -> None:
         "age >= 0 and age <= 60",
         "result_current",
         "input_boolean.hoymiles_rcm_enabled",
-        "input_boolean.hoymiles_rcm_shadow_mode",
         "input_boolean.hoymiles_rcm_export_control_enabled",
         "input_boolean.hoymiles_rcm_export_control_active",
         "binary_sensor.hoymiles_ems_control_conflict",
@@ -3567,7 +4356,6 @@ def assert_rcm_execution_contracts() -> None:
     for marker in (
         "result_current",
         "input_boolean.hoymiles_rcm_enabled",
-        "input_boolean.hoymiles_rcm_shadow_mode",
         "input_boolean.hoymiles_rcm_pre_discharge_enabled",
         "input_boolean.hoymiles_rcm_active",
         "input_boolean.hoymiles_rcm_pre_discharge_active",
@@ -4275,7 +5063,7 @@ def assert_physical_hardware_readback_contracts() -> None:
         "individual_inverter_acknowledgement: unavailable",
         'formula: "P_battery = P_grid + P_load - P_pv"',
         "transition_grace_seconds: 20",
-        "candidate_generations: 5",
+        "candidate_generations: 6",
         "required_stable_generations: 3",
         "transaction_started_epoch",
         "latched_esp_uptime_seconds",
@@ -4320,13 +5108,16 @@ def assert_physical_hardware_readback_contracts() -> None:
         "response_sample_3_valid",
         "response_sample_4_valid",
         "response_sample_5_valid",
+        "response_sample_6_valid",
         "response_sample_count",
         "response_window_1_stable",
         "response_window_2_stable",
         "response_window_3_stable",
+        "response_window_4_stable",
         "response_window_1_target_compatible",
         "response_window_2_target_compatible",
         "response_window_3_target_compatible",
+        "response_window_4_target_compatible",
         "response_stable_window_start",
         "response_sampled_transition_peak_kw",
         "response_sampled_transition_observed",
@@ -4346,16 +5137,16 @@ def assert_physical_hardware_readback_contracts() -> None:
         "confirmed",
     ):
         assert marker in aggregate_helper, marker
-    # One 20-second transition-grace wait plus five candidate generations.
-    assert aggregate_helper.count('timeout: "00:00:20"') == 6
-    assert aggregate_helper.count("verification_horizon_seconds: 135") == 7
+    # One 20-second transition-grace wait plus six candidate generations.
+    assert aggregate_helper.count('timeout: "00:00:20"') == 7
+    assert aggregate_helper.count("verification_horizon_seconds: 155") == 7
     assert (
         aggregate_helper.count(
             "or not is_number(states('sensor.hoymiles_hit_esp_uptime'))"
         )
-        == 5
+        == 6
     )
-    for sample in range(1, 6):
+    for sample in range(1, 7):
         assert aggregate_helper.count(f"response_esp_uptime_{sample}") >= 2
     assert "* 0.15" in aggregate_helper
     assert "* 0.10" in aggregate_helper
@@ -4380,9 +5171,9 @@ def assert_physical_hardware_readback_contracts() -> None:
         aggregate_helper.count(
             "> (response_collection_baseline_generation | float(-1))"
         )
-        == 10
+        == 12
     ), "Every wait and candidate must stay above the post-grace boot floor"
-    for generation in range(1, 5):
+    for generation in range(1, 6):
         assert (
             f"> (response_generation_{generation} | float(-1))"
             in aggregate_helper
@@ -4422,7 +5213,7 @@ def assert_physical_hardware_readback_contracts() -> None:
             previous = generation
         return True
 
-    assert generation_sequence_valid(102, [103, 104, 105, 106, 107])
+    assert generation_sequence_valid(102, [103, 104, 105, 106, 107, 108])
     assert not generation_sequence_valid(102, [1, 2, 3, 4, 5])
     assert not generation_sequence_valid(102, [103, 104, 1, 2, 3]), (
         "A reset after collection begins must not create a later valid window"
@@ -4448,9 +5239,11 @@ def assert_physical_hardware_readback_contracts() -> None:
         *,
         authoritative: bool,
     ) -> tuple[int, float | None]:
-        """Mirror the three overlapping windows encoded in the HA script."""
+        """Mirror the four overlapping windows encoded in the HA script."""
 
-        for start in range(3):
+        assert len(battery_kw) == 6
+        assert len(grid_kw) == 6
+        for start in range(4):
             battery_window = battery_kw[start : start + 3]
             grid_window = grid_kw[start : start + 3]
             median = sorted(battery_window)[1]
@@ -4469,52 +5262,83 @@ def assert_physical_hardware_readback_contracts() -> None:
                 return start + 1, median
         return 0, None
 
-    # A known constructional transition peak is recorded but excluded from
-    # both confirmation and failure. One or two peak generations simply move
-    # the stable window forward; only stable post-transition evidence is judged.
+    # Six clean generations expose the first of four exact three-sample windows.
     expected_kw = 33.75
     window, median_kw = stable_response_window(
-        [64.0, 33.65, 33.86, 33.70, 33.75],
-        [59.0, 29.10, 29.23, 29.16, 29.18],
+        [33.65, 33.75, 33.86, 33.70, 33.80, 33.72],
+        [29.10, 29.20, 29.23, 29.16, 29.25, 29.18],
         expected_kw,
         authoritative=True,
     )
-    assert window == 2 and median_kw is not None
+    assert window == 1 and median_kw is not None
     assert abs(median_kw - expected_kw) <= max(1.0, expected_kw * 0.15)
-    window, median_kw = stable_response_window(
-        [64.0, 58.0, 33.65, 33.86, 33.70],
-        [59.0, 53.0, 29.10, 29.23, 29.16],
-        expected_kw,
-        authoritative=True,
-    )
-    assert window == 3 and median_kw is not None
+
+    # One isolated constructional peak at every position remains diagnostic;
+    # confirmation must come only from a clean, separate window.
+    normal_battery = [33.65, 33.75, 33.86, 33.70, 33.80, 33.72]
+    normal_grid = [29.10, 29.20, 29.23, 29.16, 29.25, 29.18]
+    for peak_position in range(6):
+        battery_samples = list(normal_battery)
+        grid_samples = list(normal_grid)
+        battery_samples[peak_position] = 62.0
+        grid_samples[peak_position] = 57.0
+        window, median_kw = stable_response_window(
+            battery_samples,
+            grid_samples,
+            expected_kw,
+            authoritative=True,
+        )
+        assert window > 0 and median_kw is not None, peak_position + 1
+        selected_positions = set(range(window - 1, window + 2))
+        assert peak_position not in selected_positions, (
+            "An isolated sampled peak was accepted as stable evidence"
+        )
+
+    # Two consecutive central peaks intersect every candidate window. They
+    # cannot be mistaken for stable target response.
+    consecutive_peak_battery = list(normal_battery)
+    consecutive_peak_grid = list(normal_grid)
+    for peak_position in (2, 3):
+        consecutive_peak_battery[peak_position] = 62.0
+        consecutive_peak_grid[peak_position] = 57.0
     assert stable_response_window(
-        [-2.0, -1.5, -1.0, -0.8, -0.5],
-        [-2.0, -1.5, -1.0, -0.8, -0.5],
-        expected_kw,
-        authoritative=True,
-    ) == (0, None)
-    # A stable but transitional high plateau is not selected as a target
-    # mismatch while later windows are still available.
-    window, median_kw = stable_response_window(
-        [64.0, 64.0, 33.65, 33.86, 33.70],
-        [59.0, 59.0, 29.10, 29.23, 29.16],
-        expected_kw,
-        authoritative=True,
-    )
-    assert window == 3 and median_kw is not None
-    assert stable_response_window(
-        [50.0, 50.1, 49.9, 50.0, 50.1],
-        [45.0, 45.1, 44.9, 45.0, 45.1],
+        consecutive_peak_battery,
+        consecutive_peak_grid,
         expected_kw,
         authoritative=True,
     ) == (0, None)
 
+    # Missing export and persistent low/high plateaux all fail closed after
+    # all four windows have been exhausted.
+    assert stable_response_window(
+        [-2.0, -1.5, -1.0, -0.8, -0.5, -0.4],
+        [-2.0, -1.5, -1.0, -0.8, -0.5, -0.4],
+        expected_kw,
+        authoritative=True,
+    ) == (0, None)
+    assert stable_response_window(
+        [50.0, 50.1, 49.9, 50.0, 50.1, 49.9],
+        [45.0, 45.1, 44.9, 45.0, 45.1, 44.9],
+        expected_kw,
+        authoritative=True,
+    ) == (0, None)
+    assert stable_response_window(
+        [20.0, 20.1, 19.9, 20.0, 20.1, 19.9],
+        [15.0, 15.1, 14.9, 15.0, 15.1, 14.9],
+        expected_kw,
+        authoritative=True,
+    ) == (0, None)
+    assert "response_sampled_transition_peak_kw" in aggregate_helper
+    assert "best-effort sampled peak" in aggregate_helper
+    assert "verification_horizon_seconds: 155" in aggregate_helper
+    assert "stable_sample_window_timeout" in aggregate_helper
+    assert "script.hoymiles_rollback_rce_transaction" in scheduler
+
     # Under high local load the battery can discharge while the site still
     # imports. Manual/RCEm need battery direction only; authoritative RCE also
     # requires physical grid export and therefore rejects the same samples.
-    high_load_battery = [20.0, 20.1, 19.9, 20.0, 20.1]
-    high_load_grid = [-5.0, -4.9, -5.1, -5.0, -4.9]
+    high_load_battery = [20.0, 20.1, 19.9, 20.0, 20.1, 19.9]
+    high_load_grid = [-5.0, -4.9, -5.1, -5.0, -4.9, -5.1]
     assert stable_response_window(
         high_load_battery,
         high_load_grid,
@@ -4573,9 +5397,9 @@ def assert_physical_hardware_readback_contracts() -> None:
         in timer_block
     )
     # The watchdog runs every minute, while nominal verification can consume
-    # 20 s grace + five 13 s generations. Starting the exact timer first means
+    # 20 s grace + six 13 s generations. Starting the exact timer first means
     # it never observes a claimed manual owner with an idle timer in that gap.
-    helper_nominal_seconds = 20 + 5 * 13
+    helper_nominal_seconds = 20 + 6 * 13
     watchdog_period_seconds = 60
     assert helper_nominal_seconds > watchdog_period_seconds
     assert manual_timer < manual_aggregate
@@ -4832,17 +5656,18 @@ def assert_physical_hardware_readback_contracts() -> None:
     conflict = scheduler.split(
         '- name: "Hoymiles EMS Control Conflict"', 1
     )[1].split('- name: "Hoymiles RCEm Risk Window Active"', 1)[0]
-    running = conflict.split("{% set running =", 1)[1].split(
-        "{% set export_owner =", 1
+    legacy_running = conflict.split("{% set legacy_running =", 1)[1].split(
+        "{% set supervisor_conflict =", 1
     )[0]
-    foreign_running = conflict.split("{% set foreign_running =", 1)[1].split(
-        "{{ configured > 1", 1
-    )[0]
-    assert "hoymiles_rcm_active" in running
-    assert "hoymiles_rcm_pre_discharge_active" in running
-    assert " or is_state(" in running
-    assert "hoymiles_rcm_active" not in foreign_running
-    assert "hoymiles_rcm_pre_discharge_active" not in foreign_running
+    supervisor_conflict = conflict.split(
+        "{% set supervisor_conflict =", 1
+    )[1].split("attributes:", 1)[0]
+    assert "hoymiles_rcm_active" in legacy_running
+    assert "hoymiles_rcm_pre_discharge_active" in legacy_running
+    assert " or is_state(" in legacy_running
+    assert "sensor.hoymiles_hit_ems_supervisor" in supervisor_conflict
+    assert "owner_conflict" in supervisor_conflict
+    assert "supervisor_conflict or legacy_running > 1" in supervisor_conflict
 
     tariff_rollback = scheduler.split(
         "hoymiles_rollback_tariff_transaction:", 1
@@ -4856,20 +5681,58 @@ def assert_physical_hardware_readback_contracts() -> None:
     assert "rollback_preserve_off_grid" in rce_rollback
     assert "'sensor.hoymiles_ems_hardware_mode', 'off_grid'" in rce_rollback
 
-    balancing_stop = scheduler.split(
+    balancing_stop_wrapper = scheduler.split(
         "hoymiles_stop_battery_balancing:", 1
-    )[1].split("automation:", 1)[0]
-    assert "stopping_preserve_off_grid" in balancing_stop
-    balancing_mode_write = balancing_stop.index('option: "self_use"')
-    assert balancing_stop.rindex(
-        "'sensor.hoymiles_ems_hardware_mode', 'off_grid'",
-        0,
-        balancing_mode_write,
-    ) < balancing_mode_write
-    assert (
-        "or is_state('sensor.hoymiles_ems_hardware_mode', 'off_grid')"
-        in balancing_stop
+    )[1].split("hoymiles_battery_balancing_transaction_worker:", 1)[0]
+    assert "mode: queued" in balancing_stop_wrapper
+    assert "script.hoymiles_battery_balancing_request_abort" in balancing_stop_wrapper
+    for forbidden in (
+        "script.hoymiles_verified_set_ems_maximum_charge_power",
+        "script.hoymiles_verified_set_ems_force_charge_soc",
+        "script.hoymiles_verified_set_ems_mode",
+        "script.hoymiles_notify_battery_balancing_lifecycle",
+    ):
+        assert forbidden not in balancing_stop_wrapper
+
+    balancing_worker = scheduler.split(
+        "hoymiles_battery_balancing_transaction_worker:", 1
+    )[1].split("\nautomation:", 1)[0]
+    balancing_restore = balancing_worker.split(
+        "# Restoration or provisional-owner release always wins", 1
+    )[1].split("# Only the worker creates a monotonic cycle", 1)[0]
+    for marker in (
+        "trusted_snapshot",
+        "saved_mode",
+        "saved_4303",
+        "saved_4304",
+        "off_grid_owner",
+        "binary_sensor.hoymiles_battery_balancing_restore_authorized",
+        "final_restore_ack",
+        "release_abort_generation",
+    ):
+        assert marker in balancing_restore
+    charge_restore = balancing_restore.index(
+        "action: script.hoymiles_verified_set_ems_maximum_charge_power"
     )
+    soc_restore = balancing_restore.index(
+        "action: script.hoymiles_verified_set_ems_force_charge_soc"
+    )
+    mode_restore = balancing_restore.index(
+        "action: script.hoymiles_verified_set_ems_mode"
+    )
+    assert charge_restore < soc_restore < mode_restore
+    assert balancing_restore.index("final_restore_ack:") > mode_restore
+    final_release = balancing_restore.split(
+        "# This is the final live boundary", 1
+    )[1].split("                    default:", 1)[0]
+    owner_release = final_release.index("action: input_boolean.turn_off")
+    terminal_record = final_release.index('transaction_state: "NOTIFICATION_PENDING"')
+    terminal_enqueue = final_release.index(
+        "script.hoymiles_notify_battery_balancing_lifecycle"
+    )
+    assert owner_release < terminal_record < terminal_enqueue
+    assert "action: notify." not in balancing_restore
+    assert "notify.mobile_app_" not in balancing_restore
 
     rcm_main = scheduler.split(
         "id: hoymiles_rcm_voltage_charge_control", 1
@@ -4929,11 +5792,17 @@ def assert_physical_hardware_readback_contracts() -> None:
     )[1].split("entity_id: input_boolean.hoymiles_rce_discharge_active", 1)[0]
     assert "ems_maximum_discharge_power_readback" in rce_snapshot
     assert "ems_force_discharge_soc_readback" in rce_snapshot
-    balancing_snapshot = scheduler.split("hoymiles_start_battery_balancing:", 1)[1].split(
-        "hoymiles_stop_battery_balancing:", 1
-    )[0]
+    balancing_snapshot = balancing_worker.split(
+        "# Only the worker creates a monotonic cycle", 1
+    )[1].split("default:\n          # Routine reconcile", 1)[0]
     assert "ems_maximum_charge_power_readback" in balancing_snapshot
     assert "ems_force_charge_soc_readback" in balancing_snapshot
+    assert "captured_ems_generation" in balancing_snapshot
+    assert "captured_topology_generation" in balancing_snapshot
+    owner_acquired = balancing_snapshot.index('transaction_state: "OWNER_ACQUIRED"')
+    snapshot_capture = balancing_snapshot.index("captured_mode:")
+    snapshot_valid = balancing_snapshot.index('transaction_state: "SNAPSHOT_VALID"')
+    assert owner_acquired < snapshot_capture < snapshot_valid
 
     saved_gcf = scheduler.split("hoymiles_rcm_saved_export_limit:", 1)[1].split(
         "hoymiles_rcm_saved_max_discharge_power:", 1
@@ -4964,18 +5833,42 @@ def assert_physical_hardware_readback_contracts() -> None:
     # that balancing restores both owned 4304 and 4303 registers as actions.
     if yaml is not None:
         package = yaml.safe_load(scheduler)
-        stop_sequence = package["script"]["hoymiles_stop_battery_balancing"][
+        worker_sequence = package["script"][
+            "hoymiles_battery_balancing_transaction_worker"
+        ][
             "sequence"
         ]
-        restore_actions = {
-            action.get("action")
-            for item in stop_sequence
-            if isinstance(item, dict) and "then" in item
-            for action in item.get("then", [])
-            if isinstance(action, dict)
+        def nested_dicts(value: object):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    yield from nested_dicts(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from nested_dicts(child)
+
+        worker_actions = {
+            item.get("action")
+            for item in nested_dicts(worker_sequence)
+            if isinstance(item.get("action"), str)
         }
-        assert "script.hoymiles_verified_set_ems_maximum_charge_power" in restore_actions
-        assert "script.hoymiles_verified_set_ems_force_charge_soc" in restore_actions
+        physical_helpers = {
+            "script.hoymiles_verified_set_ems_maximum_charge_power",
+            "script.hoymiles_verified_set_ems_force_charge_soc",
+            "script.hoymiles_verified_set_ems_mode",
+        }
+        assert physical_helpers <= worker_actions
+        for script_name, script_body in package["script"].items():
+            if (
+                "battery_balancing" in script_name
+                and script_name != "hoymiles_battery_balancing_transaction_worker"
+            ):
+                other_actions = {
+                    item.get("action")
+                    for item in nested_dicts(script_body)
+                    if isinstance(item.get("action"), str)
+                }
+                assert not physical_helpers.intersection(other_actions), script_name
 
 
 def assert_human_control_status_contracts() -> None:
@@ -5006,6 +5899,10 @@ def assert_human_control_status_contracts() -> None:
         "is_state('input_boolean.hoymiles_rce_discharge_enabled', 'on')"
     )
     assert active_branch < disabled_branch < rce_block
+    rce_block_prefix = tariff_state[max(0, rce_block - 220):rce_block]
+    assert "is_state('input_select.hoymiles_ems_supervisor_mode', 'Off')" in rce_block_prefix
+    assert "not is_state('input_select.hoymiles_ems_supervisor_mode'" not in rce_block_prefix
+    assert "not in ['Off', 'Active']" in tariff_state
 
     for human_state in (
         "Wyłączone — kończenie aktywnego bloku",
@@ -5014,7 +5911,8 @@ def assert_human_control_status_contracts() -> None:
         "Aktywne — sterowanie taryfowe",
         "Wyłączone",
         "Niedostępne — trwa inicjalizacja",
-        "Włączone — zablokowane: włączona polityka RCE",
+        "Niedostępne — trwa inicjalizacja EMS",
+        "Tryb zgodności — taryfa zablokowana: włączona polityka RCE",
         "Włączone — zablokowane: plan niedostępny",
         "Włączone — oczekuje na aktualny plan",
         "Włączone — brak potrzeby ładowania",
@@ -5054,16 +5952,24 @@ def assert_human_control_status_contracts() -> None:
     assert "Włączone — {{ plan_state }}" in final_result
 
     dashboard = (ROOT / "dashboard_hoymiles.yaml").read_text(encoding="utf-8")
-    main_ems = dashboard.split("title: Sterowanie EMS", 1)[1].split(
-        "\n      - type:", 1
+    supervisor_view = dashboard.split("    path: ems-supervisor", 1)[1].split(
+        "    path: ustawienia-ems", 1
     )[0]
-    main_owner = main_ems.index("entity: sensor.hoymiles_ems_control_owner")
-    main_tariff = main_ems.index("entity: sensor.hoymiles_tariff_charge_status")
-    main_conflict = main_ems.index("entity: binary_sensor.hoymiles_ems_control_conflict")
-    assert main_owner < main_tariff < main_conflict
+    assert supervisor_view.count("type: custom:hoymiles-ems-supervisor-card") == 1
+    assert supervisor_view.count("supervisor_entity: sensor.hoymiles_hit_ems_supervisor") == 1
+    assert supervisor_view.count("supervisor_master_stop_entity: input_button.hoymiles_ems_supervisor_master_stop") == 1
 
-    tariff_view = dashboard.split("path: ladowanie-taryfowe", 1)[1].split(
-        "  - title: RCEm 253 V+", 1
+    settings_view = dashboard.split("    path: ustawienia-ems", 1)[1].split(
+        "    path: ustawienia-balansowania", 1
+    )[0]
+    assert settings_view.count("type: custom:hoymiles-aurora-variant-a-settings-page-card") == 1
+    assert "type: custom:hoymiles-ems-shared-inputs-card" not in settings_view
+    assert "type: custom:hoymiles-local-nav-card" not in settings_view
+    assert settings_view.count("shared_inputs_entity: sensor.hoymiles_hit_ems_shared_inputs") == 1
+    assert settings_view.count("balance_path: ustawienia-balansowania") == 1
+
+    tariff_view = dashboard.split("    path: ladowanie-taryfowe", 1)[1].split(
+        "    path: rcem-253v", 1
     )[0]
     assert tariff_view.count("entity: sensor.hoymiles_ems_control_owner") == 1
     assert tariff_view.count("entity: sensor.hoymiles_tariff_charge_status") == 1
@@ -5076,7 +5982,141 @@ def assert_human_control_status_contracts() -> None:
     tariff_toggle = tariff_view.index(
         "entity: input_boolean.hoymiles_tariff_charge_enabled"
     )
-    assert tariff_owner < tariff_policy < tariff_conflict < tariff_toggle
+    assert tariff_toggle < tariff_owner < tariff_policy < tariff_conflict
+
+
+def assert_rcm_timeline_observation_boundary() -> None:
+    """Keep AP-2R1 outside every scheduler, helper and inverter write path."""
+
+    component = ROOT / "custom_components" / "hoymiles_hit_modbus"
+    model = (component / "rcm_timeline_model.py").read_text(encoding="utf-8")
+    source = (component / "rcm_sensor.py").read_text(encoding="utf-8")
+    platform = (component / "sensor.py").read_text(encoding="utf-8")
+    timeline = (component / "timeline_sensor.py").read_text(encoding="utf-8")
+    forbidden = (
+        "services.async_call",
+        "write_register",
+        "modbus.write",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+        "scheduler_command",
+        "executor_command",
+    )
+    assert not any(token in model for token in forbidden)
+    assert "optimize_rcm" not in model
+    assert sum(
+        isinstance(node, ast.Name) and node.id == "optimize_rcm"
+        for node in ast.walk(ast.parse(source))
+    ) == 1
+    optimizer_call = source.index(
+        "optimize_rcm,", source.index("async_add_executor_job(")
+    )
+    # The 15-second observation path may replay a committed RCEm result
+    # before the full-plan method appears in source order.  What matters for
+    # authority is that the full-plan timeline consumes, and never feeds, the
+    # executor result.
+    assert optimizer_call < source.index(
+        "build_rcm_timeline_trace(", optimizer_call
+    )
+    assert platform.count("entities.append(rcm_plan)") == 1
+    assert platform.count('policy_id="rcm"') == 1
+    assert 'source_sensor=rcm_plan' in platform
+    assert "_unrecorded_attributes = frozenset({MATCH_ALL})" in timeline
+
+
+def assert_tariff_grid_charge_accounting_contract() -> None:
+    """Count only fresh physical AC grid-to-battery during tariff ownership."""
+
+    scheduler = (ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml").read_text(
+        encoding="utf-8"
+    )
+    section = scheduler.split(
+        '- name: "Hoymiles Tariff Grid Charge Power"', 1
+    )[1].split('- name: "Hoymiles Tariff Savings Rate"', 1)[0]
+    for required in (
+        "input_boolean.hoymiles_tariff_charge_active",
+        "sensor.hoymiles_ems_control_owner",
+        "owner == 'tariff'",
+        "input_text.hoymiles_tariff_active_action",
+        "'battery_charge'",
+        "'grid_support_and_charge'",
+        "sensor.hoymiles_hit_ems_mode_readback_code",
+        "sensor.hoymiles_hit_ems_control_readback_generation",
+        "sensor.hoymiles_hit_grid_to_battery_power",
+        "expand('sensor.hoymiles_hit_grid_to_battery_power')",
+        "| first | default(none)",
+        "physical is not none",
+        "sensor.hoymiles_hit_overview_grid_total_active_power",
+        "mode_age >= -5 and mode_age <= 120",
+        "generation_age >= -5 and generation_age <= 120",
+        "physical_age >= -5 and physical_age <= 120",
+        "grid_age >= -5 and grid_age <= 120",
+        "accounting_source: physical_grid_to_battery",
+        "accounting_fail_closed: true",
+    ):
+        assert required in section, f"Missing tariff accounting gate: {required}"
+    assert "sensor.hoymiles_hit_overview_battery_power" not in section, (
+        "Tariff accounting still attributes all positive battery charging to grid"
+    )
+    assert "states.sensor.hoymiles_hit_grid_to_battery_power" not in section, (
+        "An intentionally absent physical provider must not emit template warnings"
+    )
+    assert "states.get('sensor.hoymiles_hit_grid_to_battery_power')" not in section, (
+        "Home Assistant must not track states.get as the invalid entity get.__call__"
+    )
+
+    def accounted_power_w(
+        *,
+        active: bool = True,
+        owner: str = "tariff",
+        action: str = "grid_support_and_charge",
+        mode: int = 4,
+        mode_fresh: bool = True,
+        generation_fresh: bool = True,
+        physical_w: float | None = 3000.0,
+        physical_fresh: bool = True,
+        grid_w: float | None = -4000.0,
+        grid_fresh: bool = True,
+    ) -> float:
+        if not (
+            active
+            and owner == "tariff"
+            and action in {"battery_charge", "grid_support_and_charge"}
+            and mode == 4
+            and mode_fresh
+            and generation_fresh
+            and physical_w is not None
+            and physical_fresh
+            and physical_w > 0.0
+            and grid_w is not None
+            and grid_fresh
+            and grid_w < 0.0
+        ):
+            return 0.0
+        return max(min(physical_w, -grid_w), 0.0)
+
+    assert accounted_power_w() == 3000.0
+    assert accounted_power_w(physical_w=5000.0, grid_w=-4000.0) == 4000.0
+    blocked = (
+        {"active": False},
+        {"owner": "rce"},
+        {"action": "grid_support"},
+        {"mode": 0},
+        {"mode_fresh": False},
+        {"generation_fresh": False},
+        {"physical_w": None},
+        {"physical_fresh": False},
+        {"physical_w": 0.0},
+        {"grid_w": None},
+        {"grid_fresh": False},
+        {"grid_w": 0.0},
+        # PV can charge the battery while tariff owns the mode; without the
+        # physical grid-to-battery channel it must still account as zero.
+        {"physical_w": None, "grid_w": -1000.0},
+    )
+    for case in blocked:
+        assert accounted_power_w(**case) == 0.0, case
 
 
 def main() -> None:
@@ -5107,6 +6147,8 @@ def main() -> None:
     assert_rcm_execution_contracts()
     assert_physical_hardware_readback_contracts()
     assert_human_control_status_contracts()
+    assert_rcm_timeline_observation_boundary()
+    assert_tariff_grid_charge_accounting_contract()
     total = rce_count + tariff_count + rcm_count + random_count
     profile = "exhaustive" if exhaustive else "quick"
     print(f"Automation matrix ({profile}): {total} scenarios passed")

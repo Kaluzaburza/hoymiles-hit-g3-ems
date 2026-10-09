@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "identity": "ems-1.5.8-soc01-delta-v1",
+  "accepted_release": {
+    "commit": "a57d4050327ea30d3e552ea8c349e0467d9356ab",
+    "tree": "3b2c783f819964ca4f781c569b3706198e0162ef"
+  },
+  "stage_parent": {
+    "commit": "3ecc3e140b44c131b6d39f1a7545ae3f5af8b437",
+    "tree": "4b24b988b4a80442f904842f5da0acfacd9c235b",
+    "purpose": "reviewed WORK_STATE correction and release-contract self-check"
+  },
+  "scope": "SOC-01 model, healthy-idle copy, focused tests and release handoff",
+  "changed_file_sha256": {
+    "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py": "e4022918271e22b76b1a0996f363a89254184d76f59bbd1b5ba9420fb68d59e6",
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js": "f01cb30bced9a89d66359fb419c4d06f0e489148bc8a291c7c38f610d8bff84d",
+    "docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md": "3694f703fcc1e1d4d54fcad97e35a7fb5bf602db318ca132a4ef403dedd41c64",
+    "docs/releases/v1.5.8.md": "ee986f4d68d876c5e0e8350c0851eb2735bf84dbd7585ab6f83a323fe0dd0844",
+    "home_assistant/www/hoymiles-rce-chart-card.js": "f01cb30bced9a89d66359fb419c4d06f0e489148bc8a291c7c38f610d8bff84d",
+    "tools/fixtures/soc01_localhost_2026_09_13.json": "c58220c1c6d7284441a9aa317367e9c7a6aa55fb3ac5d0be04cbf9616144388e",
+    "tools/test_rcm_timeline_model.py": "0ac5409e02146ce3c1ef525d2b0bef610bfb3276194b4587b4f9802aafb59e86",
+    "tools/test_supervisor_aurora_ui_contract.js": "bce505007840a4a70b743a4d174cc2df1c8d863544ae1f23768714b2e95c7f85",
+    "tools/validate_rce_card.js": "ac640e56e61dfad10bc882bf399ef7f304d52036616d5a747d6ed58418ccbe97",
+    "tools/validate_release.py": "8f14d6e66fc5e5fa31be31353cd25b2a93c1e8545a875d840e9b2b29426912f5"
+  },
+  "focused_tests": {
+    "rcm_timeline_model": "PASS 18 groups; mutation campaign 25/25",
+    "supervisor_aurora_ui": "PASS 69/69 groups; 1115 checks",
+    "rcm_optimizer": "PASS",
+    "rcm_live_control_refresh": "PASS",
+    "supervisor_canonical_runtime": "PASS 113 checks",
+    "supervisor_canonical_ledger": "PASS; mutations 22/22",
+    "supervisor_canonical_dual_track": "PASS 4916 checks",
+    "supervisor_sensor_contract": "PASS 29/29 groups; 658 checks"
+  },
+  "boundaries": {
+    "implemented": true,
+    "offline_validated": true,
+    "localhost_deployed": false,
+    "localhost_accepted": false,
+    "m01_started": false,
+    "frontend_revision_advanced": false
+  }
+}

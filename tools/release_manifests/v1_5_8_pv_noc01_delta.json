@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "identity": "ems-1.5.8-pv-noc01-delta-v1",
+  "accepted_release": {
+    "commit": "a57d4050327ea30d3e552ea8c349e0467d9356ab",
+    "tree": "3b2c783f819964ca4f781c569b3706198e0162ef"
+  },
+  "stage_parent": {
+    "commit": "2544a71645f1902b2fab25cdbd5017fe207cde21",
+    "tree": "888ff2cc9af7500f329e02cd216fd2312971a441",
+    "purpose": "reviewed SOC-01 delta"
+  },
+  "scope": "PV-NOC-01 bounded scheduled-pause usefulness, diagnostics and tests",
+  "changed_file_sha256": {
+    "custom_components/hoymiles_hit_modbus/ems_shared_inputs.py": "c6bb90fa2a7496a56ab69aeb3b20209f16d4f20d3a740b7769eec14949e15b1b",
+    "custom_components/hoymiles_hit_modbus/pv_forecast_usability.py": "53fadc8570b99f106a4a0e76961328e860911912b127eda8f4d276ffb14540a8",
+    "custom_components/hoymiles_hit_modbus/rce_sensor.py": "55a62215650acd338fb037e44472e201df41b33d086259b3e762ae1820a5cd76",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "37142127d78781126f2fbf8239d71d01b379fc013d922d40cfa8f5a0e67e1e00",
+    "custom_components/hoymiles_hit_modbus/tariff_sensor.py": "753be9093a5d9e6728a4bc2c68fa5275be2fd3c73e070b742f199711865ab1b2",
+    "docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md": "a3141d63c56c4ece83b65117f28704ed6c18b8dee49131981f71dd0ebbc39be9",
+    "docs/releases/v1.5.8.md": "1f0cb1f7d5d9b803c4b9f40c4c14c6d9f20d7f645ac0c3759646e78ec9a1f005",
+    "tools/fixtures/pv_noc01_localhost_2026_09_13.json": "cccb96801285c4f2b81bb19b618d6d88be5dd2dab6d1eaa1311dd325590fa0b5",
+    "tools/test_pv_forecast_usability.py": "db00ea84aefd524414dff334b4371e761225a9b0c6eb0184b3099592b7bc181f",
+    "tools/test_rce_optimizer.py": "ad6ffcfde69b2d89a22d5ee03611fcbb067e1fed5c19e976c0ac08915828d15d",
+    "tools/test_tariff_optimizer.py": "5e2ec3d454d913c67a6f3da5871ca1c673b5cf057f27b11579554d63d085040e"
+  },
+  "focused_tests": {
+    "pv_forecast_usability": "PASS 8 groups including live reproduction, midnight, DST, deadline, gaps and three-policy parity",
+    "ems_shared_inputs": "PASS 14 deterministic groups",
+    "rce_optimizer": "PASS 84 deterministic scenarios",
+    "tariff_optimizer": "PASS",
+    "rcm_optimizer": "PASS",
+    "rcm_live_control_refresh": "PASS",
+    "shared_input_parity": "PASS 40 comparisons and 10 freshness/capacity/GCF scenarios",
+    "automation_plan_timeline": "PASS 21 groups",
+    "automation_matrix_quick": "PASS 488 scenarios",
+    "supervisor_sensor_contract": "PASS 29/29 groups; 658 checks"
+  },
+  "boundaries": {
+    "implemented": true,
+    "offline_validated": true,
+    "localhost_metadata_observed": true,
+    "localhost_deployed": false,
+    "localhost_accepted": false,
+    "night_transition_live": "PENDING",
+    "m01_started": false,
+    "frontend_revision_advanced": false
+  }
+}

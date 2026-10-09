@@ -1,0 +1,14 @@
+# Gitignore settings for ESPHome
+# This is an example and may include too much for your use-case.
+# You can modify this file to suit your needs.
+/.esphome/
+/secrets.yaml
+
+# Local, SHA-gated deployment scratch generated during field validation.
+# These archives and staging trees are never release inputs.
+/.codex_*/
+/codex_meter_*
+/_apply_unified_diff.awk
+/_build_meter_hotfix_stage.py
+/_make_rce_retry_hotfix_patch.py
+/_remote_readiness_ui_patch.*

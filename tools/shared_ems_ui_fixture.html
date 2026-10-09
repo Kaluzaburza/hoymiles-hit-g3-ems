@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>A0 Shared EMS UI fixture</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --primary-text-color: #eef7ff;
+        --secondary-text-color: #9eb3c7;
+        --card-background-color: #102233;
+        --ha-card-background: #102233;
+        --divider-color: #385064;
+        --success-color: #2de083;
+        --warning-color: #ffc857;
+        background: #07131f;
+        font: 15px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --primary-text-color: #102235;
+        --secondary-text-color: #53687b;
+        --card-background-color: #ffffff;
+        --ha-card-background: #ffffff;
+        --divider-color: #cad8e3;
+        --success-color: #087f45;
+        --warning-color: #9c6100;
+        background: #edf4f8;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: clamp(12px, 3vw, 36px); color: var(--primary-text-color); }
+      main { width: min(1320px, 100%); margin: 0 auto; display: grid; gap: 18px; }
+      .fixture-title { margin: 0; font-size: 1rem; color: var(--secondary-text-color); }
+      .summaries { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      @media (max-width: 760px) { .summaries { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="fixture-title">A0 · isolated fixture · no live Home Assistant connection</p>
+      <div id="full"></div>
+      <div class="summaries" id="summaries"></div>
+    </main>
+    <script type="module">
+      const params = new URLSearchParams(location.search);
+      const language = params.get("lang") === "en" ? "en" : "pl";
+      document.documentElement.lang = language;
+      document.documentElement.dataset.theme = params.get("theme") === "light" ? "light" : "dark";
+      window.customCards = [];
+      window.customStrategies = [];
+      await import("../home_assistant/www/hoymiles-rce-chart-card.js");
+
+      const sharedEntity = "sensor.hoymiles_hit_ems_shared_inputs";
+      const states = {
+        [sharedEntity]: {
+          state: "ready",
+          attributes: {
+            schema_version: 1,
+            config_entry_id: "fixture-entry-a0",
+            inverter_model: "HIT-10L-G3",
+            inverter_model_source: "source_device",
+            inverter_rated_power_each_kw: 10,
+            inverter_rated_power_source: "source_device_model",
+            inverter_count: 1,
+            inverter_count_source: "physical_fc03",
+            system_rated_power_kw: 10,
+            system_rated_power_source: "rated_power_each_x_inverter_count",
+            battery_capacity_kwh: 26,
+            battery_capacity_source: "physical_capacity_register",
+            bms_ready: true,
+            bms_provenance: "physical_fc03",
+            forecast_today_entity: "sensor.fixture_forecast_today",
+            forecast_tomorrow_entity: "sensor.fixture_forecast_tomorrow",
+            forecast_day_3_entity: null,
+            forecast_remaining_today_entity: "sensor.fixture_forecast_remaining_today",
+            forecast_today_ready: true,
+            forecast_tomorrow_ready: true,
+            forecast_day_3_ready: false,
+            forecast_remaining_today_ready: true,
+            forecast_last_updated: "2026-09-01T07:59:30+00:00",
+            forecast_quality: "current",
+            forecast_provenance: "configured_shared_helpers",
+            load_model_ready: true,
+            load_model_source: "recorder_phase_energy_counters",
+            load_history_days: 9,
+            load_history_complete: true,
+            average_daily_home_load_kwh: 12.4,
+            weekday_profile_ready: true,
+            weekend_profile_ready: true,
+            fallback_currently_used: false,
+            physical_power_ready: true,
+            physical_power_quality: "current",
+            pv_power_entity: "sensor.fixture_entry_pv_power",
+            home_load_power_entity: "sensor.fixture_entry_home_load_power",
+            system_load_power_entity: "sensor.fixture_entry_system_load_power",
+            battery_power_entity: "sensor.fixture_entry_battery_power",
+            grid_power_entity: "sensor.fixture_entry_grid_power",
+            grid_to_battery_power_entity: "sensor.hoymiles_hit_grid_to_battery_power",
+            grid_to_battery_ready: false,
+            grid_to_battery_quality: "providerless",
+            migration_version: 1,
+            migration_result: "not_required",
+            legacy_aliases: ["input_text.hoymiles_solcast_forecast_today_entity"],
+          },
+        },
+        "sensor.fixture_forecast_today": { state: "17.2", attributes: {} },
+        "sensor.fixture_forecast_tomorrow": { state: "19.8", attributes: {} },
+        "sensor.fixture_forecast_remaining_today": { state: "8.4", attributes: {} },
+        "input_select.hoymiles_ems_inverter_rated_power_each": {
+          state: "Auto",
+          attributes: { options: ["Auto", "5 kW", "8 kW", "10 kW", "12 kW", "15 kW", "20 kW"] },
+        },
+        "input_text.hoymiles_ems_pv_forecast_today_entity": { state: "", attributes: {} },
+        "input_text.hoymiles_ems_pv_forecast_tomorrow_entity": { state: "", attributes: {} },
+        "input_text.hoymiles_ems_pv_forecast_day_3_entity": { state: "", attributes: {} },
+        "input_number.hoymiles_ems_fallback_daily_home_load": { state: "12", attributes: {} },
+      };
+      const hass = { language, states, async callService() {} };
+      const full = document.createElement("hoymiles-ems-shared-inputs-card");
+      full.setConfig({
+        mode: "full",
+        shared_inputs_entity: sharedEntity,
+        inverter_power_helper_entity: "input_select.hoymiles_ems_inverter_rated_power_each",
+        forecast_today_helper_entity: "input_text.hoymiles_ems_pv_forecast_today_entity",
+        forecast_tomorrow_helper_entity: "input_text.hoymiles_ems_pv_forecast_tomorrow_entity",
+        forecast_day_3_helper_entity: "input_text.hoymiles_ems_pv_forecast_day_3_entity",
+        fallback_load_helper_entity: "input_number.hoymiles_ems_fallback_daily_home_load",
+      });
+      full.hass = hass;
+      document.querySelector("#full").append(full);
+      for (const policy of ["RCE", "Tariff", "RCEm"]) {
+        const summary = document.createElement("hoymiles-ems-shared-inputs-card");
+        summary.dataset.policy = policy;
+        summary.setConfig({
+          mode: "summary",
+          shared_inputs_entity: sharedEntity,
+          settings_path: "ustawienia-ems",
+        });
+        summary.hass = hass;
+        document.querySelector("#summaries").append(summary);
+      }
+    </script>
+  </body>
+</html>

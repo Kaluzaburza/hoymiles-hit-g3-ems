@@ -43,7 +43,8 @@ The output directory contains:
   evidence and recommendation;
 - `rce_observations.csv`, `rcem_observations.csv` and
   `tariff_observations.csv` — normalized planner snapshots;
-- `control_events.csv` — deduplicated 24-hour control-state events;
+- `control_events.csv` — deduplicated control-state events with the schema,
+  profile, availability flag and bounded historical attributes as JSON;
 - `control_runs.csv` — starts, stops, active time, longest and short runs,
   transition rate, flapping and open-cycle evidence per helper;
 - `log_clusters.csv` — counts of normalized optimizer, Modbus, readback,
@@ -77,11 +78,15 @@ or truncated values remain unknown; they are never coerced to numeric zero or
 
 ## Evidence limits
 
-Each ZIP contains one full snapshot of planner attributes. Its 24-hour
-Recorder history contains state transitions and timestamps, but not historical
-planner attributes or fast power telemetry. Therefore the analyzer can assess
-the current calculation and longitudinal changes between several captures,
-but it cannot reconstruct every historical solver decision.
+Each ZIP contains a current snapshot of planner attributes. Analyzer 1.1
+also preserves supported schema-1 historical planner/Supervisor/ownership
+events, including decoded STOP frames. State-only duplicates do not replace
+rich events; memory bounds also apply when enriching an existing event.
+Unknown event schemas remain state-only. Historical attributes excluded by
+Recorder and fast power telemetry remain unavailable, so the analyzer cannot
+reconstruct every historical solver decision or every accepted lease renewal.
+The original ZIP also contains the bounded `notification_history` ledger;
+notification delivery is not an automatic verdict of the current rule set.
 
 Each Recorder query is treated as an explicit coverage window. Overlapping
 windows are merged, while gaps between captures remain unknown and are never

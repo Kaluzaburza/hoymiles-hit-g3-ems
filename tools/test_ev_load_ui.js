@@ -1,0 +1,57 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync('home_assistant/www/hoymiles-rce-chart-card.js','utf8');
+const start = source.indexOf('class HoymilesAuroraVariantASettingsPageCard ');
+const end = source.indexOf('\nif (!customElements.get("hoymiles-aurora-variant-a-settings-page-card"))',start);
+const box = {HTMLElement:class {}, Date};
+vm.runInNewContext(source.slice(start,end)+'; this.Card=HoymilesAuroraVariantASettingsPageCard;',box);
+const card = Object.create(box.Card.prototype);
+card._config={ev_enabled_entity:'input_boolean.ev',ev_sensor_entity:'input_text.ev',ev_power_entity:'input_number.ev'};
+card._pl=()=>true;
+const states={'input_boolean.ev':{state:'on'},'input_text.ev':{state:''},'input_number.ev':{state:'11'}};
+card._hass={states};
+assert.match(card._evStatus(),/Wykrywanie orientacyjne/);
+states['input_text.ev'].state='unknown';
+assert.match(card._evStatus(),/Wykrywanie orientacyjne/);
+states['input_number.ev'].state='0';
+assert.match(card._evStatus(),/Wpisz.*moc/);
+states['input_number.ev'].state='11';
+states['input_text.ev'].state='sensor.ev';
+assert.match(card._evStatus(),/wstrzymana/);
+states['sensor.ev']={state:'11000',attributes:{unit_of_measurement:'W'},last_updated:new Date().toISOString()};
+assert.match(card._evStatus(),/wybrany/);
+states['sensor.ev'].attributes.unit_of_measurement='kWh';
+assert.match(card._evStatus(),/wstrzymana/);
+states['sensor.ev'].attributes.unit_of_measurement='kW';
+states['sensor.ev'].state='11';
+states['sensor.ev'].last_updated=new Date(Date.now()-181000).toISOString();
+assert.match(card._evStatus(),/rzeczywistego raportu/);
+states['sensor.ev'].last_reported=states['sensor.ev'].last_updated;
+assert.match(card._evStatus(),/wstrzymana/);
+card._pl=()=>false;
+assert.match(card._evStatus(),/suspended/);
+states['input_boolean.ev'].state='off';
+assert.equal(card._evStatus(),'Filter off');
+const calls=[];
+card._service=(...args)=>calls.push(args);
+card._handleChange({target:{dataset:{control:'evSensor'},value:'sensor.wallbox_power'}});
+card._handleChange({target:{dataset:{control:'evPower'},value:'7.4'}});
+card._handleClick({target:{closest:()=>({dataset:{action:'ev'}})}});
+assert.equal(calls[0][1],'input_text');assert.equal(calls[0][2],'set_value');
+assert.equal(calls[0][3].value,'sensor.wallbox_power');
+assert.equal(calls[1][3].value,7.4);
+assert.equal(calls[2][1],'input_boolean');assert.equal(calls[2][2],'turn_on');
+assert(source.includes('(!this._raw(binding.entity) && !emptyEvSensor)'));
+assert(source.includes('["", "unknown"].includes(entity?.state)'));
+for(const lang of ['pl','en']){
+  const scheduler=fs.readFileSync(`custom_components/hoymiles_hit_modbus/resources/home_assistant/${lang}/hoymiles_ems_scheduler.yaml`,'utf8');
+  for(const key of ['hoymiles_ev_load_filter_enabled','hoymiles_ev_power_sensor','hoymiles_ev_charge_power']){
+    const helper=scheduler.split(`  ${key}:`)[1]?.split('\n  hoymiles_')[0];
+    assert(helper && !helper.includes('initial:'));
+  }
+  const dashboard=fs.readFileSync(`custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_${lang}.yaml`,'utf8');
+  assert(dashboard.includes('ev_sensor_entity: input_text.hoymiles_ev_power_sensor'));
+}
+assert.equal(source,fs.readFileSync('custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js','utf8'));
+console.log('PASS EV settings: optional blank field remains editable, PL/EN status, W/kW freshness, service targets and restore-safe generated helpers');

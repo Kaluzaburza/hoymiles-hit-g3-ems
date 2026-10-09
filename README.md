@@ -1,9 +1,17 @@
-# EMS for Hoymiles HIT-(5–20)L-G3
+# EMS for Hoymiles — 1.5.8RC2
 
 [English](README.md) · [Polski](README.pl.md)
 
-Unofficial local EMS for Hoymiles HIT-G3 hybrid inverters — Home Assistant,
-ESPHome, Modbus, RCE, tariff optimization and RCEm.
+![Hoymiles EMS](https://raw.githubusercontent.com/Kaluzaburza/hoymiles-hit-g3-ems/v1.5.8RC2/custom_components/hoymiles_hit_modbus/brand/logo.png)
+
+Unofficial local EMS for Hoymiles energy-storage installations, built with
+Home Assistant, ESPHome and Modbus. Includes dynamic sales (RCE/Pstryk),
+tariff charging, PV/household forecasts and experimental RCEm.
+
+Users of **1.5.7** report operation with **HiOne, HIT-(5–20)L-G3, HAS and HAT**.
+HIT-G3 remains the reference implementation; see the
+[compatibility scope](docs/COMPATIBILITY.md#english) for the distinction
+between community reports and exact-model acceptance.
 
 [![Open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Kaluzaburza&repository=hoymiles-hit-g3-ems&category=integration)
 [![Latest release](https://img.shields.io/github/v/release/Kaluzaburza/hoymiles-hit-g3-ems?label=release)](https://github.com/Kaluzaburza/hoymiles-hit-g3-ems/releases/latest)
@@ -13,46 +21,222 @@ ESPHome, Modbus, RCE, tariff optimization and RCEm.
 The project connects an ESP32 to the inverter over Modbus RTU and adds a
 localized Home Assistant integration, the Aurora dashboard, and optional EMS
 automations. All control logic runs locally. Forecast-based features use
-Solcast, and RCE optimization uses the public PSE price API.
+Solcast. Prices come from public PSE data for RCE or public hourly Pstryk
+net prices for Pstryk BUY/SELL; Pstryk does not require an account API key.
 
-**New installation:** follow the [five-step quick start](docs/QUICK_START.md).
+**New installation:** follow the [five-step quick start](docs/QUICK_START.md#english--five-steps).
 An installation and feature overview is also included below.
 
 ## Overview
 
-![Aurora dashboard: live energy, RCE, tariff charging and RCEm](docs/images/dashboard-overview.png)
+> **1.5.8RC2 — release candidate.** Frontend `1.5.8rc2.122`.
+> [Release and update steps](docs/releases/v1.5.8rc2.md) · [Upgrade from 1.5.7](docs/UPGRADE_1_5_7.md).
+> Enable prereleases in HACS to select RC2.
 
-The default dashboard focuses on current operation, planned actions, and
-results. Expert sections expose model inputs, calculated reserves, physical
-limits, data quality, and the reason why an action was executed or blocked.
-The interface is available in English and Polish and adapts to desktop and
-mobile screens.
+![Aurora v1.5.8: live overview, EMS energy plan, tariff settings and RCEm](docs/images/dashboard-overview.png)
+
+Four views from a real installation running Aurora `1.5.8.72`, captured on
+9 September 2026. These historical `.72` images illustrate the layout; they
+do not show the current `.122` labels or confirm RC2 execution.
+Values and enabled options belong to that installation;
+these are not fresh-install defaults or guaranteed future results. The UI in
+the screenshots is Polish; the dashboard also includes an English version.
+Open the originals: [Overview](docs/images/dashboard-start-v1.5.8.png),
+[EMS plan](docs/images/dashboard-ems-v1.5.8.png),
+[tariff settings](docs/images/dashboard-tariff-v1.5.8.png),
+[RCEm](docs/images/dashboard-rcem-v1.5.8.png).
+
+Aurora brings current power, battery charge, planned actions and diagnostics
+into one Home Assistant dashboard. Its main tabs are **Overview, EMS,
+Settings, PV, Battery, Energy and Earnings**. Settings groups dynamic sales, tariff charging,
+voltage management and balancing; **Service** contains technical diagnostics
+and manual controls. Desktop and mobile use the same data.
+
+### What is new in 1.5.8RC2
+
+- **Earnings:** day/week/month/year views use an entry-scoped local archive.
+  Purchase and sale show separate kWh, amounts and tariff-zone/provider breakdowns;
+  missing prices or historical counters are not invented. See [Earnings](docs/EMS_PROFITS.md).
+
+- **Dynamic sales:** RCE and Pstryk share this label in the main dashboard,
+  plans and push notifications. The selected price source remains visible;
+  experimental RCEm is a separate policy.
+- **Pstryk BUY/SELL:** one linked price profile uses public hourly `priceNet`
+  directly for both directions, without added VAT, distribution or fees.
+  Buying and selling retain separate permissions. Verified daily prices survive
+  an HA restart; missing prices do not become zero-price opportunities.
+- **PGE G12e:** monthly daytime cheap periods, 22:00–06:00 nights, weekends
+  and Polish public holidays. The automatic 2026 price profile has a defined
+  contract, territory and validity period; see [G12e details](docs/PGE_G12E.md).
+- **PV charging delay:** Conservative 55% (P10), Balanced 50% and Maximum 20%
+  profiles control the forecast allowance for charging later after exporting
+  PV. New starts are allowed before 14:00 Europe/Warsaw time, when the plan can recover
+  the energy by 16:30 and one hour before forecast surplus ends. The fixed
+  180-second startup window is fixed from the first command. Confirmation
+  requires fresh matching full FC03/Mode5; PV/LOAD/GRID/BAT/BMS power values
+  remain diagnostic, without power or balance vetoes. Topology, device/BMS
+  readiness, SOC, permissions, lease and the original deadline remain binding.
+  A new neutral attempt needs a 180-second cooldown and fresh qualification;
+  replanning does not extend the deadline.
+- **Transaction continuity:** compatible changes of power/target preserve the
+  transaction. Lease protocol 2 limits a lease to 120 seconds, normally renews
+  it every 20 seconds and qualifies physical settling over 180 seconds.
+  A displayed plan still requires current inputs and physical readback.
+- **More useful diagnostics:** decoded execution/STOP evidence, plan and input
+  revisions, LOAD/PV provenance and a bounded notification ledger support
+  offline algorithm analysis. The archive explicitly reports evidence limits.
+- **Faster RCE planning:** the unchanged 110-slot performance test fell from
+  about 1.22 s to 0.767 s with its 1 s limit retained; all 86 RCE scenarios
+  passed locally. This is a test-machine result, not a speed promise for every HA host.
+- **Installation documentation:** an original wiring diagram, bilingual
+  five-step instructions and model-specific compatibility guidance.
+
+The 1.5.8 series also brings one PV/LOAD/grid/SOC timeline, interval details,
+**Yesterday / Current** execution history, reasons next to planned actions,
+mobile navigation, and a system-status dialog with recorded faults.
+Chart refresh is separate from control and planning timers.
+
+Fresh installations use a **5 percentage-point SOC margin** for dynamic sales
+and RCEm, and a **5% demand-energy margin** for tariff charging. Initial power
+settings are **50%** for dynamic discharge, tariff charging and the RCEm export
+cap; the tariff minimum saving is **1 PLN/kWh**. Existing settings are preserved.
+A high saving threshold can legitimately leave no profitable charging plan.
+
+Technical deployment checks and offline tests do not complete field acceptance.
+See the [release status](docs/releases/v1.5.8rc2.md#validation-and-known-limits).
+
+The PV-profile percentage is the P10 weight in `P50 × (1 − w) + P10 × w`;
+it is neither a probability nor a fixed production reduction. See
+[PV delay profiles](docs/PV_DELAY_PROFILES_2026-10-02.md).
 
 ### Included functions
 
-| Area | Included capability |
+| Area | What it does |
 |---|---|
-| Local monitoring | PV1–PV4, household load, grid, battery, BMS, GEN, inverter state, alarms, temperatures, energy totals, and parallel-system totals |
-| Inverter control | Self-Use, Off-Grid, Grid Charge, Grid Discharge, charge and discharge limits, SOC targets, schedules, and explicit export control |
-| RCE optimization | Uses a revenue-first, bounded joint-horizon plan for permitted 30-minute export intervals while protecting the operating reserve |
-| Tariff charging | Moves necessary grid charging into cheaper tariff periods while protecting a hard household reserve, including winter-load risk |
-| Experimental RCEm 253 V+ | Detects recurring high-voltage periods and models battery headroom; its public-test default is read-only shadow mode |
-| Battery service | Schedules LiFePO4 balancing cycles, prioritizes PV, completes charging from the grid when needed, and holds full SOC for a configured period |
-| Diagnostics | Installation status, control conflicts, input freshness, command acknowledgment, privacy-filtered ZIP reports, and detailed optimizer data |
+| Local monitoring | Shows PV, household load, grid, battery/BMS, GEN, alarms, temperatures and energy totals; uses system totals on detected parallel installations |
+| Dynamic sales (RCE/Pstryk) | Plans permitted export using the selected market prices, available energy, operating reserve and physical limits |
+| Pstryk purchasing | Coordinates buying and selling with one hourly net-price profile and independent execution permissions |
+| Tariff charging | Plans needed grid energy in cheaper periods, accounting for demand, PV, losses, battery wear and the required saving |
+| Experimental RCEm | Models battery headroom for high-voltage periods; observation mode calculates without writing to the inverter |
+| LiFePO4 balancing | Schedules a service charge, uses PV first, finishes from the grid when necessary and holds full SOC for the configured duration |
+| Manual control | Exposes operating modes, power/SOC limits and schedules, subject to the implemented control and readback gates |
+| Diagnostics | Explains data quality, execution owner, blocked actions and physical acknowledgements; exports privacy-filtered support ZIPs |
 
-Only one automatic module may write EMS settings at a time. Mutual-exclusion
-rules prevent RCE, tariff charging, active RCEm control, battery balancing, and
-manual schedules from issuing conflicting commands. RCEm shadow analytics may
-run beside another controller because shadow mode performs no writes.
+### How a plan becomes a real action
+
+1. The ESP32 reads the inverter over Modbus. HA combines those readings with
+   your settings, household history, PV forecasts and the prices each planner needs.
+2. The selected planners calculate proposals; linked Pstryk buying/selling
+   uses a joint plan. The EMS supervisor selects an eligible action. **A configured policy, a displayed plan and
+   active execution are three different states.**
+3. Before a write, the EMS checks current inputs, limits, mode and ownership.
+   Only one writer controls an execution transaction. Missing or stale critical
+   data prevent new execution even if an older plan is still displayed.
+4. A newer physical register readback must confirm the command. After the
+   action, the existing verified restore procedure releases ownership.
+   An HA switch changing state is not proof that the inverter obeyed it.
+
+For example, **Now: Self-consumption** with **Next: Dynamic sales at 19:30** means
+that ordinary self-consumption is active now and sale is planned for later.
+The plan may change when new prices, forecasts or physical limits arrive.
+A tariff result such as *charging skipped: insufficient saving* is a valid
+planning outcome; enabling the policy does not force a purchase.
+
+### EMS controls
+
+**Pause EMS** stops Supervisor execution and every bundled legacy automation
+through a separate fail-closed latch. It preserves the selected RCE, tariff,
+RCEm and balancing policies. **Enable EMS** restores Active authority only after
+that latch is released. Each **Use this policy** control applies the planner's
+enabled and Supervisor allow helpers as one serialized operation; an incomplete
+operation leaves execution blocked. **MASTER STOP** remains the emergency
+transaction: it cancels active work, restores verified settings and clears
+execution helpers. **Resume after STOP** is a separate conscious action which
+restores the policy choices saved before the stop. The single status badge
+distinguishes paused, ready, executing, waiting for readback, blocked, recovery
+and intervention states.
+
+Hard-stop evidence is frozen when its trigger is admitted. Independent bounded FIFO admission lanes
+preserve trigger order. An already running verified helper call cannot be cancelled; its safety boundary
+is checked again when it returns.
+Until that boundary is resolved, the durable record remains raw `APPLYING`.
+
+### How household LOAD is forecast
+
+The canonical household demand is the sum of phase LOAD registers 2170–2172,
+integrated by `sensor.hoymiles_actual_load_energy_today`. It excludes inverter
+self-consumption and does not treat grid import as household demand, so energy
+supplied by PV or the battery remains in the same boundary.
+
+RCE and tariff planning consume one policy-neutral forecast. Its daily baseline
+uses up to 28 complete Recorder days with a seven-day half-life and actual
+calendar age, so missing days do not look recent. Daily phase-counter totals and
+the 30-minute shape have separate quality. Recorder reports for the cumulative
+shape counter are reduced in SQL to the last value per 150-second model bucket;
+at most a 10-minute profile gap is accepted. Longer gaps, resets, missing phases and
+invalid values make the shape unavailable instead of filling it with zero or
+spreading the gap across the day. Weekday and weekend shapes remain separate,
+and 23/25-hour DST days conserve their measured energy.
+
+Sparse phase-energy counters are assessed separately: spacing between numeric
+reports alone is not an outage. Explicit unavailable episodes, counter resets
+and the daily coverage budget still affect acceptance. A stored profile must
+also be fresh (at most 30 hours from generation); history in Recorder alone
+does not guarantee that the planners can use it. Check the model's quality,
+accepted days and fallback reason in diagnostics.
+
+Today's correction compares measured energy with the profile integral over the
+same midnight-to-observation interval. It starts after two hours and at least
+1 kWh of expected demand, is limited to 0.80–1.25, and applies only to the
+remaining part of today. A fresh power deviation becomes persistent only after
+12 minutes of dense evidence in a 20-minute window, with no gap over five
+minutes and both a 0.25 kW and 20% threshold. Its signed correction is capped at
+3 kW, applied at 25%, decays within 60 minutes and ends at a two-hour horizon.
+A brief impulse therefore affects the unfinished current interval but does not
+scale the rest of the day or tomorrow. Each policy retains its own conservative
+reserve and economic buffers after this shared expected LOAD.
+
+### Reading the EMS chart
+
+| Element | Meaning |
+|---|---|
+| PV / household bars | Forecast power in **kW**, using the upper power scale |
+| Bars below the chart | Planned grid energy in **kWh** for that interval: blue import, yellow export; both point down to separate them from power |
+| Cyan SOC line | Expected battery charge from the available forecast model; its source appears in the detail panel |
+| Dashed SOC line | The conservative automation-plan trajectory, not a measured battery history |
+| Colour on SOC and its shading | Yellow: dynamic sales; blue: tariff charging; violet: RCEm; green: balancing |
+| Selected interval | Expected flows and conservative plan flows are shown separately; **grid → battery** is different from total grid import |
+
+Both SOC lines are forecasts. Below-chart bars are not evidence of a meter
+reading or an active tariff cycle. They use the plan's classified flows, so
+ordinary battery-to-house self-consumption is not drawn as grid charging.
+The **recalculating** message retains the last plan for reference while new
+execution authority is withheld. Actual energy history is available in the
+Overview, Battery and Energy views.
+
+**Yesterday** beside the plan opens the **last 48 hours of EMS execution**;
+**Current** restores the plan. History uses the same chart: recorded SOC, PV/home
+bars, import/export and colored executed dynamic-sales, tariff and RCEm actions.
+These policy colors require matching active-transaction, readback and physical-flow
+evidence; balancing green represents its recorded status. Select a time to inspect
+five-minute measurements, actions and reasons; the chart scrolls horizontally on mobile.
+Four energy totals below cover confirmed execution intervals: dynamic-sales export, RCEm
+discharge, tariff charging from the grid and tariff grid supply directly to home.
+These are estimates integrated from recorded powers. Ambiguous source attribution
+during PV production is shown as a range; missing measurements do not mean zero use.
+The source is HA Recorder, which must retain the relevant entities and Supervisor
+attributes. Missing decisions are never reconstructed from forecasts, and recording
+gaps stay visible. A first large history request may take several tens of seconds.
+Updating this view requires an HA restart and a refresh of an open dashboard tab.
 
 ## Compatibility and requirements
 
 | Component | Requirement |
 |---|---|
-| Inverter | Hoymiles HIT xxL G3 family; development and field testing have focused primarily on HIT-10L-G3 and HIT-20L-G3 installations |
-| ESP32 | ESP32 board supported by ESPHome; the public configuration defaults to `esp32dev` |
+| Inverter | Reference: HIT-(5–20)L-G3, primarily HIT-10L-G3 and HIT-20L-G3. Community 1.5.7 reports also cover HiOne, HAS and HAT; verify the [model-specific scope](docs/COMPATIBILITY.md#english) |
+| ESP32 | Default: `esp32dev`, ESP-IDF, chip revision 3.1 or later; other variants require matching board/platform and pin settings |
 | RS485 interface | UART/TTL-to-RS485 converter with **3.3 V UART logic**; an automatic-direction model is recommended |
-| ESPHome | 2026.7 or newer |
+| ESPHome | 2026.9.0 or newer |
 | Home Assistant | 2026.7 or newer |
 | HACS | 2.x |
 
@@ -63,12 +247,16 @@ available; known current and legacy entity IDs are detected automatically,
 while a renamed or custom source can be selected with the Day 3 entity helper.
 Missing or stale Day 3 is reported explicitly and does not disable the
 conservative shorter-horizon fallback.
-RCE prices require internet access to the public PSE API. Home Assistant
+RCE prices require the public PSE API; Pstryk requires its public price source. Home Assistant
 Recorder must retain the history of the relevant power and energy entities; this is enabled
 by default in a standard installation. An additional household energy meter is
 not required.
+Check [Recorder retention and disk space](docs/RECORDER_AND_STORAGE.md#english)
+as part of installation; backup compression alone does not protect EMS history.
 
-The standard Modbus settings are `115200 8N1`, unit address `1`.
+The repository defaults for the inverter link are `115200 8N1`, unit address `1`.
+Match the actual inverter port configuration. These are not the settings of
+a separate electricity-meter link or a universal setting for every model.
 
 ## Architecture
 
@@ -140,12 +328,16 @@ than relying on a product listing.
 
 #### Automatic-direction converter
 
+The generic sketch below shows a **non-isolated** converter. Connect a bus
+reference only as required by the inverter manual. For the isolated Waveshare
+example, use the illustrated wiring below and keep TTL GND separate from SGND.
+
 ```text
 ESP32                        RS485 converter                  Inverter
 GPIO17 (TX)  ------------->  RXD / DI
 GPIO16 (RX)  <-------------  TXD / RO
 3.3 V        ------------->  VCC  (only if rated for 3.3 V)
-GND          --------------  GND  -------------------------- GND / reference
+GND          --------------  GND (TTL side)
                               A / D+ ------------------------- A+ / D+
                               B / D- ------------------------- B- / D-
 ```
@@ -153,6 +345,25 @@ GND          --------------  GND  -------------------------- GND / reference
 `TX` must reach the converter input (`RXD` or `DI`), and `RX` must receive the
 converter output (`TXD` or `RO`). Labels differ between modules, so check the
 signal direction in the converter documentation.
+
+#### Illustrated ESP32-S3 example
+
+**ESP32-S3-DevKitC-1 v1.1 → Waveshare TTL TO RS485 (B) → Hoymiles
+HIT-(5–20)L-G3, COM2 / 485_2.** The bilingual schematic names all six
+connections. It is a logical connection diagram, not a physical pin-layout drawing.
+
+[![ESP32-S3 to isolated Waveshare converter and Hoymiles COM2 wiring](docs/images/esp32-s3-rs485-hoymiles-pl.png)](docs/images/esp32-s3-rs485-hoymiles-pl.png)
+
+In this example, `GPIO17 → RXD`, `GPIO16 ← TXD`, `3V3 → VCC`, and
+`GND → GND` are on the TTL side. On the isolated side, `A+ → 485_2+` and
+`B− → 485_2−`; SGND remains unconnected. Do not bridge SGND to ESP GND or
+use an unrelated inverter terminal as a reference. These terminal labels apply
+to the named hardware; confirm physical positions against its manual. For the
+S3 N16R8 use [hoymiles-inverter-s3.yaml](hoymiles-inverter-s3.yaml).
+See [all three board profiles](docs/ESP32_VARIANTS.md).
+
+The user confirmed the actual wiring and a passing test on **20 September
+2026**. See [scope, acceptance and manufacturer references](docs/WIRING_ESP32_S3.md).
 
 #### Converter with `DE` and `/RE`
 
@@ -164,19 +375,29 @@ MAX3485 DE ----+
 MAX3485 /RE ---+
 ```
 
-Add this block outside the existing `packages:` section in
-`hoymiles-inverter.yaml`. It extends the UART created by the package:
+The ready-to-use variant is
+[`hoymiles-inverter-flow-control.yaml`](hoymiles-inverter-flow-control.yaml).
+It already joins the existing UART configuration with a direction pin; set
+`uart_flow_control_pin` to the GPIO actually wired to DE + /RE.
+
+If adapting an existing device file instead, add this **top-level** block
+outside `packages:` (or merge it into an existing `uart:` block):
 
 ```yaml
 uart:
-  - id: !extend modbus_uart
-    flow_control_pin:
-      number: GPIO4
-      inverted: false
+  id: modbus_uart
+  flow_control_pin:
+    number: GPIO4
+    inverted: false
 ```
 
-Use another suitable output-capable GPIO when GPIO4 is unavailable. Do not
-create a second Modbus hub.
+The package defines `uart:` as a mapping, so use the same mapping shape:
+**no list dash and no `!extend`**. The former list example caused
+`Source for extension of ID 'modbus_uart' was not found`
+([issue #33](https://github.com/Kaluzaburza/hoymiles-hit-g3-ems/issues/33)).
+Use a suitable free output GPIO; GPIO4 is only the example. Do not create
+a second UART or Modbus hub. Automatic-direction converters keep the standard
+[`hoymiles-inverter.yaml`](hoymiles-inverter.yaml), without this override.
 
 #### Before powering on
 
@@ -199,22 +420,26 @@ create a second Modbus hub.
 
 ### 3. Flash the ESP32
 
-1. Create an ESPHome device or copy the public entry configuration
-   [`hoymiles-inverter.yaml`](hoymiles-inverter.yaml) into the ESPHome
-   configuration directory.
-2. Copy the keys from [`secrets.yaml.example`](secrets.yaml.example) to the
-   local `secrets.yaml` and replace every example value.
-3. Confirm the board, `uart_tx_pin`, and `uart_rx_pin` substitutions.
-4. Add the `!extend modbus_uart` block only when the converter needs manual
-   `DE`/`/RE` control.
-5. Validate, compile, and install the firmware.
+1. Open the chosen device file on GitHub, select **Raw** and copy it into
+   `/config/esphome/` using **File editor**. Choose the standard file for an
+   automatic converter, `hoymiles-inverter-s3.yaml` for S3 N16R8, or
+   `hoymiles-inverter-flow-control.yaml` for classic ESP32 with DE + /RE.
+2. In `/config/esphome/secrets.yaml`, add the four keys from
+   [`secrets.yaml.example`](secrets.yaml.example) with your own values.
+   Preserve secrets used by other devices. The `api_key` must be a valid
+   32-byte Base64 key, not the placeholder text.
+3. Confirm the board and pins. The default uses `esp32dev`, ESP-IDF and
+   minimum chip revision 3.1; another ESP32 variant needs its matching configuration.
+4. Open **ESPHome Device Builder → device ⋮ → Validate**, then **Install**.
+   The first upload uses USB; later uploads can be wireless.
 
-Do not copy the repository's `packages` directory. The public entry file
-downloads the compatible, versioned ESPHome packages directly from GitHub.
+The [detailed five-step guide](docs/QUICK_START.md#english--five-steps) explains
+file creation, each secret and USB choices. Do not copy the repository's
+`packages/` directory: the device YAML downloads its versioned ESPHome packages.
 
-If compilation succeeds but all Modbus entities remain unavailable, check the
-converter type and direction pins, common reference/GND, `A/B` polarity,
-inverter port, and Modbus address—in that order.
+If compilation succeeds but Modbus readings remain unavailable, check the
+converter type and direction pins, reference/GND, A/B polarity, inverter port
+and Modbus address. A successful upload is not a successful Modbus readback.
 
 ### 4. Add both integrations
 
@@ -229,9 +454,10 @@ The integration automatically installs and registers:
 - `/config/packages/hoymiles_ems_scheduler.yaml`;
 - the versioned Aurora frontend module.
 
-If Home Assistant packages are not enabled, **Settings → System → Repairs**
-shows the required action. When `configuration.yaml` does not yet contain a
-`homeassistant:` section, add:
+Open **File editor → folder icon → configuration.yaml** in HA's configuration
+root. If packages are not enabled, **Settings → System → Repairs** also
+shows the required action. When the file has no `homeassistant:` section,
+append the following without removing existing content:
 
 ```yaml
 homeassistant:
@@ -239,8 +465,12 @@ homeassistant:
 ```
 
 When that section already exists, add only the indented `packages:` line below
-its existing entries—do not add a second `homeassistant:` key. Validate the
-configuration and restart Home Assistant.
+its existing entries. Use two spaces, not tabs; do not duplicate either key
+or replace an existing package include. Save, open **Settings → Tools → YAML →
+Check configuration** (older versions: **Developer tools → YAML**) and fix any
+error. Then perform a full HA restart to load the new package. The
+[quick start](docs/QUICK_START.md#4-add-the-source-device-and-enable-home-assistant-packages)
+includes an example for an existing `homeassistant:` block.
 
 ### 5. Add the Aurora dashboard and verify the installation
 
@@ -255,13 +485,20 @@ Assistant restart without requiring users to paste YAML again.
 
 ## Updating
 
-1. Read the **User update steps** in the HACS release notes.
-2. Install the update through HACS.
-3. Restart Home Assistant once.
-4. Check **Installation status** and **Repairs**. An update from an older
-   release can require one additional restart after the managed EMS package has
-   been copied.
-5. Rebuild ESP32 firmware only when the release notes explicitly require it.
+For 1.5.8RC2, follow the [numbered update steps](docs/releases/v1.5.8rc2.md#user-update-steps--kroki-po-aktualizacji).
+Pause automatic execution, confirm a neutral physical state and back up
+customized files. Update the integration and managed package, check HA
+configuration and perform the restart(s) requested by the installation or
+Repair flow. HACS updates HA; **it does not flash ESP32**.
+
+An upgrade from **1.5.7 requires compatible ESPHome firmware** for the newer
+transport/readback/lease contract. Use the complete device
+file and package ref `v1.5.8RC2`. See the [1.5.7 migration guide](docs/UPGRADE_1_5_7.md). An already verified protocol-2 ESP using the same runtime packages
+does not need another flash solely for the RC2 version label or documentation.
+Preserve device identity, board, pins, secrets and the RS485 variant. Verify
+fresh physical readback, Self-Use and no conflicting owner before restoring
+the previously selected policies. The DE + `/RE` file is an optional hardware
+variant, not a second integration.
 
 The integration preserves user-modified copies of managed files. Built-in
 migrations for storage-mode dashboards update only the required managed card types, entity
@@ -284,8 +521,9 @@ integration registers its versioned frontend module automatically.
 ### Operating rules shared by every mode
 
 - Automatic control is optional and disabled until configured by the user.
-- RCE, tariff charging, and write-capable RCEm control are mutually exclusive.
-  RCEm shadow analytics may remain enabled because they perform no writes.
+- Multiple planners may calculate proposals. The supervisor selects one eligible
+  execution owner; no two automatic writers may issue conflicting commands.
+  RCEm observation-only analytics perform no inverter writes.
 - Off-Grid is a user/inverter-owned physical mode. Automatic controllers do not
   start or update writes while it is active, and cleanup does not force a return
   to Self-Use. The owner diagnostic describes an active transaction, not merely
@@ -309,11 +547,11 @@ integration registers its versioned frontend module automatically.
   is retried and another controller cannot take over.
 - The integration does not automate the three-phase imbalance setting.
 
-### RCE market-price optimization
+### Dynamic sales — RCE and Pstryk
 
-RCE has one purpose: maximize expected net sale revenue within the permitted
-30-minute PSE price horizon. Its bounded joint-horizon planner evaluates the
-slots together instead of making an isolated greedy choice. It models energy
+With **RCE** selected, the planner aims to maximize expected net sale revenue within the permitted price
+horizon. It combines PSE's 15-minute price records into 30-minute planning
+intervals and evaluates those intervals together. It models energy
 available now, PV energy only when it can physically arrive, natural export,
 conversion losses, battery capacity, BMS and inverter power, shared AC/export
 budgets, GCF and configured export lockouts.
@@ -322,16 +560,22 @@ The operating reserve is rounded conservatively to a full inverter SOC step
 and enforced in every planned export interval. LOAD and Day 3 data remain
 visible as diagnostics, but Day 3 does not create a terminal objective that can
 silently turn the sale optimizer into a tariff or household-cost optimizer.
-The implementation is a bounded active-set heuristic, not an exact solver. An
-independent oracle checks small constructed horizons and has found only small
-observed gaps in the covered cases; this is regression evidence, not proof of
-a formal or global optimum for the full mixed-constraint problem.
+The planner uses a bounded heuristic. Tests compare small scenarios with an
+independent reference calculation, but do not prove that every real-world
+plan achieves the highest possible return.
 
 The dashboard separates projected and measured results, controlled battery
 export, natural PV surplus, and unclassified historical export. It reports
-gross sale revenue and an estimated net benefit after modeled battery wear.
+sale revenue before modeled battery wear and an estimated benefit after wear.
+Here “before wear” does not mean a VAT-inclusive Pstryk price.
 These figures are estimates, not a supplier invoice, settlement statement, or
 guarantee of profit.
+
+With **Pstryk** selected, public hourly net prices are used directly for BUY
+and SELL. The joint plan respects separate purchase/sale permissions and
+household reserve. No distribution fee, VAT, surcharge or gross-price fallback
+is added. This agreed net-price model is not a complete household bill.
+Ordinary PV export alone does not prove controlled battery sales.
 
 ### Tariff-aware grid charging
 
@@ -351,12 +595,22 @@ battery charging power from confirmed sessions, and starts early enough to
 store the required energy before a more expensive tariff period. It does not
 optimize export revenue.
 
-Bundled profiles cover G11, G12, G12w, and G13 where offered by PGE, TAURON,
+The tariff margin applies to the energy needed during the protected period:
+**10 kWh + 10% = 11 kWh**, not ten additional SOC percentage points.
+It is a consumable demand allowance; physical reserve and capacity limits
+remain separate. An unreachable target is reported, not assumed achievable.
+
+Bundled profiles cover G11, G12, G12w, PGE G12e, and G13 where offered by PGE, TAURON,
 ENEA, ENERGA, and STOEN. They include seasons, weekends, and Polish public
 holidays. Built-in 2026 variable per-kWh rates include the modeled variable
 components, but not fixed charges. Treat them as a starting point and verify
 them against the current supplier contract and bill. Use the **Manual** profile
 for another product or supplier.
+
+[PGE G12e](docs/PGE_G12E.md) has monthly daytime low-price windows and all-day
+weekend/holiday pricing. Its verified marginal rates cover February–December
+2026 and assume the PGE Obrót basic G12e product and the published LZO clock
+schedule. Adding this option does not change the selected tariff.
 
 ### Experimental RCEm 253 V+ voltage management
 
@@ -364,9 +618,9 @@ RCEm has a third, independent objective: preserve usable battery headroom around
 recurring high-voltage and PV-surplus risk. It analyzes the previous four days
 of phase-voltage history together with live L1/L2/L3 voltage, the rolling
 10-minute average, interval Solcast profiles, weekday/weekend household demand,
-and available battery capacity. High-PV/low-LOAD conditions size headroom;
-low-PV/high-LOAD stress and a chronological energy balance protect household
-energy. RCEm does not inherit the RCE operating floor.
+and available battery capacity. A high-PV, low-consumption scenario determines
+the space needed; a low-PV, high-consumption scenario checks that enough energy
+remains for the house over time. RCEm uses its own household reserve.
 
 Outside shadow mode, the controller can increase battery charging as voltage
 rises. Optional morning discharge can create only the useful headroom needed
@@ -375,125 +629,107 @@ Optional export regulation never exceeds the lower of the physically available
 export budget, the current inverter setting, and the user-defined cap.
 
 RCEm starts in **observation-only (shadow) mode**. In this mode it calculates
-plans and diagnostics but performs no inverter writes, so it can collect public
-test evidence alongside RCE or tariff control. Keep shadow mode enabled until
-write-capable RCEm has passed separate commissioning on the target plant. RCEm
-does not disable certified protection, change
+plans and diagnostics but performs no inverter writes, so it can collect
+observations alongside RCE or tariff control. Keep shadow mode enabled until
+write-capable RCEm has passed separate field validation and commissioning on
+the target installation. RCEm does not disable certified protection, change
 protection thresholds, enable GCF, or alter three-phase imbalance. It remains
-experimental and requires separate field validation and commissioning before
-write-capable use. It is not intended to bypass applicable grid-code or
+experimental and is not intended to bypass applicable grid-code or
 distribution-system-operator voltage limits.
 
 ### LiFePO4 battery balancing
 
-The optional service cycle runs at an interval selected by the user. After
-sunrise, normal Self-Use operation lets PV charge the battery first. After
-sunset, the cycle can supply the missing energy from the grid. Between 99% and
-100% SOC it targets approximately 2 kW of battery charging, adjusted for the
-household demand that shares the Grid Charge limit. The hold timer begins only
-after full SOC is confirmed. The configured hold counts only while SOC remains
-at least `99.9%`; a lower reading cancels the timer and requires a new complete
-hold. Previous charge settings and EMS mode are restored when the cycle ends or
-is canceled.
+Balancing is an optional service cycle at the interval selected by the user.
+The day plan shows its next scheduled date, rather than only a sunrise offset.
+A green SOC segment and shading mark balancing within the chart horizon.
+
+The cycle first lets PV charge the battery in Self-Use. The first valid SOC
+reading of at least **95%** latches a slower charging phase for the rest of
+that cycle, targeting no more than approximately 0.4 kW aggregate net
+battery charging power. After sunset, verified Grid Charge can finish the
+cycle; its grid target also accounts for the house load. The full-charge hold
+starts only after the required mode/readback checks at `99.9%` SOC. A lower
+SOC cancels the hold timer and requires a new uninterrupted hold, without
+returning to full-power charging.
+
+This service cycle does not directly balance cells or replace the battery BMS.
+Use it only with a compatible LiFePO4 battery and suitable commissioning
+settings. Protective stops remain active. Restoration uses the verified
+snapshot belonging to the current cycle; physical Off-Grid takes priority.
+
+If **RECOVERY_REQUIRED** appears, keep balancing disabled and retain the
+lifecycle helpers and diagnostic evidence. Do not guess the previous settings
+or manually clear ownership. Record the reason, cycle ID and physical
+readbacks, export a support bundle and have the intended state established
+from commissioning records or the manufacturer's controls. The detailed
+recovery and notification contracts remain in the
+[automation test report](docs/AUTOMATION_TEST_REPORT.md).
+Exact-version field acceptance is separate from offline validation.
+
+### EMS notifications
+
+The shared `input_boolean.hoymiles_ems_push_notifications_enabled` switch and
+the `input_text.hoymiles_ems_push_notify_target` recipient control all messages
+sent through `notify.send_message`. Dynamic sales, tariff and RCEm each send one message
+after the physical start of a logical run is confirmed and one after its
+confirmed end. Slot, plan revision, power, SOC, or technical retarget changes
+inside the same continuous run do not create another message. A restart during
+a run does not fabricate a start notification. RCE and Pstryk share the
+**Dynamic sales** title (**Sprzedaż dynamiczna** in Polish). The diagnostic
+ledger records notification handling; HA accepting a message is not proof
+that a phone received it.
+
+On a scheduled balancing day, one morning reminder is due at 07:00 in the Home
+Assistant time zone, with restart catch-up limited to 09:00. Balancing sends no
+intermediate phase updates and only one honest terminal result. Independent
+inverter and grid-loss alarms remain active; intentional, consistent Off-Grid
+operation is not an alarm.
 
 ## Parallel inverter systems
 
-The standard ESPHome configuration reads topology registers `6048–6095` and
-distinguishes a single inverter, Master, and Slave automatically. No manual
-inverter-count setting is required.
+The standard firmware reads topology registers `6048–6095` and distinguishes
+a single inverter, Master and Slave. It does not need a manually entered
+inverter count.
 
-For parallel EMS control, the ESP32 converter, the Master and **every Slave**
-must share one physical external Modbus/RS485 multidrop bus. On the verified
-two-inverter HIT installation this is the `RS485_2` bus. Carry A, B and the
-reference/GND required by the manufacturer to every inverter; connecting the
-ESP32 only to the Master is not sufficient.
+For parallel EMS control, the ESP32 converter, Master and **every Slave** must
+share the external Modbus/RS485 bus. The verified two-inverter HIT test setup
+used `RS485_2`; confirm the correct port in the exact model's manual.
 
 ```text
-ESP32 -> isolated RS485 converter -> Master external Modbus -> Slave 1 external Modbus -> ... -> Slave N
+ESP32 → RS485 converter → Master external Modbus → Slave 1 external Modbus → …
 ```
 
-Wire this as a line/daisy chain, not a star, and terminate only the physical
-ends as specified by the inverter and converter manuals. The external Modbus
-bus used by the ESP32 is separate from the inverter's dedicated internal
-Parallel/DTS communication bus; do not bridge the two buses.
+Use the wiring topology, reference/GND and end termination required by the
+manufacturer. The external Modbus bus is separate from the internal
+Parallel/DTS bus; do not bridge them. A cable to the Master alone does not
+carry an external command to Slaves through the internal parallel network.
 
-The v1.5.6 firmware carries forward the system command verified earlier on a
-two-inverter HIT shared-bus test configuration: every change to EMS registers
-`4300–4306` is sent as one FC16 broadcast to Modbus address `0`. RCE, tariff
-charging, manual schedules, and battery balancing may therefore control a detected
-Master system **only when every inverter is physically present on that same
-external RS485 bus**. Address `0` is broadcast on the wire where the frame is
-sent; the Master does not relay an external Modbus command to Slaves through
-the internal parallel network. The command has no Modbus reply; Home Assistant
-accepts it only after a newer physical FC03 from the Master contains the exact
-requested block. This confirms the Master block, not receipt or execution by
-each Slave.
+A validated parallel Master sends the complete EMS block `4300–4306` as one
+FC16 broadcast to address `0`. The broadcast has no Modbus reply. A newer
+Master FC03 must match the requested block before HA accepts the configuration
+change. **That confirms the Master, not receipt or execution by every Slave.**
+A single inverter uses addressed FC16; a Slave or invalid topology is blocked.
 
-For Grid Discharge on a detected parallel Master, v1.5.6 adds a separate
-post-command **aggregate physical-response** diagnostic. After the Master FC03
-configuration acknowledgement it applies 20 seconds of transition grace, then
-examines five newer complete system-power generations (up to 20 seconds each)
-and requires three consecutive stable generations. The diagnostic changes from
-`pending` to `confirmed`, `not_confirmed`, or `not_evaluable`. RCE compares that
-response with the target frozen before the command, additionally requires grid
-export of at least 0.25 kW, and fails closed through the existing neutral
-rollback when it is not confirmed. Manual/manual-recovery and RCEm pre-discharge
-have no authoritative total-kW target, so they evaluate fresh stable battery-
-discharge direction without a grid-export or amplitude rejection. Return to
-Self-Use never waits for aggregate discharge evidence.
+The separate aggregate physical-response diagnostic checks newer, coherent
+system-power samples after a command. Its states include `pending`,
+`confirmed`, `not_confirmed` and `not_evaluable`. It is system-level evidence,
+not a per-Slave acknowledgement. RCE also checks its transaction-frozen power
+target and the required physical response before treating a start as accepted.
+A sampled switching peak alone is not a stable-power confirmation.
 
-The two new diagnostics are
-`sensor.hoymiles_hit_parallel_aggregate_power_readback_generation` and
-`sensor.hoymiles_parallel_aggregate_physical_response`.
+During commissioning, confirm commanded mode, per-node power and return to
+Self-Use separately on the Master and every Slave in the manufacturer app.
+`Ready`, system totals and a matching Master FC03 cannot prove the physical
+Slave branch. Historical trials retain their own version and evidence limits
+in the [automation test report](docs/AUTOMATION_TEST_REPORT.md); they do not
+accept the complete v1.5.8 candidate or an untested installation.
 
-This signal confirms only a system-level physical response. It is not an FC03
-readback from a Slave and must not be called per-Slave acknowledgement. A sampled
-transition peak is recorded for diagnosis but is excluded from the stable
-confirmation window and is not, by itself, an execution error.
-
-During commissioning, verify Grid Discharge and the return to Self-Use on the
-Master and on every Slave separately in the manufacturer application. A
-`Ready` installation status, correct system-wide telemetry and a matching
-Master FC03 can all remain present when the ESP32 cable reaches only the
-Master, so none of them proves the physical Slave branch.
-
-On 2026-08-15 a shared-bus field run provided additional hardware and protocol
-evidence: aggregate battery discharge stabilized at 33.653 kW and 33.863 kW,
-and the operator confirmed Grid Discharge on both nodes in the manufacturer
-application. That installation was still running managed Home Assistant
-package 1.5.4 and ESP32 firmware/project 1.5.3. No per-node power, screenshot,
-exact vendor timestamp or exact manual-stop command timestamp was retained.
-Home Assistant history for this installation was also inspected over the
-8–14 August evening windows (19:00–22:00 local). It shows an approximately
-60 kW stop transient on 8 August and an approximately 60 kW start transient
-aligned with the stored mode-code change on 14 August. The 9–13 August windows
-show repeated discharge plateaus and switching impulses, although recorder
-sampling may miss their full peaks. Separately, the 15 August live trace at
-18:20 local captured 63.069 kW battery / 65.910 kW inverter during a switch.
-This date- and installation-bounded observation supports transition grace and
-a stable window; it is not a universal guarantee about all inverters.
-
-The run therefore does not accept the v1.5.5 or v1.5.6 software, does not prove
-an automatic stop and does not turn Master FC03 into per-Slave acknowledgement.
-An exact-version v1.5.6 retest remains required.
-
-Registers `258`, `259`, and `306` are outside that complete EMS block and do
-not yet have separately proven Master/Slave broadcast semantics. Active RCEm
-actions that need those registers remain fail-closed on a parallel system;
-RCEm shadow analytics remain available. Do not disable either readiness gate.
-
-The Aurora dashboard automatically uses the manufacturer's system-wide power
-registers for PV, battery, household load, and grid power. The addresses listed
-in topology registers are internal parallel-network diagnostics; the ESP32 does
-not poll them as separate Modbus unit IDs through the Master's external port.
-
-The entity that writes register `3016` (**Parallel Networking Command**) remains
-disabled by default. This commissioning command creates or disassembles the
-parallel network and is never used by the EMS automation.
-
-Refer to the inverter manual for maximum unit counts, contactor requirements,
-meter and DTS placement, and termination of the first and last device on the
-dedicated parallel communication bus.
+Registers `258`, `259` and `306` are outside the EMS block. RCEm actions that
+need them remain blocked on parallel systems until their separate contract is
+proven; observation-only analytics remain available. Do not bypass this gate.
+Topology addresses describe the internal network and are not separate unit IDs
+polled through the Master's external port. The register `3016` **Parallel
+Networking Command** is disabled by default and is never used by EMS automation.
 
 ## Firmware compatibility
 
@@ -509,6 +745,19 @@ assuming both version numbers must match.
 
 ## Diagnostics and support
 
+Click **System online / Check system** in Aurora's top bar. The closable
+**System status** dialog shows the EMS supervisor, reason, owner, restore
+status, active inverter/EMS faults and the last **24 hours** of recorded fault
+history by default. History depends on HA Recorder and the available source
+entities; a failed history request is shown as an error, not an empty healthy log.
+
+**Clear inverter faults** sends the inverter's existing alarm-clear command.
+It does not remove a physical cause or erase HA history. **Restart EMS** reloads
+the integration, preserves policy settings and waits for a new healthy state;
+it is not a Home Assistant or inverter reboot. Each action needs a second
+click within six seconds. A failed restore such as `rollback_failed` remains
+visible until its underlying condition is resolved.
+
 Before reporting a problem, record:
 
 - exact inverter model and firmware version;
@@ -517,18 +766,25 @@ Before reporting a problem, record:
 - expected and observed behavior;
 - relevant logs with credentials and personal data removed.
 
-Download the privacy-filtered diagnostics ZIP from the final **Diagnostics**
-dashboard view or use Home Assistant's native **Download diagnostics** action.
+Download the privacy-filtered diagnostics ZIP from **EMS Settings → Service**
+or use Home Assistant's native **Download diagnostics** action.
 For ESPHome, Modbus, startup, or automation-loop problems, the extended terminal
 collector is also available. The exact contents and anonymization rules are
 documented in [Diagnostics](docs/DIAGNOSTICS.md).
+
+RC2 exports compact execution history in decoded form, frozen STOP evidence,
+planner/input revisions, forecast quality and the latest 32 notification-ledger
+entries when available. The offline analyzer preserves these attributes for
+comparison. Missing data remain unknown. A ZIP does **not** establish every
+20-second lease renewal, individual Slave FC03 readback or phone delivery;
+see the exported evidence contract and [diagnostics guide](docs/DIAGNOSTICS.md).
 
 Each Home Assistant installation also receives one random, persistent UUID v4
 used only to correlate successive diagnostic packages from that installation.
 It is not derived from an inverter, network, account, config entry, or other
 user data. The privacy-preserving offline
 [diagnostic analyzer](docs/DIAGNOSTICS_ANALYZER.md) can process up to 100 ZIP
-packages at once and compare RCE, RCEm, and tariff-charging behavior without
+packages at once and compare dynamic-sales, RCEm, and tariff-charging behavior without
 contacting an external service.
 
 Review every archive before attaching it to a public issue. Automated filtering
@@ -548,6 +804,9 @@ entities continue to update, close duplicate log streams, wait approximately
 | Document | Purpose |
 |---|---|
 | [Quick start](docs/QUICK_START.md) | Short installation path for new users |
+| [RC2 release notes](docs/releases/v1.5.8rc2.md) | New features, update steps and acceptance limits |
+| [Compatibility](docs/COMPATIBILITY.md) | Reference models, community reports and commissioning scope |
+| [Wiring example](docs/WIRING_ESP32_S3.md) | ESP32-S3, isolated converter and HIT-G3 COM2 |
 | [Diagnostics](docs/DIAGNOSTICS.md) | Report collection, anonymization, and troubleshooting |
 | [Diagnostic analyzer](docs/DIAGNOSTICS_ANALYZER.md) | Offline comparison of up to 100 diagnostic ZIP packages |
 | [Safety and functional mapping](docs/SAFETY_AND_COMPLIANCE.md) | Implemented safeguards, boundaries, and audit evidence |

@@ -32,7 +32,6 @@ text_sensor:
     id: sw_fault_19
     register_type: read
     address: 19
-    register_count: 2
     response_size: 4
     raw_encode: HEXBYTES
     entity_category: diagnostic
@@ -55,7 +54,6 @@ text_sensor:
     id: hw_fault_21
     register_type: read
     address: 21
-    register_count: 2
     response_size: 4
     raw_encode: HEXBYTES
     entity_category: diagnostic
@@ -214,7 +212,6 @@ text_sensor:
     id: battery_fault_code_1905
     register_type: read
     address: 1905
-    register_count: 2
     response_size: 4
     raw_encode: HEXBYTES
     entity_category: diagnostic
@@ -237,7 +234,6 @@ text_sensor:
     id: battery_fault_code_30021
     register_type: read
     address: 30021
-    register_count: 2
     response_size: 4
     raw_encode: HEXBYTES
     entity_category: diagnostic
@@ -274,7 +270,6 @@ text_sensor:
     id: dsp_pwr_fault_code_30023
     register_type: read
     address: 30023
-    register_count: 2
     response_size: 4
     raw_encode: HEXBYTES
     entity_category: diagnostic
@@ -328,7 +323,6 @@ text_sensor:
     id: dsp_saf_fault_code_30025
     register_type: read
     address: 30025
-    register_count: 2
     response_size: 4
     raw_encode: HEXBYTES
     entity_category: diagnostic

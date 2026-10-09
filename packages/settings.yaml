@@ -1,7 +1,161 @@
 # Ustawienia falownika, baterii i EMS (rejestry Holding RW)
 # Zakresy i przeliczniki pochodzą z Energy Storage MODBUS Protocol Map V2.4.
 
+esphome:
+  on_boot:
+    - priority: 600
+      then:
+        - lambda: |-
+            // A persisted active record is never renewed after a reboot.  It
+            // starts in EXPIRED_WAIT_READBACK and may only restore after a
+            // fresh exact FC03 proves that our forced block is still present.
+            id(ems_control_lease_preference) =
+                global_preferences->make_preference<std::array<uint32_t, 28>>(
+                    0xE15E0001U, true);
+            id(ems_control_lease_preference_ready) = true;
+            // Sidecars carry exact identities and the last terminal FC03 proof.
+            // Older v1 active records remain restorable, but cannot attest a
+            // transaction if their identity sidecar is absent after upgrade.
+            id(ems_control_identity_preference) =
+                global_preferences->make_preference<std::array<uint8_t, 472>>(
+                    0xE15E0002U, true);
+            id(ems_control_terminal_preference) =
+                global_preferences->make_preference<std::array<uint8_t, 472>>(
+                    0xE15E0003U, true);
+            auto load_sidecar = [](esphome::ESPPreferenceObject &preference,
+                                   std::array<uint8_t, 472> &target,
+                                   bool allow_epoch_only) {
+              std::array<uint8_t, 472> value{};
+              if (!preference.load(&value) || value[0] != 2U)
+                return;
+              const bool epoch_only = allow_epoch_only && value[1] == 0U &&
+                  value[2] == 0U && value[3] == 0U;
+              if (!epoch_only && (value[1] == 0U || value[1] > 128U ||
+                  value[2] == 0U || value[2] > 128U ||
+                  value[3] == 0U || value[3] > 160U))
+                return;
+              uint32_t crc = 0xFFFFFFFFU;
+              for (size_t index = 0; index < 468U; index++) {
+                crc ^= value[index];
+                for (uint8_t bit = 0; bit < 8; bit++)
+                  crc = (crc >> 1) ^ (0xEDB88320U &
+                      static_cast<uint32_t>(-(static_cast<int32_t>(crc & 1U))));
+              }
+              crc = ~crc;
+              uint32_t stored = 0U;
+              std::memcpy(&stored, value.data() + 468U, sizeof(stored));
+              if (stored == crc) target = value;
+            };
+            load_sidecar(id(ems_control_identity_preference),
+                         id(ems_control_identity_record), false);
+            load_sidecar(id(ems_control_terminal_preference),
+                         id(ems_control_terminal_record), true);
+            std::array<uint32_t, 28> record{};
+            const bool loaded = id(ems_control_lease_preference).load(&record);
+            auto crc32 = [](const uint8_t *data, size_t length) {
+              uint32_t crc = 0xFFFFFFFFU;
+              for (size_t index = 0; index < length; index++) {
+                crc ^= data[index];
+                for (uint8_t bit = 0; bit < 8; bit++)
+                  crc = (crc >> 1) ^ (0xEDB88320U &
+                      static_cast<uint32_t>(-(static_cast<int32_t>(crc & 1U))));
+              }
+              return ~crc;
+            };
+            const bool valid = loaded && record[0] == 1U && record[1] == 1U &&
+                record[27] == crc32(reinterpret_cast<const uint8_t *>(record.data()),
+                                    27U * sizeof(uint32_t));
+            if (valid) {
+              id(ems_control_lease_record) = record;
+              id(ems_control_lease_state) = 3;
+              id(ems_control_lease_state_text).publish_state(
+                  "expired_wait_readback_after_reboot");
+              ESP_LOGW("ems", "Aktywny rekord lease po restarcie: oczekiwanie na świeży FC03 i restore");
+            } else {
+              id(ems_control_lease_record).fill(0U);
+              const bool malformed = loaded && record[0] != 0U;
+              id(ems_control_lease_state) = malformed ? 5U : 0U;
+              id(ems_control_lease_state_text).publish_state(
+                  malformed ? "hold_invalid_persisted_record" : "disarmed");
+              if (malformed)
+                ESP_LOGE("ems", "Rekord lease ma zły schema/CRC; brak blind write, stan HOLD");
+            }
+
 globals:
+  # Trwały rekord schema-v1: schema, active flag, hashe sesji/lease/transakcji,
+  # generation, aktywny blok[7], fallback[7], poprzedni aktywny blok[7], CRC32.
+  # Poprzedni blok zabezpiecza niepotwierdzony/opóźniony retarget. Bez sekretów.
+  - id: ems_control_lease_record
+    type: std::array<uint32_t, 28>
+    restore_value: no
+    initial_value: "std::array<uint32_t, 28>{}"
+  - id: ems_control_lease_preference
+    type: esphome::ESPPreferenceObject
+    restore_value: no
+    initial_value: "esphome::ESPPreferenceObject()"
+  - id: ems_control_lease_preference_ready
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  # Schema v2 sidecars: exact UTF-8 identifiers [4:132], [132:260],
+  # [260:420]; command generation [420:424], active CRC [424:428],
+  # terminal kind [428:432], epoch [432:436], FC03 generation [436:440],
+  # original fallback words [440:468], CRC32 [468:472]. Unused bytes zero.
+  # Terminal kind 1=matching fallback, 2=ownership released, 3=start unconfirmed.
+  - id: ems_control_identity_record
+    type: std::array<uint8_t, 472>
+    restore_value: no
+    initial_value: "std::array<uint8_t, 472>{}"
+  - id: ems_control_identity_preference
+    type: esphome::ESPPreferenceObject
+    restore_value: no
+    initial_value: "esphome::ESPPreferenceObject()"
+  - id: ems_control_terminal_record
+    type: std::array<uint8_t, 472>
+    restore_value: no
+    initial_value: "std::array<uint8_t, 472>{}"
+  - id: ems_control_terminal_preference
+    type: esphome::ESPPreferenceObject
+    restore_value: no
+    initial_value: "esphome::ESPPreferenceObject()"
+  # 0 DISARMED, 1 ARMED_PENDING_ACK, 2 ARMED_CONFIRMED,
+  # 3 EXPIRED_WAIT_READBACK, 4 RESTORING, 5 HOLD.
+  - id: ems_control_lease_state
+    type: uint8_t
+    restore_value: no
+    initial_value: "0"
+  - id: ems_control_lease_expiry_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: ems_control_lease_hard_deadline_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: ems_control_lease_arm_generation
+    type: float
+    restore_value: no
+    initial_value: "0.0f"
+  - id: ems_control_lease_last_sequence
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: ems_control_lease_nonce
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: ems_control_lease_previous_nonce
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: ems_control_lease_nonce_issued_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: ems_control_lease_nonce_valid
+    type: bool
+    restore_value: no
+    initial_value: "false"
   - id: ems_control_last_readback_ms
     type: uint32_t
     restore_value: no
@@ -69,27 +223,36 @@ script:
       force_discharge_soc: float
       maximum_discharge_power: float
       snapshot_generation: float
+      lease_context: bool
+      dispatch_result: std::shared_ptr<std::string>
     then:
       - lambda: |-
+          auto report_dispatch = [&](const char *reason) {
+            if (dispatch_result) *dispatch_result = reason;
+          };
           if (id(ems_control_write_pending)) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: poprzedni blok oczekuje na nowszy zgodny odczyt FC03");
+            report_dispatch("previous_write_pending");
             return;
           }
           if (!id(ems_verified_hardware_readback_supported).has_state() ||
               id(ems_verified_hardware_readback_supported).state < 0.5f) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: brak gotowości sprzętowej EMS");
+            report_dispatch("hardware_not_ready");
             return;
           }
           if (!id(ems_control_readback_generation).has_state() ||
               !std::isfinite(id(ems_control_readback_generation).state) ||
               !std::isfinite(snapshot_generation)) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: brak autorytatywnej generacji FC03");
+            report_dispatch("generation_unavailable");
             return;
           }
           const float physical_generation =
               id(ems_control_readback_generation).state;
           if (std::fabs(snapshot_generation - physical_generation) > 0.01f) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: snapshot pochodzi ze starej generacji FC03");
+            report_dispatch("stale_snapshot_generation");
             return;
           }
           auto valid_range = [](float value, float minimum, float maximum) {
@@ -97,9 +260,15 @@ script:
           };
           if (!std::isfinite(mode_code)) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: brak fizycznego trybu EMS");
+            report_dispatch("mode_unavailable");
             return;
           }
           const int32_t requested_mode = static_cast<int32_t>(std::lround(mode_code));
+          if ((requested_mode == 4 || requested_mode == 5) && !lease_context) {
+            ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: tryb wymuszony wymaga lease v1");
+            report_dispatch("control_lease_required");
+            return;
+          }
           if ((requested_mode != 0 && requested_mode != 3 && requested_mode != 4 &&
                requested_mode != 5) ||
               !valid_range(self_use_soc, 10.0f, 100.0f) ||
@@ -109,36 +278,43 @@ script:
               !valid_range(force_discharge_soc, 0.0f, 100.0f) ||
               !valid_range(maximum_discharge_power, 0.0f, 100.0f)) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: niekompletny snapshot lub wartość poza zakresem");
+            report_dispatch("invalid_block");
             return;
           }
           const uint32_t ems_snapshot_ms = id(ems_control_last_readback_ms);
           if (ems_snapshot_ms == 0 ||
               static_cast<uint32_t>(millis() - ems_snapshot_ms) > 15000U) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: snapshot FC03 jest nieaktualny");
+            report_dispatch("stale_snapshot");
             return;
           }
           if (!id(machines_type_6048).has_state()) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: brak topologii 6048");
+            report_dispatch("topology_unavailable");
             return;
           }
 
           const float machine_type_raw = id(machines_type_6048).state;
           if (!std::isfinite(machine_type_raw)) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: nieprawidłowa topologia");
+            report_dispatch("topology_invalid");
             return;
           }
           const int machine_type = static_cast<int>(std::lround(machine_type_raw));
           if (std::fabs(machine_type_raw - machine_type) > 0.01f) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: niecałkowita topologia");
+            report_dispatch("topology_nonintegral");
             return;
           }
           if (machine_type == 2) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: ESP32 jest podłączone do Slave");
+            report_dispatch("slave_topology");
             return;
           }
           if (machine_type > 2) {
             ESP_LOGE("ems", "Zapis 4300-4306 zablokowany: nieprawidłowa topologia %d",
                      machine_type);
+            report_dispatch("topology_unsupported");
             return;
           }
 
@@ -171,23 +347,27 @@ script:
           if (machine_type == 1) {
             if (!id(number_of_machines_master_and_slave_6049).has_state()) {
               ESP_LOGE("ems", "Broadcast EMS zablokowany: brak liczby falowników");
+              report_dispatch("machine_count_unavailable");
               return;
             }
             const float machine_count_raw =
                 id(number_of_machines_master_and_slave_6049).state;
             if (!std::isfinite(machine_count_raw)) {
               ESP_LOGE("ems", "Broadcast EMS zablokowany: nieprawidłowa liczba falowników");
+              report_dispatch("machine_count_invalid");
               return;
             }
             const int machine_count =
                 static_cast<int>(std::lround(machine_count_raw));
             if (std::fabs(machine_count_raw - machine_count) > 0.01f) {
               ESP_LOGE("ems", "Broadcast EMS zablokowany: niecałkowita liczba falowników");
+              report_dispatch("machine_count_nonintegral");
               return;
             }
             if (machine_count < 2 || machine_count > 10) {
               ESP_LOGE("ems", "Broadcast EMS zablokowany: liczba falowników=%d",
                        machine_count);
+              report_dispatch("machine_count_out_of_range");
               return;
             }
             std::vector<uint8_t> payload = {
@@ -202,6 +382,7 @@ script:
             ESP_LOGI("ems",
                      "Wysłano systemowy broadcast EMS 4300-4306; tryb=%d, falowniki=%d",
                      requested_mode, machine_count);
+            report_dispatch("accepted");
             return;
           }
 
@@ -211,10 +392,849 @@ script:
                   controller, 4300, values.size(), values);
           arm_physical_ack_barrier();
           controller->queue_command(command);
+          report_dispatch("accepted");
           ESP_LOGI("ems", "Wysłano adresowany FC16 EMS 4300-4306; tryb=%d",
                    requested_mode);
 
+# Jedyny parametryczny punkt wejścia dla executora Supervisor Active.  Akcja
+# nadal przechodzi przez ten sam fail-closed skrypt: wymaga świeżej, dokładnie
+# wskazanej generacji FC03, pełnego bloku, poprawnej topologii i zwalnia barierę
+# dopiero po późniejszym zgodnym odczycie 4300-4306.  Polityki nie wywołują tej
+# akcji bezpośrednio.
+api:
+  actions:
+    - action: ems_supervisor_write_complete_block
+      supports_response: optional
+      variables:
+        mode_code: int
+        self_use_soc: float
+        backup_soc: float
+        force_charge_soc: float
+        maximum_charge_power: float
+        force_discharge_soc: float
+        maximum_discharge_power: float
+        snapshot_generation: float
+      then:
+        - if:
+            condition:
+              lambda: "return return_response;"
+            then:
+              - api.respond:
+                  data: !lambda |-
+                    // Native call_id binds this result to this API invocation.
+                    auto result = std::make_shared<std::string>("unknown");
+                    id(ems_write_complete_block_4300_4306)->execute(
+                        static_cast<float>(mode_code), self_use_soc, backup_soc,
+                        force_charge_soc, maximum_charge_power,
+                        force_discharge_soc, maximum_discharge_power,
+                        snapshot_generation, false, result);
+                    root["schema_version"] = 1;
+                    root["reason"] = *result;
+                    if (*result == "accepted") {
+                      // Transport API invoked; queue/delivery/FC03 are not proven.
+                      root["accepted"] = true;
+                    } else if (*result == "unknown") {
+                      // No result is never proof that the write was rejected.
+                      root["accepted"] = nullptr;
+                    } else {
+                      root["accepted"] = false;
+                    }
+            else:
+              - script.execute:
+                  id: ems_write_complete_block_4300_4306
+                  mode_code: !lambda "return static_cast<float>(mode_code);"
+                  self_use_soc: !lambda "return self_use_soc;"
+                  backup_soc: !lambda "return backup_soc;"
+                  force_charge_soc: !lambda "return force_charge_soc;"
+                  maximum_charge_power: !lambda "return maximum_charge_power;"
+                  force_discharge_soc: !lambda "return force_discharge_soc;"
+                  maximum_discharge_power: !lambda "return maximum_discharge_power;"
+                  snapshot_generation: !lambda "return snapshot_generation;"
+                  lease_context: false
+                  dispatch_result: !lambda "return nullptr;"
+              - api.respond: {}
+    - action: ems_supervisor_control_lease_challenge
+      supports_response: only
+      then:
+        - api.respond:
+            data: !lambda |-
+              uint32_t nonce = esphome::random_uint32();
+              if (nonce == 0U) nonce = 1U;
+              id(ems_control_lease_nonce) = nonce;
+              id(ems_control_lease_nonce_issued_ms) = millis();
+              id(ems_control_lease_nonce_valid) = true;
+              char encoded[9];
+              snprintf(encoded, sizeof(encoded), "%08lx",
+                       static_cast<unsigned long>(nonce));
+              root["schema_version"] = 1;
+              root["protocol_version"] = 2;
+              root["maximum_lease_seconds"] = 120;
+              root["renew_interval_seconds"] = 20;
+              root["nonce"] = encoded;
+    - action: ems_supervisor_control_lease_terminal_proof
+      supports_response: only
+      then:
+        - api.respond:
+            data: !lambda |-
+              // Read-only, firmware-side snapshot. The persisted active core
+              // must be exactly clear; a failed sync or a new lease forbids
+              // HA from using an older terminal record.
+              std::array<uint32_t, 28> durable_active{};
+              const bool active_loaded = id(ems_control_lease_preference_ready) &&
+                  id(ems_control_lease_preference).load(&durable_active);
+              const std::array<uint32_t, 28> clear{};
+              const bool lease_cleared = active_loaded && durable_active == clear &&
+                  id(ems_control_lease_record) == clear &&
+                  id(ems_control_lease_state) == 0U;
+              const auto &proof = id(ems_control_terminal_record);
+              uint32_t kind = 0U, epoch = 0U, fc03_generation = 0U;
+              std::memcpy(&kind, proof.data() + 428U, sizeof(kind));
+              std::memcpy(&epoch, proof.data() + 432U, sizeof(epoch));
+              std::memcpy(&fc03_generation, proof.data() + 436U,
+                          sizeof(fc03_generation));
+              const bool valid = proof[0] == 2U && kind >= 1U && kind <= 3U &&
+                  epoch != 0U && fc03_generation >= 1U &&
+                  fc03_generation <= 16000000U;
+              root["schema_version"] = 2;
+              root["protocol_version"] = 2;
+              root["lease_cleared"] = lease_cleared;
+              root["lease_state"] = static_cast<int>(id(ems_control_lease_state));
+              root["terminal_valid"] = valid;
+              if (valid) {
+                root["session_id"] = std::string(
+                    reinterpret_cast<const char *>(proof.data() + 4U), proof[1]);
+                root["lease_id"] = std::string(
+                    reinterpret_cast<const char *>(proof.data() + 132U), proof[2]);
+                root["transaction_id"] = std::string(
+                    reinterpret_cast<const char *>(proof.data() + 260U), proof[3]);
+                uint32_t command_generation = 0U;
+                std::memcpy(&command_generation, proof.data() + 420U,
+                            sizeof(command_generation));
+                root["command_generation"] = command_generation;
+                root["terminal_kind"] = kind;
+                root["terminal_epoch"] = epoch;
+                root["fc03_generation"] = fc03_generation;
+                for (size_t index = 0; index < 7U; index++) {
+                  uint32_t word = 0U;
+                  std::memcpy(&word, proof.data() + 440U + 4U * index,
+                              sizeof(word));
+                  char key[24];
+                  snprintf(key, sizeof(key), "fallback_430%u",
+                           static_cast<unsigned>(index));
+                  root[key] = word;
+                }
+              }
+    - action: ems_supervisor_write_complete_block_leased
+      supports_response: only
+      variables:
+        mode_code: int
+        self_use_soc: float
+        backup_soc: float
+        force_charge_soc: float
+        maximum_charge_power: float
+        force_discharge_soc: float
+        maximum_discharge_power: float
+        snapshot_generation: float
+        session_id: string
+        lease_id: string
+        transaction_id: string
+        command_generation: int
+        hard_deadline_seconds: int
+        nonce: string
+      then:
+        - api.respond:
+            data: !lambda |-
+              std::string reason = "unknown";
+              auto hash_text = [](const std::string &value) {
+                uint32_t hash = 2166136261U;
+                for (const unsigned char byte : value) {
+                  hash ^= byte;
+                  hash *= 16777619U;
+                }
+                return hash;
+              };
+              auto crc32 = [](const uint8_t *data, size_t length) {
+                uint32_t crc = 0xFFFFFFFFU;
+                for (size_t index = 0; index < length; index++) {
+                  crc ^= data[index];
+                  for (uint8_t bit = 0; bit < 8; bit++)
+                    crc = (crc >> 1) ^ (0xEDB88320U &
+                        static_cast<uint32_t>(-(static_cast<int32_t>(crc & 1U))));
+                }
+                return ~crc;
+              };
+              auto encode = [](float value, float scale) -> uint32_t {
+                return static_cast<uint32_t>(std::lround(value * scale));
+              };
+              auto valid_range = [](float value, float minimum, float maximum) {
+                return std::isfinite(value) && value >= minimum && value <= maximum;
+              };
+              auto parse_nonce = [](const std::string &text, uint32_t *value) {
+                if (text.size() != 8U) return false;
+                char *end = nullptr;
+                const unsigned long parsed = std::strtoul(text.c_str(), &end, 16);
+                if (end == nullptr || *end != '\0' || parsed > 0xFFFFFFFFUL)
+                  return false;
+                *value = static_cast<uint32_t>(parsed);
+                return true;
+              };
+              const uint32_t now_ms = millis();
+              uint32_t supplied_nonce = 0U;
+              const bool nonce_current = parse_nonce(nonce, &supplied_nonce) &&
+                  id(ems_control_lease_nonce_valid) &&
+                  supplied_nonce == id(ems_control_lease_nonce) &&
+                  static_cast<uint32_t>(now_ms -
+                      id(ems_control_lease_nonce_issued_ms)) <= 60000U;
+              const int32_t requested_mode = mode_code;
+              const bool identifiers_valid = !session_id.empty() &&
+                  session_id.size() <= 128U && !lease_id.empty() &&
+                  lease_id.size() <= 128U && !transaction_id.empty() &&
+                  transaction_id.size() <= 160U;
+              const bool values_valid = (requested_mode == 4 || requested_mode == 5) &&
+                  valid_range(self_use_soc, 10.0f, 100.0f) &&
+                  valid_range(backup_soc, 60.0f, 100.0f) &&
+                  valid_range(force_charge_soc, 10.0f, 100.0f) &&
+                  valid_range(maximum_charge_power, 0.0f, 100.0f) &&
+                  valid_range(force_discharge_soc, 0.0f, 100.0f) &&
+                  valid_range(maximum_discharge_power, 0.0f, 100.0f);
+              const bool physical_complete =
+                  id(ems_mode_raw_4300).has_state() &&
+                  id(self_used_soc_readback_4301).has_state() &&
+                  id(backup_soc_raw_4302).has_state() &&
+                  id(force_charge_soc_readback_4303).has_state() &&
+                  id(maximum_charge_power_readback_4304).has_state() &&
+                  id(force_discharge_soc_readback_4305).has_state() &&
+                  id(maximum_discharge_power_readback_4306).has_state();
+              const bool generation_current =
+                  id(ems_control_readback_generation).has_state() &&
+                  std::isfinite(snapshot_generation) &&
+                  std::fabs(id(ems_control_readback_generation).state -
+                            snapshot_generation) <= 0.01f;
+              const bool snapshot_fresh = id(ems_control_last_readback_ms) != 0U &&
+                  static_cast<uint32_t>(now_ms -
+                      id(ems_control_last_readback_ms)) <= 15000U;
+              const auto previous_record = id(ems_control_lease_record);
+              const auto previous_identity = id(ems_control_identity_record);
+              const uint8_t previous_state = id(ems_control_lease_state);
+              const uint32_t previous_expiry_ms = id(ems_control_lease_expiry_ms);
+              const uint32_t previous_hard_deadline_ms =
+                  id(ems_control_lease_hard_deadline_ms);
+              const float previous_arm_generation =
+                  id(ems_control_lease_arm_generation);
+              const uint32_t previous_last_sequence =
+                  id(ems_control_lease_last_sequence);
+              const bool retarget = previous_state == 2U;
+              const std::array<uint32_t, 7> physical = {
+                  physical_complete ? encode(id(ems_mode_raw_4300).state, 1.0f) : 0U,
+                  physical_complete ? encode(id(self_used_soc_readback_4301).state, 1.0f) : 0U,
+                  physical_complete ? encode(id(backup_soc_raw_4302).state, 1.0f) : 0U,
+                  physical_complete ? encode(id(force_charge_soc_readback_4303).state, 1.0f) : 0U,
+                  physical_complete ? encode(id(maximum_charge_power_readback_4304).state, 10.0f) : 0U,
+                  physical_complete ? encode(id(force_discharge_soc_readback_4305).state, 1.0f) : 0U,
+                  physical_complete ? encode(id(maximum_discharge_power_readback_4306).state, 10.0f) : 0U};
+              bool previous_active_matches = retarget && physical_complete;
+              for (size_t index = 0; index < physical.size(); index++)
+                previous_active_matches &=
+                    physical[index] == previous_record[6U + index];
+              const bool retarget_identity_valid = retarget &&
+                  previous_record[2] == hash_text(session_id) &&
+                  previous_record[4] == hash_text(transaction_id) &&
+                  command_generation > static_cast<int>(previous_record[5]) &&
+                  previous_active_matches &&
+                  static_cast<int32_t>(id(ems_control_lease_hard_deadline_ms) -
+                                       now_ms) > 0;
+              if (!id(ems_control_lease_preference_ready))
+                reason = "lease_store_unavailable";
+              else if (previous_state != 0U && !retarget)
+                reason = "lease_already_active";
+              else if (!nonce_current)
+                reason = "stale_or_invalid_nonce";
+              else if (!identifiers_valid || command_generation <= 0)
+                reason = "invalid_lease_identity";
+              else if (hard_deadline_seconds <= 0 || hard_deadline_seconds > 86400 ||
+                       static_cast<int32_t>(id(ems_control_lease_nonce_issued_ms) +
+                           static_cast<uint32_t>(hard_deadline_seconds) * 1000U - now_ms) <= 0)
+                reason = "invalid_hard_deadline";
+              else if (!values_valid)
+                reason = "invalid_block";
+              else if (!physical_complete || !generation_current || !snapshot_fresh)
+                reason = "stale_snapshot";
+              else if (retarget && !retarget_identity_valid)
+                reason = "retarget_not_authorized";
+              else if (!retarget && static_cast<int32_t>(std::lround(
+                           id(ems_mode_raw_4300).state)) != 0)
+                reason = "fallback_not_self_use";
+              else {
+                std::array<uint32_t, 28> record{};
+                record[0] = 1U;
+                record[1] = 1U;
+                record[2] = hash_text(session_id);
+                record[3] = hash_text(lease_id);
+                record[4] = hash_text(transaction_id);
+                record[5] = static_cast<uint32_t>(command_generation);
+                record[6] = static_cast<uint32_t>(requested_mode);
+                record[7] = encode(self_use_soc, 1.0f);
+                record[8] = encode(backup_soc, 1.0f);
+                record[9] = encode(force_charge_soc, 1.0f);
+                record[10] = encode(maximum_charge_power, 10.0f);
+                record[11] = encode(force_discharge_soc, 1.0f);
+                record[12] = encode(maximum_discharge_power, 10.0f);
+                for (size_t index = 0; index < physical.size(); index++) {
+                  record[13U + index] = retarget ?
+                      previous_record[13U + index] : physical[index];
+                  record[20U + index] = retarget ? physical[index] : 0U;
+                }
+                record[27] = crc32(reinterpret_cast<const uint8_t *>(record.data()),
+                                   27U * sizeof(uint32_t));
+                std::array<uint8_t, 472> identity{};
+                identity[0] = 2U;
+                identity[1] = static_cast<uint8_t>(session_id.size());
+                identity[2] = static_cast<uint8_t>(lease_id.size());
+                identity[3] = static_cast<uint8_t>(transaction_id.size());
+                std::memcpy(identity.data() + 4U, session_id.c_str(),
+                            session_id.size());
+                std::memcpy(identity.data() + 132U, lease_id.c_str(),
+                            lease_id.size());
+                std::memcpy(identity.data() + 260U, transaction_id.c_str(),
+                            transaction_id.size());
+                const uint32_t identity_generation =
+                    static_cast<uint32_t>(command_generation);
+                std::memcpy(identity.data() + 420U, &identity_generation,
+                            sizeof(identity_generation));
+                std::memcpy(identity.data() + 424U, &record[27], sizeof(uint32_t));
+                const uint32_t identity_crc = crc32(identity.data(), 468U);
+                std::memcpy(identity.data() + 468U, &identity_crc,
+                            sizeof(identity_crc));
+                // A newer arm must retire the previous terminal proof before
+                // it can supersede the cleared v1 lease. Otherwise a later
+                // failed terminal write could expose an older tx after this
+                // newer lease has itself cleared.
+                std::array<uint8_t, 472> no_terminal{}, terminal_verify{};
+                no_terminal[0] = 2U;
+                std::memcpy(no_terminal.data() + 432U,
+                            id(ems_control_terminal_record).data() + 432U, 4U);
+                const uint32_t retired_crc = crc32(no_terminal.data(), 468U);
+                std::memcpy(no_terminal.data() + 468U, &retired_crc, 4U);
+                const bool terminal_retired =
+                    id(ems_control_terminal_preference).save(&no_terminal) &&
+                    global_preferences->sync() &&
+                    id(ems_control_terminal_preference).load(&terminal_verify) &&
+                    terminal_verify == no_terminal;
+                if (terminal_retired)
+                  id(ems_control_terminal_record) = no_terminal;
+                std::array<uint8_t, 472> identity_verify{};
+                const bool identity_durable = terminal_retired &&
+                    id(ems_control_identity_preference).save(&identity) &&
+                    global_preferences->sync() &&
+                    id(ems_control_identity_preference).load(&identity_verify) &&
+                    identity_verify == identity;
+                std::array<uint32_t, 28> verify{};
+                const bool durable = identity_durable &&
+                    id(ems_control_lease_preference).save(&record) &&
+                    global_preferences->sync() &&
+                    id(ems_control_lease_preference).load(&verify) &&
+                    verify == record;
+                if (!durable) {
+                  reason = "lease_store_failed";
+                } else {
+                  id(ems_control_identity_record) = identity;
+                  id(ems_control_lease_record) = record;
+                  id(ems_control_lease_state) = 1U;
+                  id(ems_control_lease_arm_generation) = snapshot_generation;
+                  const uint32_t requested_deadline = id(ems_control_lease_nonce_issued_ms) +
+                      static_cast<uint32_t>(hard_deadline_seconds) * 1000U;
+                  id(ems_control_lease_hard_deadline_ms) = retarget ?
+                      (static_cast<int32_t>(requested_deadline -
+                          id(ems_control_lease_hard_deadline_ms)) < 0 ?
+                           requested_deadline :
+                           id(ems_control_lease_hard_deadline_ms)) :
+                      requested_deadline;
+                  const uint32_t hard_remaining = static_cast<uint32_t>(
+                      id(ems_control_lease_hard_deadline_ms) - now_ms);
+                  id(ems_control_lease_expiry_ms) = now_ms + std::min<uint32_t>(120000U, hard_remaining);
+                  id(ems_control_lease_last_sequence) = 0U;
+                  id(ems_control_lease_nonce_valid) = false;
+                  auto dispatch = std::make_shared<std::string>("unknown");
+                  id(ems_write_complete_block_4300_4306)->execute(
+                      static_cast<float>(mode_code), self_use_soc, backup_soc,
+                      force_charge_soc, maximum_charge_power,
+                      force_discharge_soc, maximum_discharge_power,
+                      snapshot_generation, true, dispatch);
+                  reason = *dispatch;
+                  if (reason == "accepted") {
+                    uint32_t next_nonce = esphome::random_uint32();
+                    if (next_nonce == 0U) next_nonce = 1U;
+                    id(ems_control_lease_nonce) = next_nonce;
+                    id(ems_control_lease_nonce_issued_ms) = millis();
+                    id(ems_control_lease_nonce_valid) = true;
+                    id(ems_control_lease_state_text).publish_state(
+                        retarget ? "retarget_pending_ack" : "armed_pending_ack");
+                    char encoded_nonce[9];
+                    snprintf(encoded_nonce, sizeof(encoded_nonce), "%08lx",
+                             static_cast<unsigned long>(next_nonce));
+                    root["renew_nonce"] = encoded_nonce;
+                  } else {
+                    std::array<uint32_t, 28> rollback =
+                        retarget ? previous_record : std::array<uint32_t, 28>{};
+                    const bool cleared_ok =
+                        id(ems_control_lease_preference).save(&rollback) &&
+                        global_preferences->sync();
+                    if (retarget && cleared_ok) {
+                      std::array<uint8_t, 472> restored_identity{};
+                      if (id(ems_control_identity_preference).save(&previous_identity) &&
+                          global_preferences->sync() &&
+                          id(ems_control_identity_preference).load(&restored_identity) &&
+                          restored_identity == previous_identity)
+                        id(ems_control_identity_record) = previous_identity;
+                      else
+                        id(ems_control_identity_record).fill(0U);
+                    }
+                    id(ems_control_lease_record) = rollback;
+                    id(ems_control_lease_state) = cleared_ok ?
+                        (retarget ? 2U : 0U) : 5U;
+                    id(ems_control_lease_expiry_ms) =
+                        retarget ? previous_expiry_ms : 0U;
+                    id(ems_control_lease_hard_deadline_ms) =
+                        retarget ? previous_hard_deadline_ms : 0U;
+                    id(ems_control_lease_arm_generation) =
+                        retarget ? previous_arm_generation : 0.0f;
+                    id(ems_control_lease_last_sequence) =
+                        retarget ? previous_last_sequence : 0U;
+                    id(ems_control_lease_nonce_valid) = false;
+                    id(ems_control_lease_state_text).publish_state(
+                        cleared_ok ?
+                            (retarget ? "armed_confirmed" : "disarmed") :
+                            "hold_store_rollback_failed");
+                  }
+                }
+              }
+              root["schema_version"] = 1;
+              root["protocol_version"] = 2;
+              if (reason == "accepted") root["soft_remaining_ms"] =
+                  std::max<int32_t>(0, static_cast<int32_t>(id(ems_control_lease_expiry_ms) - millis()));
+              root["accepted"] = reason == "accepted";
+              root["reason"] = reason;
+    - action: ems_supervisor_renew_control_lease
+      supports_response: only
+      variables:
+        session_id: string
+        lease_id: string
+        transaction_id: string
+        command_generation: int
+        sequence: int
+        nonce: string
+        authorization_current: bool
+        authorization_seconds: int
+        snapshot_generation: float
+        mode_code: int
+        self_use_soc: float
+        backup_soc: float
+        force_charge_soc: float
+        maximum_charge_power: float
+        force_discharge_soc: float
+        maximum_discharge_power: float
+      then:
+        - api.respond:
+            data: !lambda |-
+              std::string reason = "unknown";
+              auto hash_text = [](const std::string &value) {
+                uint32_t hash = 2166136261U;
+                for (const unsigned char byte : value) {
+                  hash ^= byte;
+                  hash *= 16777619U;
+                }
+                return hash;
+              };
+              auto encode = [](float value, float scale) -> uint32_t {
+                return static_cast<uint32_t>(std::lround(value * scale));
+              };
+              auto parse_nonce = [](const std::string &text, uint32_t *value) {
+                if (text.size() != 8U) return false;
+                char *end = nullptr;
+                const unsigned long parsed = std::strtoul(text.c_str(), &end, 16);
+                if (end == nullptr || *end != '\0' || parsed > 0xFFFFFFFFUL)
+                  return false;
+                *value = static_cast<uint32_t>(parsed);
+                return true;
+              };
+              const uint32_t now_ms = millis();
+              uint32_t supplied_nonce = 0U;
+              const auto &record = id(ems_control_lease_record);
+              const bool nonce_current = parse_nonce(nonce, &supplied_nonce) &&
+                  id(ems_control_lease_nonce_valid) &&
+                  supplied_nonce == id(ems_control_lease_nonce) &&
+                  static_cast<uint32_t>(now_ms -
+                      id(ems_control_lease_nonce_issued_ms)) <= 120000U;
+              const bool before_soft_expiry =
+                  static_cast<int32_t>(now_ms - id(ems_control_lease_expiry_ms)) < 0;
+              const bool before_hard_deadline = static_cast<int32_t>(
+                  now_ms - id(ems_control_lease_hard_deadline_ms)) < 0;
+              const bool identity_matches = record[0] == 1U && record[1] == 1U &&
+                  record[2] == hash_text(session_id) &&
+                  record[3] == hash_text(lease_id) &&
+                  record[4] == hash_text(transaction_id) &&
+                  record[5] == static_cast<uint32_t>(command_generation);
+              const bool duplicate_response = identity_matches && sequence > 0 &&
+                  static_cast<uint32_t>(sequence) ==
+                      id(ems_control_lease_last_sequence) &&
+                  supplied_nonce == id(ems_control_lease_previous_nonce);
+              // HA sends a horizon from its receive of this nonce. Issuance
+              // happened earlier: a delayed request cannot slide policy end.
+              const uint32_t authorization_end = id(ems_control_lease_nonce_issued_ms) +
+                  static_cast<uint32_t>(authorization_seconds) * 1000U;
+              const std::array<uint32_t, 7> requested = {
+                  static_cast<uint32_t>(mode_code), encode(self_use_soc, 1.0f),
+                  encode(backup_soc, 1.0f), encode(force_charge_soc, 1.0f),
+                  encode(maximum_charge_power, 10.0f),
+                  encode(force_discharge_soc, 1.0f),
+                  encode(maximum_discharge_power, 10.0f)};
+              bool requested_matches = true;
+              for (size_t index = 0; index < requested.size(); index++)
+                requested_matches &= requested[index] == record[6U + index];
+              const bool physical_complete =
+                  id(ems_mode_raw_4300).has_state() &&
+                  id(self_used_soc_readback_4301).has_state() &&
+                  id(backup_soc_raw_4302).has_state() &&
+                  id(force_charge_soc_readback_4303).has_state() &&
+                  id(maximum_charge_power_readback_4304).has_state() &&
+                  id(force_discharge_soc_readback_4305).has_state() &&
+                  id(maximum_discharge_power_readback_4306).has_state();
+              std::array<uint32_t, 7> physical{};
+              if (physical_complete) {
+                physical = {
+                    encode(id(ems_mode_raw_4300).state, 1.0f),
+                    encode(id(self_used_soc_readback_4301).state, 1.0f),
+                    encode(id(backup_soc_raw_4302).state, 1.0f),
+                    encode(id(force_charge_soc_readback_4303).state, 1.0f),
+                    encode(id(maximum_charge_power_readback_4304).state, 10.0f),
+                    encode(id(force_discharge_soc_readback_4305).state, 1.0f),
+                    encode(id(maximum_discharge_power_readback_4306).state, 10.0f)};
+              }
+              bool physical_matches = physical_complete;
+              for (size_t index = 0; index < physical.size(); index++)
+                physical_matches &= physical[index] == record[6U + index];
+              const bool readback_fresh =
+                  id(ems_control_readback_generation).has_state() &&
+                  id(ems_control_last_readback_ms) != 0U &&
+                  static_cast<uint32_t>(now_ms -
+                      id(ems_control_last_readback_ms)) <= 15000U;
+              const float current_generation =
+                  id(ems_control_readback_generation).state;
+              const bool generation_same_or_newer =
+                  std::isfinite(snapshot_generation) &&
+                  snapshot_generation >= 1.0f &&
+                  snapshot_generation <= 16000000.0f &&
+                  (std::fabs(current_generation - snapshot_generation) <= 0.01f ||
+                   (current_generation > snapshot_generation &&
+                    !(current_generation >= 15999994.0f &&
+                      snapshot_generation <= 6.0f)) ||
+                   (snapshot_generation >= 15999994.0f &&
+                    current_generation <= 6.0f));
+              const bool generation_acceptable =
+                  readback_fresh && generation_same_or_newer;
+              if (id(ems_control_lease_state) != 2U)
+                reason = "lease_not_confirmed";
+              else if (!authorization_current)
+                reason = "authorization_lost";
+              else if (!nonce_current && !duplicate_response)
+                reason = "stale_or_invalid_nonce";
+              else if (!before_soft_expiry || !before_hard_deadline)
+                reason = "lease_expired";
+              else if (!duplicate_response && (authorization_seconds <= 0 ||
+                       authorization_seconds > 86400 ||
+                       static_cast<int32_t>(authorization_end - now_ms) <= 0))
+                reason = "authorization_expired";
+              else if (!identity_matches || sequence <= 0 ||
+                       (!duplicate_response &&
+                        static_cast<uint32_t>(sequence) !=
+                            id(ems_control_lease_last_sequence) + 1U))
+                reason = "stale_or_invalid_sequence";
+              else if (!requested_matches || !physical_matches ||
+                       !readback_fresh)
+                reason = "physical_authority_lost";
+              else if (!generation_acceptable)
+                // A newer complete FC03 sample of the exact same block is
+                // authoritative and is accepted above.  A request claiming a
+                // generation ahead of the ESP remains fail-closed; HA may
+                // revalidate and retry that correlated sequence once.
+                reason = "snapshot_generation_advanced";
+              else if (duplicate_response) {
+                char encoded_nonce[9];
+                snprintf(encoded_nonce, sizeof(encoded_nonce), "%08lx",
+                         static_cast<unsigned long>(id(ems_control_lease_nonce)));
+                root["renew_nonce"] = encoded_nonce;
+                reason = "renewed";
+              } else {
+                id(ems_control_lease_last_sequence) =
+                    static_cast<uint32_t>(sequence);
+                // A duplicate response never reaches this branch and therefore
+                // cannot extend the lease a second time. Clip at both the
+                // immutable original deadline and current policy authority.
+                const uint32_t remaining = std::min<uint32_t>(120000U, std::min(
+                    static_cast<uint32_t>(id(ems_control_lease_hard_deadline_ms) - now_ms),
+                    static_cast<uint32_t>(authorization_end - now_ms)));
+                id(ems_control_lease_expiry_ms) = now_ms + remaining;
+                id(ems_control_lease_nonce_valid) = false;
+                id(ems_control_lease_previous_nonce) = supplied_nonce;
+                uint32_t next_nonce = esphome::random_uint32();
+                if (next_nonce == 0U) next_nonce = 1U;
+                id(ems_control_lease_nonce) = next_nonce;
+                id(ems_control_lease_nonce_issued_ms) = now_ms;
+                id(ems_control_lease_nonce_valid) = true;
+                char encoded_nonce[9];
+                snprintf(encoded_nonce, sizeof(encoded_nonce), "%08lx",
+                         static_cast<unsigned long>(next_nonce));
+                root["renew_nonce"] = encoded_nonce;
+                reason = "renewed";
+              }
+              root["schema_version"] = 1;
+              root["protocol_version"] = 2;
+              if (reason == "renewed") root["soft_remaining_ms"] =
+                  std::max<int32_t>(0, static_cast<int32_t>(id(ems_control_lease_expiry_ms) - millis()));
+              root["accepted"] = reason == "renewed";
+              root["reason"] = reason;
+    - action: ems_supervisor_write_gcf_export_limit
+      variables:
+        target_percent: float
+        snapshot_generation: float
+      then:
+        - if:
+            condition:
+              lambda: |-
+                if (!std::isfinite(target_percent) ||
+                    target_percent < -10.0f || target_percent > 200.0f ||
+                    !std::isfinite(snapshot_generation) ||
+                    !id(gcf_control_readback_generation).has_state() ||
+                    std::fabs(id(gcf_control_readback_generation).state -
+                              snapshot_generation) > 0.01f ||
+                    !id(direct_register_verified_readback_supported).has_state() ||
+                    id(direct_register_verified_readback_supported).state < 0.5f ||
+                    !id(machines_type_6048).has_state() ||
+                    !id(number_of_machines_master_and_slave_6049).has_state()) {
+                  ESP_LOGE("ems", "Zapis Supervisor 259 zablokowany: nieaktualny snapshot, zakres lub topologia");
+                  return false;
+                }
+                const float machine_type = id(machines_type_6048).state;
+                const float machine_count =
+                    id(number_of_machines_master_and_slave_6049).state;
+                return std::isfinite(machine_type) &&
+                       std::isfinite(machine_count) &&
+                       std::fabs(machine_type) < 0.01f &&
+                       std::fabs(machine_count - 1.0f) < 0.01f;
+            then:
+              - number.set:
+                  id: gcf_export_soft_limit_ratio_259
+                  value: !lambda "return target_percent;"
+    - action: ems_supervisor_write_battery_charge_limit
+      variables:
+        target_percent: float
+        snapshot_generation: float
+      then:
+        - if:
+            condition:
+              lambda: |-
+                if (!std::isfinite(target_percent) ||
+                    target_percent < 10.0f || target_percent > 100.0f ||
+                    !std::isfinite(snapshot_generation) ||
+                    !id(battery_charge_power_readback_generation).has_state() ||
+                    std::fabs(id(battery_charge_power_readback_generation).state -
+                              snapshot_generation) > 0.01f ||
+                    !id(direct_register_verified_readback_supported).has_state() ||
+                    id(direct_register_verified_readback_supported).state < 0.5f ||
+                    !id(machines_type_6048).has_state() ||
+                    !id(number_of_machines_master_and_slave_6049).has_state()) {
+                  ESP_LOGE("ems", "Zapis Supervisor 306 zablokowany: nieaktualny snapshot, zakres lub topologia");
+                  return false;
+                }
+                const float machine_type = id(machines_type_6048).state;
+                const float machine_count =
+                    id(number_of_machines_master_and_slave_6049).state;
+                return std::isfinite(machine_type) &&
+                       std::isfinite(machine_count) &&
+                       std::fabs(machine_type) < 0.01f &&
+                       std::fabs(machine_count - 1.0f) < 0.01f;
+            then:
+              - number.set:
+                  id: battery_max_charge_power_306
+                  value: !lambda "return target_percent;"
+
+# Lokalny zegar nie zależy od API ani event loop HA.  Po expiry rozstrzyga
+# świeży pełny FC03; nigdy nie zapisuje Self-Use w ciemno.
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          const uint32_t now_ms = millis();
+          const bool soft_expired =
+              (id(ems_control_lease_state) == 1U ||
+               id(ems_control_lease_state) == 2U) &&
+              static_cast<int32_t>(now_ms -
+                  id(ems_control_lease_expiry_ms)) >= 0;
+          const bool hard_expired =
+              (id(ems_control_lease_state) == 1U ||
+               id(ems_control_lease_state) == 2U) &&
+              static_cast<int32_t>(now_ms -
+                  id(ems_control_lease_hard_deadline_ms)) >= 0;
+          if (soft_expired || hard_expired) {
+            id(ems_control_lease_state) = 3U;
+            id(ems_control_lease_nonce_valid) = false;
+            id(ems_control_lease_state_text).publish_state(
+                hard_expired ? "expired_hard_deadline_wait_readback" :
+                               "expired_wait_readback");
+            ESP_LOGW("ems", "Lease wygasł lokalnie; oczekiwanie na świeży FC03");
+          }
+          if (id(ems_control_lease_state) != 3U ||
+              id(ems_control_write_pending))
+            return;
+          if (id(ems_control_last_readback_ms) == 0U ||
+              static_cast<uint32_t>(now_ms -
+                  id(ems_control_last_readback_ms)) > 15000U ||
+              !id(ems_control_readback_generation).has_state()) {
+            id(ems_control_lease_state_text).publish_state(
+                "expired_wait_readback");
+            return;
+          }
+          const bool complete = id(ems_mode_raw_4300).has_state() &&
+              id(self_used_soc_readback_4301).has_state() &&
+              id(backup_soc_raw_4302).has_state() &&
+              id(force_charge_soc_readback_4303).has_state() &&
+              id(maximum_charge_power_readback_4304).has_state() &&
+              id(force_discharge_soc_readback_4305).has_state() &&
+              id(maximum_discharge_power_readback_4306).has_state();
+          if (!complete) return;
+          auto encode = [](float value, float scale) -> uint32_t {
+            return static_cast<uint32_t>(std::lround(value * scale));
+          };
+          const std::array<uint32_t, 7> physical = {
+              encode(id(ems_mode_raw_4300).state, 1.0f),
+              encode(id(self_used_soc_readback_4301).state, 1.0f),
+              encode(id(backup_soc_raw_4302).state, 1.0f),
+              encode(id(force_charge_soc_readback_4303).state, 1.0f),
+              encode(id(maximum_charge_power_readback_4304).state, 10.0f),
+              encode(id(force_discharge_soc_readback_4305).state, 1.0f),
+              encode(id(maximum_discharge_power_readback_4306).state, 10.0f)};
+          const auto &record = id(ems_control_lease_record);
+          bool active_owned = record[0] == 1U && record[1] == 1U;
+          bool predecessor_owned = active_owned && record[20] != 0U;
+          bool fallback_matches = active_owned;
+          for (size_t index = 0; index < physical.size(); index++) {
+            active_owned &= physical[index] == record[6U + index];
+            predecessor_owned &= physical[index] == record[20U + index];
+            fallback_matches &= physical[index] == record[13U + index];
+          }
+          auto clear_record = [&](uint32_t kind) {
+            const auto &identity = id(ems_control_identity_record);
+            uint32_t identity_generation = 0U, identity_active_crc = 0U;
+            std::memcpy(&identity_generation, identity.data() + 420U, 4U);
+            std::memcpy(&identity_active_crc, identity.data() + 424U, 4U);
+            auto hash_text = [](const uint8_t *data, size_t length) {
+              uint32_t hash = 2166136261U;
+              for (size_t index = 0; index < length; index++) {
+                hash ^= data[index];
+                hash *= 16777619U;
+              }
+              return hash;
+            };
+            const bool identity_matches = identity[0] == 2U &&
+                identity_generation == record[5] &&
+                identity_active_crc == record[27] &&
+                hash_text(identity.data() + 4U, identity[1]) == record[2] &&
+                hash_text(identity.data() + 132U, identity[2]) == record[3] &&
+                hash_text(identity.data() + 260U, identity[3]) == record[4];
+            bool proof_ok = false;
+            if (identity_matches && (kind != 1U || fallback_matches)) {
+              std::array<uint8_t, 472> proof = identity;
+              uint32_t previous_epoch = 0U;
+              std::memcpy(&previous_epoch,
+                          id(ems_control_terminal_record).data() + 432U, 4U);
+              const uint32_t epoch = previous_epoch + 1U;
+              if (epoch != 0U) {
+                const uint32_t fc03_generation = static_cast<uint32_t>(
+                    id(ems_control_readback_generation).state);
+                std::memcpy(proof.data() + 428U, &kind, 4U);
+                std::memcpy(proof.data() + 432U, &epoch, 4U);
+                std::memcpy(proof.data() + 436U, &fc03_generation, 4U);
+                for (size_t index = 0; index < 7U; index++)
+                  std::memcpy(proof.data() + 440U + 4U * index,
+                              &record[13U + index], 4U);
+                uint32_t crc = 0xFFFFFFFFU;
+                for (size_t index = 0; index < 468U; index++) {
+                  crc ^= proof[index];
+                  for (uint8_t bit = 0; bit < 8; bit++)
+                    crc = (crc >> 1) ^ (0xEDB88320U &
+                        static_cast<uint32_t>(-(static_cast<int32_t>(crc & 1U))));
+                }
+                crc = ~crc;
+                std::memcpy(proof.data() + 468U, &crc, 4U);
+                std::array<uint8_t, 472> verify{};
+                proof_ok = id(ems_control_terminal_preference).save(&proof) &&
+                    global_preferences->sync() &&
+                    id(ems_control_terminal_preference).load(&verify) &&
+                    verify == proof;
+                if (proof_ok) id(ems_control_terminal_record) = proof;
+              }
+            }
+            std::array<uint32_t, 28> cleared{};
+            std::array<uint32_t, 28> verify_cleared{};
+            const bool ok = id(ems_control_lease_preference).save(&cleared) &&
+                global_preferences->sync() &&
+                id(ems_control_lease_preference).load(&verify_cleared) &&
+                verify_cleared == cleared;
+            id(ems_control_lease_record) = cleared;
+            id(ems_control_lease_state) = ok ? 0U : 5U;
+            id(ems_control_lease_state_text).publish_state(
+                !ok ? "hold_store_clear_failed" :
+                (!proof_ok ? "disarmed_terminal_proof_unavailable" :
+                 (kind == 1U ? "restored" : "disarmed_ownership_released")));
+            return ok;
+          };
+          if (fallback_matches) {
+            clear_record(1U);
+            return;
+          }
+          if (!active_owned && !predecessor_owned) {
+            // Off-Grid, a local/cloud change or an unattributed forced block
+            // revokes ownership.  Do not reassert our previous command.
+            clear_record(2U);
+            return;
+          }
+          auto result = std::make_shared<std::string>("unknown");
+          id(ems_write_complete_block_4300_4306)->execute(
+              static_cast<float>(record[13]),
+              static_cast<float>(record[14]),
+              static_cast<float>(record[15]),
+              static_cast<float>(record[16]),
+              static_cast<float>(record[17]) * 0.1f,
+              static_cast<float>(record[18]),
+              static_cast<float>(record[19]) * 0.1f,
+              id(ems_control_readback_generation).state, true, result);
+          if (*result == "accepted") {
+            id(ems_control_lease_state) = 4U;
+            id(ems_control_lease_state_text).publish_state("restoring");
+          } else if (*result != "previous_write_pending") {
+            id(ems_control_lease_state) = 5U;
+            id(ems_control_lease_state_text).publish_state(
+                "hold_restore_not_dispatched");
+            ESP_LOGE("ems", "Restore lease nie wszedł do transportu: %s",
+                     result->c_str());
+          }
+
+text_sensor:
+  - platform: template
+    name: "EMS Control Lease State"
+    id: ems_control_lease_state_text
+    update_interval: never
+    entity_category: diagnostic
+
 sensor:
+  - platform: template
+    name: "EMS Safety Lease Protocol Version"
+    id: ems_safety_lease_protocol_version
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: 60s
+    lambda: return 2.0f;
+
   # Autorytatywna generacja odczytu bloku EMS. Jest inkrementowana wyłącznie
   # przez cykliczny odczyt FC03 rejestru 4300, nigdy przez lokalny zapis.
   # Home Assistant używa jej razem z poniższymi lustrami read-only, aby
@@ -492,6 +1512,138 @@ sensor:
                 }
               }
             }
+            if (!id(ems_control_write_pending) &&
+                (id(ems_control_lease_state) == 1U ||
+                 id(ems_control_lease_state) == 2U ||
+                 id(ems_control_lease_state) == 4U)) {
+              auto encode_lease = [](float value, float scale) -> uint32_t {
+                return static_cast<uint32_t>(std::lround(value * scale));
+              };
+              const bool lease_complete =
+                  id(ems_mode_raw_4300).has_state() &&
+                  id(self_used_soc_readback_4301).has_state() &&
+                  id(backup_soc_raw_4302).has_state() &&
+                  id(force_charge_soc_readback_4303).has_state() &&
+                  id(maximum_charge_power_readback_4304).has_state() &&
+                  id(force_discharge_soc_readback_4305).has_state() &&
+                  id(maximum_discharge_power_readback_4306).has_state();
+              const std::array<uint32_t, 7> physical = {
+                  encode_lease(id(ems_mode_raw_4300).state, 1.0f),
+                  encode_lease(id(self_used_soc_readback_4301).state, 1.0f),
+                  encode_lease(id(backup_soc_raw_4302).state, 1.0f),
+                  encode_lease(id(force_charge_soc_readback_4303).state, 1.0f),
+                  encode_lease(id(maximum_charge_power_readback_4304).state, 10.0f),
+                  encode_lease(id(force_discharge_soc_readback_4305).state, 1.0f),
+                  encode_lease(x, 10.0f)};
+              const auto &record = id(ems_control_lease_record);
+              bool active_matches = lease_complete && record[0] == 1U &&
+                  record[1] == 1U;
+              bool fallback_matches = active_matches;
+              bool predecessor_matches = active_matches && record[20] != 0U;
+              for (size_t index = 0; index < physical.size(); index++) {
+                active_matches &= physical[index] == record[6U + index];
+                fallback_matches &= physical[index] == record[13U + index];
+                predecessor_matches &= physical[index] == record[20U + index];
+              }
+              auto clear_lease = [&](const char *state, uint32_t kind) {
+                const auto &identity = id(ems_control_identity_record);
+                uint32_t identity_generation = 0U, identity_active_crc = 0U;
+                std::memcpy(&identity_generation, identity.data() + 420U, 4U);
+                std::memcpy(&identity_active_crc, identity.data() + 424U, 4U);
+                auto hash_text = [](const uint8_t *data, size_t length) {
+                  uint32_t hash = 2166136261U;
+                  for (size_t index = 0; index < length; index++) {
+                    hash ^= data[index];
+                    hash *= 16777619U;
+                  }
+                  return hash;
+                };
+                const bool identity_matches = identity[0] == 2U &&
+                    identity_generation == record[5] &&
+                    identity_active_crc == record[27] &&
+                    hash_text(identity.data() + 4U, identity[1]) == record[2] &&
+                    hash_text(identity.data() + 132U, identity[2]) == record[3] &&
+                    hash_text(identity.data() + 260U, identity[3]) == record[4];
+                bool proof_ok = false;
+                if (identity_matches && lease_complete &&
+                    (kind != 1U || fallback_matches)) {
+                  std::array<uint8_t, 472> proof = identity;
+                  uint32_t previous_epoch = 0U;
+                  std::memcpy(&previous_epoch,
+                              id(ems_control_terminal_record).data() + 432U, 4U);
+                  const uint32_t epoch = previous_epoch + 1U;
+                  if (epoch != 0U) {
+                    const uint32_t fc03_generation =
+                        static_cast<uint32_t>(generation);
+                    std::memcpy(proof.data() + 428U, &kind, 4U);
+                    std::memcpy(proof.data() + 432U, &epoch, 4U);
+                    std::memcpy(proof.data() + 436U, &fc03_generation, 4U);
+                    for (size_t index = 0; index < 7U; index++)
+                      std::memcpy(proof.data() + 440U + 4U * index,
+                                  &record[13U + index], 4U);
+                    uint32_t crc = 0xFFFFFFFFU;
+                    for (size_t index = 0; index < 468U; index++) {
+                      crc ^= proof[index];
+                      for (uint8_t bit = 0; bit < 8; bit++)
+                        crc = (crc >> 1) ^ (0xEDB88320U &
+                            static_cast<uint32_t>(-(static_cast<int32_t>(crc & 1U))));
+                    }
+                    crc = ~crc;
+                    std::memcpy(proof.data() + 468U, &crc, 4U);
+                    std::array<uint8_t, 472> verify{};
+                    proof_ok = id(ems_control_terminal_preference).save(&proof) &&
+                        global_preferences->sync() &&
+                        id(ems_control_terminal_preference).load(&verify) &&
+                        verify == proof;
+                    if (proof_ok) id(ems_control_terminal_record) = proof;
+                  }
+                }
+                std::array<uint32_t, 28> cleared{};
+                std::array<uint32_t, 28> verify_cleared{};
+                const bool ok = id(ems_control_lease_preference).save(&cleared) &&
+                    global_preferences->sync() &&
+                    id(ems_control_lease_preference).load(&verify_cleared) &&
+                    verify_cleared == cleared;
+                id(ems_control_lease_record) = cleared;
+                id(ems_control_lease_state) = ok ? 0U : 5U;
+                id(ems_control_lease_nonce_valid) = false;
+                id(ems_control_lease_state_text).publish_state(
+                    !ok ? "hold_store_clear_failed" :
+                    (!proof_ok ? "disarmed_terminal_proof_unavailable" : state));
+              };
+              if (id(ems_control_lease_state) == 1U) {
+                if (active_matches) {
+                  id(ems_control_lease_state) = 2U;
+                  id(ems_control_lease_state_text).publish_state("armed_confirmed");
+                } else if (predecessor_matches) {
+                  id(ems_control_lease_state) = 3U;
+                  id(ems_control_lease_nonce_valid) = false;
+                  id(ems_control_lease_state_text).publish_state(
+                      "expired_retarget_not_confirmed_wait_readback");
+                } else {
+                  clear_lease("disarmed_start_not_confirmed", 3U);
+                }
+              } else if (id(ems_control_lease_state) == 2U && !active_matches) {
+                if (predecessor_matches) {
+                  id(ems_control_lease_state) = 3U;
+                  id(ems_control_lease_nonce_valid) = false;
+                  id(ems_control_lease_state_text).publish_state(
+                      "expired_late_predecessor_wait_readback");
+                } else {
+                  clear_lease("disarmed_ownership_released", 2U);
+                }
+              } else if (id(ems_control_lease_state) == 4U) {
+                if (fallback_matches) {
+                  clear_lease("restored", 1U);
+                } else if (active_matches || predecessor_matches) {
+                  id(ems_control_lease_state) = 3U;
+                  id(ems_control_lease_state_text).publish_state(
+                      "expired_restore_retry_wait_readback");
+                } else {
+                  clear_lease("disarmed_ownership_released", 2U);
+                }
+              }
+            }
             id(ems_control_readback_generation).publish_state(generation);
 
 select:
@@ -531,7 +1683,7 @@ select:
               id(maximum_charge_power_readback_4304).state,
               id(force_discharge_soc_readback_4305).state,
               id(maximum_discharge_power_readback_4306).state,
-              id(ems_control_readback_generation).state);
+              id(ems_control_readback_generation).state, false, nullptr);
 
   # Generation Control Function (GCF), sekcja Safety Parameters.
   # Rejestr 257 (GCF_FuncCode) pozostaje ustawieniem serwisowym producenta.
@@ -719,7 +1871,7 @@ number:
               rollback_maximum_charge_power,
               id(force_discharge_soc_readback_4305).state,
               id(maximum_discharge_power_readback_4306).state,
-              id(ems_control_readback_generation).state);
+              id(ems_control_readback_generation).state, false, nullptr);
     entity_category: config
 
   - platform: modbus_controller
@@ -733,7 +1885,7 @@ number:
     unit_of_measurement: "%"
     min_value: -10
     max_value: 200
-    step: 0.1
+    step: 1
     lambda: return x * 0.1f;
     write_lambda: |-
       if (!id(direct_register_verified_readback_supported).has_state() ||
@@ -833,7 +1985,7 @@ number:
     unit_of_measurement: "%"
     min_value: 0
     max_value: 100
-    step: 0.1
+    step: 1
     lambda: return x * 0.1f;
     write_lambda: |-
       const float safe = x > 100.0f ? 100.0f : (x < 0.0f ? 0.0f : x);
@@ -865,7 +2017,7 @@ number:
           id(maximum_charge_power_readback_4304).state,
           id(force_discharge_soc_readback_4305).state,
           id(maximum_discharge_power_readback_4306).state,
-          id(ems_control_readback_generation).state);
+          id(ems_control_readback_generation).state, false, nullptr);
       return {};
     entity_category: config
 
@@ -894,7 +2046,7 @@ number:
           id(maximum_charge_power_readback_4304).state,
           id(force_discharge_soc_readback_4305).state,
           id(maximum_discharge_power_readback_4306).state,
-          id(ems_control_readback_generation).state);
+          id(ems_control_readback_generation).state, false, nullptr);
       return {};
     entity_category: config
 
@@ -907,7 +2059,7 @@ number:
     unit_of_measurement: "%"
     min_value: 0
     max_value: 100
-    step: 0.1
+    step: 1
     lambda: return x * 0.1f;
     write_lambda: |-
       if (!id(ems_verified_hardware_readback_supported).has_state() ||
@@ -924,7 +2076,7 @@ number:
           safe,
           id(force_discharge_soc_readback_4305).state,
           id(maximum_discharge_power_readback_4306).state,
-          id(ems_control_readback_generation).state);
+          id(ems_control_readback_generation).state, false, nullptr);
       return {};
     entity_category: config
 
@@ -953,7 +2105,7 @@ number:
           id(maximum_charge_power_readback_4304).state,
           safe,
           id(maximum_discharge_power_readback_4306).state,
-          id(ems_control_readback_generation).state);
+          id(ems_control_readback_generation).state, false, nullptr);
       return {};
     entity_category: config
 
@@ -966,7 +2118,7 @@ number:
     unit_of_measurement: "%"
     min_value: 0
     max_value: 100
-    step: 0.1
+    step: 1
     lambda: return x * 0.1f;
     write_lambda: |-
       if (!id(ems_verified_hardware_readback_supported).has_state() ||
@@ -983,6 +2135,6 @@ number:
           id(maximum_charge_power_readback_4304).state,
           id(force_discharge_soc_readback_4305).state,
           safe,
-          id(ems_control_readback_generation).state);
+          id(ems_control_readback_generation).state, false, nullptr);
       return {};
     entity_category: config

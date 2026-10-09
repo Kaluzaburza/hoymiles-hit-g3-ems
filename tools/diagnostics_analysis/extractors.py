@@ -8,6 +8,8 @@ import json
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
+from .privacy import sanitize_diagnostic_value
+
 from .models import (
     Confidence,
     Controller,
@@ -22,6 +24,7 @@ UNKNOWN_MARKERS = frozenset(
         "[redacted]",
         "[truncated]",
         "[max_depth_reached]",
+        "[depth_limit]",
         "unknown",
         "unavailable",
         "none",
@@ -70,6 +73,17 @@ COMMON_KEYS = frozenset(
         "result_current",
         "recalculation_pending",
         "input_revision",
+        "captured_input_revision",
+        "pending_input_revision",
+        "plan_revision",
+        "profile_revision",
+        "joint_plan_revision",
+        "joint_profile_revision",
+        "price_provider",
+        "pstryk_blocker",
+        "full_plan_solver_calls",
+        "last_full_plan_at",
+        "last_full_plan_trigger",
         "missing_entities",
         "plan_is_preview",
         "automatic_charge_enabled",
@@ -102,6 +116,8 @@ METRIC_PREFIXES: Mapping[Controller, tuple[str, ...]] = {
         "gcf_",
         "gross_",
         "history_",
+        "load_",
+        "pv_charge_delay_",
         "maximum_",
         "minimum_",
         "net_",
@@ -222,6 +238,11 @@ CONTEXT_ENTITY_SUFFIXES = (
 AGGREGATE_RESPONSE_ENTITY_ID = (
     "sensor.hoymiles_parallel_aggregate_physical_response"
 )
+CONTROL_HISTORY_PROFILES = frozenset({
+    "automation", "balancing_abort", "balancing_outbox", "balancing_timing",
+    "balancing_transaction", "canonical_plan", "owner", "rce_planner",
+    "rcm_planner", "supervisor", "timeline", "tariff_planner",
+})
 AGGREGATE_RESPONSE_EVENT_ATTRIBUTE_KEYS = frozenset(
     {
         "authoritative_expected_power",
@@ -265,7 +286,10 @@ AGGREGATE_RESPONSE_EVENT_ATTRIBUTE_KEYS = frozenset(
 def is_unknown(value: Any) -> bool:
     """Return whether a value is absent/redacted rather than evidence."""
     return value is None or (
-        isinstance(value, str) and value.strip().casefold() in UNKNOWN_MARKERS
+        isinstance(value, str) and (
+            value.strip().casefold() in UNKNOWN_MARKERS
+            or value.strip().casefold().startswith("[redacted")
+        )
     )
 
 
@@ -318,9 +342,9 @@ def _json_digest(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _compact_value(value: Any, *, depth: int = 0) -> Any:
+def _compact_value(value: Any, *, depth: int = 0, max_depth: int = 3) -> Any:
     """Keep diagnostic evidence useful while bounding output size."""
-    if depth >= 3:
+    if depth >= max_depth:
         return "[DEPTH_LIMIT]"
     if value is None or type(value) is bool:
         return value
@@ -330,11 +354,12 @@ def _compact_value(value: Any, *, depth: int = 0) -> Any:
         return value[:2048]
     if isinstance(value, list):
         return [
-            _compact_value(item, depth=depth + 1) for item in value[:200]
+            _compact_value(item, depth=depth + 1, max_depth=max_depth)
+            for item in value[:200]
         ]
     if isinstance(value, Mapping):
         return {
-            str(key)[:128]: _compact_value(child, depth=depth + 1)
+            str(key)[:128]: _compact_value(child, depth=depth + 1, max_depth=max_depth)
             for key, child in list(value.items())[:200]
         }
     return str(value)[:256]
@@ -621,7 +646,27 @@ def extract_archive_evidence(
                                 if str(attribute)
                                 in AGGREGATE_RESPONSE_EVENT_ATTRIBUTE_KEYS
                             }
-                    events_by_key[key] = event
+                    elif (isinstance(item.get("attribute_profile"), str)
+                          and item["attribute_profile"] in CONTROL_HISTORY_PROFILES):
+                        # Preserve bounded event evidence from the exporter,
+                        # including frozen STOP inputs. Unknown schemas remain
+                        # state-only; current snapshots cannot fill their gaps.
+                        event["event_schema_version"] = item.get("event_schema_version")
+                        event["attribute_profile"] = item["attribute_profile"]
+                        raw_attributes = item.get("attributes")
+                        available = (
+                            type(item.get("event_schema_version")) is int
+                            and item["event_schema_version"] == 1
+                            and item.get("attributes_available") is True
+                            and isinstance(raw_attributes, Mapping)
+                        )
+                        event["attributes_available"] = available
+                        if available:
+                            event["attributes"] = _compact_value(
+                                sanitize_diagnostic_value(raw_attributes), max_depth=10
+                            )
+                    if key not in events_by_key or prefer_control_event(event, events_by_key[key]):
+                        events_by_key[key] = event
 
     observations: list[ControllerObservation] = []
     owner_snapshot = next(
@@ -888,6 +933,18 @@ def context_attributes(
     return {}
 
 
+def prefer_control_event(candidate: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
+    """Do not replace a rich Recorder event with its state-only duplicate."""
+    def rank(event: Mapping[str, Any]) -> int:
+        attrs = event.get("attributes")
+        return len(attrs) if isinstance(attrs, Mapping) else 0
+
+    return rank(candidate) > rank(current) or (
+        rank(candidate) == rank(current)
+        and str(candidate.get("archive_key", "")) < str(current.get("archive_key", ""))
+    )
+
+
 def merge_events(
     archives_events: Iterable[Mapping[str, Any]],
 ) -> tuple[Mapping[str, Any], ...]:
@@ -901,9 +958,7 @@ def merge_events(
             str(event.get("state", "")),
         )
         current = merged.get(key)
-        if current is None or str(event.get("archive_key", "")) < str(
-            current.get("archive_key", "")
-        ):
+        if current is None or prefer_control_event(event, current):
             merged[key] = event
     return tuple(
         sorted(

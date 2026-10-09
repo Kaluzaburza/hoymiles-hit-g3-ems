@@ -7,35 +7,46 @@ tariff slot that occurs before the energy is needed by the home.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
-from math import ceil, isfinite
+from math import ceil, floor, isfinite
 
 try:  # Package import in Home Assistant; direct import in deterministic tests.
+    from .automation_plan_timeline import (
+        OptimizerTimelineTrace,
+        TariffPolicyPoint,
+        TimelineTracePoint,
+    )
     from .energy_data import numeric_sample_is_fresh
+    from .ems_supervisor import ExportState
     from .forecast_model import adaptive_forecast_factor
     from .load_model import robust_weighted_estimate, robust_weighted_upper_estimate
     from .tariff_profiles import (
         MANUAL_OPERATOR,
-        get_tariff_profile,
-        profile_is_valid,
-        profile_rate,
+        configured_tariff_rate,
+        is_polish_public_holiday,
     )
 except ImportError:  # pragma: no cover - exercised by tools/test_tariff_optimizer.py
+    from automation_plan_timeline import (
+        OptimizerTimelineTrace,
+        TariffPolicyPoint,
+        TimelineTracePoint,
+    )
     from energy_data import numeric_sample_is_fresh
+    from ems_supervisor import ExportState
     from forecast_model import adaptive_forecast_factor
     from load_model import robust_weighted_estimate, robust_weighted_upper_estimate
     from tariff_profiles import (
         MANUAL_OPERATOR,
-        get_tariff_profile,
-        profile_is_valid,
-        profile_rate,
+        configured_tariff_rate,
+        is_polish_public_holiday,
     )
 
 
 SLOT = timedelta(minutes=30)
 _EPSILON = 1e-6
 DEFAULT_BATTERY_WEAR_COST_PLN_KWH = 0.06
+EQUIVALENT_PLAN_COST_TOLERANCE_PLN = 1e-8
 # Starting Grid Charge has a real operational cost: a Modbus write, an EMS
 # mode transition and user-visible notifications. Pure home support therefore
 # needs to form one meaningful continuous cycle. These conservative constants
@@ -45,7 +56,15 @@ GRID_SUPPORT_MODE_TRANSITION_SECONDS = 2 * 60
 MIN_GRID_SUPPORT_USEFUL_RUNTIME_SECONDS = 5 * 60
 MIN_GRID_SUPPORT_CYCLE_ENERGY_KWH = 0.25
 MIN_GRID_SUPPORT_CYCLE_BENEFIT_PLN = 0.10
-GRID_SUPPORT_TARGET_SOC_OFFSET_PERCENT = 1.0
+ACTIVE_COMMITMENT_PHYSICAL_MAX_AGE_SECONDS = 30.0
+ACTIVE_COMMITMENT_COST_TOLERANCE_PLN = 0.02
+_ALLOCATION_REQUIRED_ENERGY = 1
+_ALLOCATION_ECONOMIC = 2
+_ALLOCATION_NEED_CLASS = {
+    _ALLOCATION_REQUIRED_ENERGY: "required_energy",
+    _ALLOCATION_ECONOMIC: "economic",
+    _ALLOCATION_REQUIRED_ENERGY | _ALLOCATION_ECONOMIC: "mixed",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +84,19 @@ class TariffSchedule:
 
 
 @dataclass(frozen=True, slots=True)
+class TariffActiveCommitment:
+    """Fresh Supervisor proof for one already executing tariff charge."""
+
+    transaction_id: str
+    action: str
+    started_at: datetime
+    hard_deadline: datetime
+    target_soc_percent: float
+    maximum_charge_power_percent: float
+    physical_verified_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class TariffOptimizerInput:
     """All deterministic inputs used by the charging optimizer."""
 
@@ -81,6 +113,9 @@ class TariffOptimizerInput:
     # Total AC power that Grid Charge may draw for the home and battery
     # together.  The inverter subtracts the live home load from this budget.
     charge_power_kw: float
+    # Fresh installation-wide AC throughput limit. This is distinct from the
+    # battery-side DC discharge capability reported by the BMS.
+    system_ac_power_kw: float
     charge_efficiency_percent: float
     discharge_efficiency_percent: float
     minimum_saving_pln_kwh: float
@@ -138,6 +173,17 @@ class TariffOptimizerInput:
     # still allowing the deterministic plan to remain visible diagnostically.
     control_inputs_fresh: bool = True
     control_input_block_reason: str = "none"
+    # Physical export disposition comes only from a fresh, coherent GCF
+    # readback. Missing evidence must never be interpreted as export allowed.
+    export_state: ExportState = ExportState.UNVERIFIED
+    # Supplied only by the same-entry Supervisor from an executing, leased and
+    # freshly physically confirmed transaction. It stabilizes layout of energy
+    # the optimizer still needs; it never creates new charging authority.
+    active_commitment: TariffActiveCommitment | None = None
+    # Consumable energy headroom for the next protected non-low period. This
+    # is a percentage of the base battery-axis need, never SOC percentage
+    # points and never a higher physical Self-Use floor.
+    demand_margin_percent: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +256,10 @@ class TariffOptimizerResult:
     modeled_pv_kwh: float = 0.0
     effective_terminal_reserve_soc_percent: float = 0.0
     current_run_end: datetime | None = None
+    # The complete adjoining Mode 4 run, including support/charge boundaries.
+    # Action-specific metrics and target selection retain current_run_end.
+    current_grid_charge_run_end: datetime | None = None
+    current_run_need_class: str = "none"
     current_run_duration_seconds: float = 0.0
     current_run_grid_import_kwh: float = 0.0
     current_run_stored_kwh: float = 0.0
@@ -250,6 +300,35 @@ class TariffOptimizerResult:
     capacity_or_power_shortfall_kwh: float = 0.0
     control_inputs_fresh: bool = True
     control_input_block_reason: str = "none"
+    potential_pv_kwh: float | None = None
+    pv_kwh: float | None = None
+    pv_curtailed_kwh: float | None = None
+    physical_dispatch_available: bool = False
+    physical_dispatch_block_reason: str = "export_disposition_unverified"
+    active_commitment_applied: bool = False
+    active_commitment_transaction_id: str | None = None
+    active_commitment_deadline: datetime | None = None
+    protected_period_start: datetime | None = None
+    protected_period_end: datetime | None = None
+    protected_demand_kwh: float = 0.0
+    demand_margin_percent: float = 0.0
+    demand_margin_requested_kwh: float = 0.0
+    demand_margin_feasible_kwh: float = 0.0
+    demand_margin_unserved_kwh: float = 0.0
+    base_energy_shortfall_kwh: float = 0.0
+    requested_target_energy_kwh: float = 0.0
+    feasible_target_energy_kwh: float = 0.0
+    demand_margin_constraint_reason: str = "none"
+    latest_feasible_start: datetime | None = None
+    latest_equivalent_start: datetime | None = None
+    latest_start_search_complete: bool = False
+    layout_candidates_evaluated: int = 0
+    # Observation-only sidecar, never consumed by planning or execution.
+    timeline_trace: OptimizerTimelineTrace | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
 
 @dataclass(slots=True)
@@ -267,6 +346,63 @@ class _Simulation:
     total_optimization_cost_pln: float
     terminal_shortfall_kwh: float
     terminal_import_kwh: float
+    potential_pv_kwh: dict[int, float]
+    pv_kwh: dict[int, float | None]
+    pv_curtailed_kwh: dict[int, float | None]
+    load_kwh: dict[int, float]
+    battery_delta_kwh: dict[int, float]
+    grid_import_kwh: dict[int, float | None]
+    grid_export_kwh: dict[int, float | None]
+    physical_dispatch_available: bool
+    physical_dispatch_block_reason: str
+    physical_dispatch_unavailable_slots: frozenset[int]
+
+
+def _planned_action_range_count(
+    planned_charge: dict[int, float],
+    planned_support: dict[int, float],
+) -> int:
+    """Count contiguous Grid Charge ranges in two requested allocation maps."""
+
+    indices = sorted(
+        {
+            index
+            for allocations in (planned_charge, planned_support)
+            for index, amount in allocations.items()
+            if amount > _EPSILON
+        }
+    )
+    return sum(
+        position == 0 or index != indices[position - 1] + 1
+        for position, index in enumerate(indices)
+    )
+
+
+def _allocation_need_class(origin: int | None) -> str:
+    """Decode one exact accepted-allocation bitmask without inference."""
+
+    if isinstance(origin, bool) or not isinstance(origin, int):
+        return "none"
+    return _ALLOCATION_NEED_CLASS.get(origin, "none")
+
+
+def _classify_current_run_need(
+    *,
+    current_planned: bool,
+    current_run_slot_indices: tuple[int, ...],
+    allocation_provenance: dict[int, int],
+) -> str:
+    """Return bounded current-run need provenance from accepted allocations."""
+    if not current_planned or not current_run_slot_indices:
+        return "none"
+    combined = 0
+    for index in current_run_slot_indices:
+        origin = allocation_provenance.get(index)
+        if _allocation_need_class(origin) == "none":
+            return "none"
+        assert origin is not None
+        combined |= origin
+    return _allocation_need_class(combined)
 
 
 def floor_half_hour(value: datetime) -> datetime:
@@ -353,7 +489,7 @@ def horizon_gap_expensive_load_reserve_kwh(
 
     The calculation walks the complete tail backwards. Expensive blocks add
     LOAD demand; low blocks subtract only the energy that can really be stored
-    after the same shared Grid Charge budget supplies the home and after BMS,
+    under the configured battery charging power and after BMS,
     conversion and storage-headroom limits. Therefore an early low window does
     not erase a later peak when a cold home or a low BMS limit makes that window
     insufficient. UTC stepping preserves the real number of slots over DST.
@@ -389,7 +525,7 @@ def horizon_gap_expensive_load_reserve_kwh(
                 if charge_power_kw is not None
                 else float("inf")
             )
-            battery_ac_kwh = max(grid_budget_kwh - load_kwh, 0.0)
+            battery_ac_kwh = grid_budget_kwh
             bms_stored_kwh = (
                 max(battery_charge_power_kw, 0.0) * slot_hours
                 if battery_charge_power_kw is not None
@@ -430,91 +566,24 @@ def _in_window(minute: int, start: int, end: int) -> bool:
     return minute >= start or minute < end
 
 
-def _easter_sunday(year: int) -> date:
-    """Return Gregorian Easter Sunday using the Meeus/Jones/Butcher method."""
-    a = year % 19
-    b = year // 100
-    c = year % 100
-    d = b // 4
-    e = b % 4
-    f = (b + 8) // 25
-    g = (b - f + 1) // 3
-    h = (19 * a + b - d - g + 15) % 30
-    i = c // 4
-    k = c % 4
-    length = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * length) // 451
-    month = (h + length - 7 * m + 114) // 31
-    day = (h + length - 7 * m + 114) % 31 + 1
-    return date(year, month, day)
-
-
-def is_polish_public_holiday(value: date) -> bool:
-    """Return whether ``value`` is a statutory Polish public holiday."""
-    if (value.month, value.day) in {
-        (1, 1),
-        (1, 6),
-        (5, 1),
-        (5, 3),
-        (8, 15),
-        (11, 1),
-        (11, 11),
-        (12, 24),
-        (12, 25),
-        (12, 26),
-    }:
-        return True
-    easter = _easter_sunday(value.year)
-    return value in {
-        easter,
-        easter + timedelta(days=1),
-        easter + timedelta(days=49),
-        easter + timedelta(days=60),
-    }
-
-
 def tariff_rate(
     start: datetime,
     schedule: TariffSchedule,
 ) -> tuple[float, str]:
     """Return the marginal price and zone for one half-hour slot."""
-    if schedule.operator != MANUAL_OPERATOR:
-        profile = get_tariff_profile(schedule.operator, schedule.tariff_type)
-        if profile is not None:
-            if not profile_is_valid(profile, start.date()):
-                raise ValueError(
-                    "official tariff profile does not cover planning slot "
-                    f"{start.date().isoformat()}"
-                )
-            return profile_rate(
-                start,
-                profile,
-                is_public_holiday=is_polish_public_holiday(start.date()),
-            )
-    tariff_type = schedule.tariff_type.casefold().replace(" ", "")
-    if tariff_type == "g11":
-        return schedule.g11_price_pln_kwh, "g11"
-
-    low_day = (
-        schedule.weekend_low_price and start.weekday() >= 5
-    ) or (
-        schedule.polish_holidays_low_price
-        and is_polish_public_holiday(start.date())
+    return configured_tariff_rate(
+        start,
+        operator=schedule.operator,
+        tariff_type=schedule.tariff_type,
+        g11_price_pln_kwh=schedule.g11_price_pln_kwh,
+        low_price_pln_kwh=schedule.low_price_pln_kwh,
+        medium_price_pln_kwh=schedule.medium_price_pln_kwh,
+        peak_price_pln_kwh=schedule.peak_price_pln_kwh,
+        cheap_windows=schedule.cheap_windows,
+        medium_windows=schedule.medium_windows,
+        weekend_low_price=schedule.weekend_low_price,
+        polish_holidays_low_price=schedule.polish_holidays_low_price,
     )
-    minute = start.hour * 60 + start.minute
-    if low_day or any(
-        _in_window(minute, window_start, window_end)
-        for window_start, window_end in schedule.cheap_windows
-    ):
-        return schedule.low_price_pln_kwh, "low"
-
-    if tariff_type == "g13" and any(
-        _in_window(minute, window_start, window_end)
-        for window_start, window_end in schedule.medium_windows
-    ):
-        return schedule.medium_price_pln_kwh, "medium"
-
-    return schedule.peak_price_pln_kwh, "peak"
 
 
 def _night_slot(minute: int, start: int, end: int) -> bool:
@@ -524,8 +593,12 @@ def _night_slot(minute: int, start: int, end: int) -> bool:
 def _slot_loads(settings: TariffOptimizerInput, starts: list[datetime]) -> list[float]:
     """Distribute daily and protected-night demand across future slots."""
     if settings.load_by_slot_kwh:
+        explicit = {
+            stamp.astimezone(timezone.utc): value
+            for stamp, value in settings.load_by_slot_kwh.items()
+        }
         return [
-            max(settings.load_by_slot_kwh.get(start, 0.0), 0.0)
+            max(explicit.get(start.astimezone(timezone.utc), 0.0), 0.0)
             for start in starts
         ]
 
@@ -591,6 +664,10 @@ def _simulate(
     rates: list[tuple[float, str]],
     slot_fractions: list[float],
 ) -> _Simulation:
+    try:
+        export_state = ExportState(settings.export_state)
+    except (TypeError, ValueError):
+        export_state = ExportState.UNVERIFIED
     capacity = max(settings.battery_capacity_kwh, 0.001)
     reserve = capacity * min(max(settings.reserve_soc_percent, 0.0), 100.0) / 100.0
     maximum = capacity * min(max(settings.maximum_soc_percent, 0.0), 100.0) / 100.0
@@ -608,6 +685,12 @@ def _simulate(
         max(settings.discharge_efficiency_percent / 100.0, 0.01),
         1.0,
     )
+    system_ac_power_kw = (
+        max(float(settings.system_ac_power_kw), 0.0)
+        if type(settings.system_ac_power_kw) in {int, float}
+        and isfinite(float(settings.system_ac_power_kw))
+        else 0.0
+    )
     shortage = 0.0
     first_shortage: int | None = None
     accepted: dict[int, float] = {}
@@ -615,20 +698,30 @@ def _simulate(
     stored: dict[int, float] = {}
     battery_after: dict[int, float] = {}
     uncovered_import: dict[int, float] = {}
+    potential_pv: dict[int, float] = {}
+    traced_pv: dict[int, float | None] = {}
+    curtailed_pv: dict[int, float | None] = {}
+    traced_load: dict[int, float] = {}
+    battery_delta: dict[int, float] = {}
+    grid_import: dict[int, float | None] = {}
+    grid_export: dict[int, float | None] = {}
+    physical_dispatch_unavailable_slots: set[int] = set()
 
     for index, start in enumerate(starts):
+        battery_before = battery
         fraction = slot_fractions[index]
         slot_hours = 0.5 * fraction
         pv = max(settings.pv_by_slot_kwh.get(start, 0.0), 0.0) * fraction
+        potential_pv[index] = pv
+        traced_load[index] = loads[index]
         net = pv - loads[index]
         requested_support = max(supports.get(index, 0.0), 0.0)
         requested_import = max(imports.get(index, 0.0), 0.0)
         grid_charge_active = (
             requested_support > _EPSILON or requested_import > _EPSILON
         )
-        # Grid Charge has one shared AC input budget.  Once enabled, the
-        # inverter supplies the complete remaining home load first and only
-        # the unused part of the configured power can charge the battery.
+        # PV can already satisfy the Mode 4 battery charging setpoint. The grid
+        # supplies only its shortfall, plus the independent remaining home load.
         grid_budget = max(settings.charge_power_kw, 0.0) * slot_hours
         battery_charge_budget = (
             max(settings.battery_charge_power_kw, 0.0) * slot_hours
@@ -637,13 +730,25 @@ def _simulate(
         )
         direct_grid = 0.0
         if grid_charge_active and net < 0 and grid_budget > _EPSILON:
-            direct_grid = min(-net, grid_budget)
+            direct_grid = -net
             net += direct_grid
             accepted_support[index] = direct_grid
-        remaining_grid_budget = max(grid_budget - direct_grid, 0.0)
+        load_after_grid_support = max(loads[index] - direct_grid, 0.0)
+        system_energy_kwh = system_ac_power_kw * slot_hours
+        direct_pv_to_load = min(
+            pv,
+            load_after_grid_support,
+            system_energy_kwh,
+        )
+        interval_grid_export: float | None = 0.0
         if net >= 0:
-            # PV surplus is subject to the same physical BMS/inverter charging
-            # limit and conversion loss as energy imported from the grid.
+            # LOAD, PV charging and natural export share the installation-wide
+            # AC bridge.  The BMS limit remains a separate battery-side DC cap.
+            bridge_load_kwh = direct_pv_to_load
+            bridge_charge_input_kwh = max(
+                system_energy_kwh - bridge_load_kwh,
+                0.0,
+            )
             pv_battery_limit = (
                 settings.pv_charge_power_kw
                 if settings.pv_charge_power_kw is not None
@@ -651,26 +756,97 @@ def _simulate(
             )
             stored_from_pv = min(
                 net * charge_efficiency,
+                bridge_charge_input_kwh * charge_efficiency,
                 max(pv_battery_limit, 0.0) * slot_hours,
                 battery_charge_budget,
                 max(maximum - battery, 0.0),
             )
+            if grid_charge_active and requested_import <= _EPSILON:
+                # A pure Mode 4 hold uses a SOC target below the measured SOC;
+                # it stops battery charging from PV as well as from the grid.
+                stored_from_pv = 0.0
             battery += max(stored_from_pv, 0.0)
+            pv_charge_input_kwh = max(stored_from_pv, 0.0) / charge_efficiency
+            grid_budget = max(grid_budget - pv_charge_input_kwh, 0.0)
+            residual_surplus = max(
+                pv - direct_pv_to_load - pv_charge_input_kwh,
+                0.0,
+            )
+            bridge_export = min(
+                residual_surplus,
+                max(
+                    system_energy_kwh
+                    - bridge_load_kwh
+                    - pv_charge_input_kwh,
+                    0.0,
+                ),
+            )
+            bridge_curtailment = max(residual_surplus - bridge_export, 0.0)
+            if export_state is ExportState.VERIFIED_ALLOWED:
+                traced_pv[index] = max(pv - bridge_curtailment, 0.0)
+                curtailed_pv[index] = bridge_curtailment
+                interval_grid_export = bridge_export
+            elif export_state in {
+                ExportState.CONFIRMED_ZERO_EXPORT,
+                ExportState.PROHIBITED,
+            }:
+                # PV that cannot serve the home or fit through the battery
+                # power/headroom limits is physically curtailed. This remains
+                # true when the battery starts at its configured maximum and
+                # its modeled delta is exactly zero.
+                traced_pv[index] = max(pv - residual_surplus, 0.0)
+                curtailed_pv[index] = residual_surplus
+                interval_grid_export = 0.0
+            elif bridge_export > _EPSILON:
+                # Without a verified export disposition we cannot claim that
+                # the bridge-eligible residual was exported or curtailed. Keep
+                # the battery path deterministic, but withdraw physical-
+                # dispatch availability for this result.
+                traced_pv[index] = None
+                curtailed_pv[index] = None
+                interval_grid_export = None
+                physical_dispatch_unavailable_slots.add(index)
+            else:
+                # No export can physically fit through the remaining bridge,
+                # so its curtailment is known even without GCF permission.
+                traced_pv[index] = max(pv - bridge_curtailment, 0.0)
+                curtailed_pv[index] = bridge_curtailment
+                interval_grid_export = 0.0
+            uncovered = max(
+                load_after_grid_support - direct_pv_to_load,
+                0.0,
+            )
+            if uncovered > _EPSILON:
+                shortage += uncovered
+                uncovered_import[index] = uncovered
+                if first_shortage is None:
+                    first_shortage = index
             battery_charge_budget = max(
                 battery_charge_budget - max(stored_from_pv, 0.0),
                 0.0,
             )
         else:
-            required_from_battery = -net / discharge_efficiency
+            traced_pv[index] = direct_pv_to_load
+            curtailed_pv[index] = max(pv - direct_pv_to_load, 0.0)
             available = max(battery - reserve, 0.0)
-            discharge_budget = (
+            bms_dc_budget = (
                 max(settings.battery_discharge_power_kw, 0.0) * slot_hours
                 if settings.battery_discharge_power_kw is not None
                 else float("inf")
             )
-            discharged = min(required_from_battery, available, discharge_budget)
+            deficit_after_pv = max(
+                load_after_grid_support - direct_pv_to_load,
+                0.0,
+            )
+            delivered_from_battery = min(
+                deficit_after_pv,
+                max(system_energy_kwh - direct_pv_to_load, 0.0),
+                bms_dc_budget * discharge_efficiency,
+                available * discharge_efficiency,
+            )
+            discharged = delivered_from_battery / discharge_efficiency
             battery -= discharged
-            uncovered = max(-net - discharged * discharge_efficiency, 0.0)
+            uncovered = max(deficit_after_pv - delivered_from_battery, 0.0)
             if uncovered > _EPSILON:
                 shortage += uncovered
                 uncovered_import[index] = uncovered
@@ -681,7 +857,7 @@ def _simulate(
             battery_ac_limit = battery_charge_budget / charge_efficiency
             accepted_import = min(
                 requested_import,
-                remaining_grid_budget,
+                grid_budget,
                 battery_ac_limit,
                 max(maximum - battery, 0.0) / charge_efficiency,
             )
@@ -689,7 +865,24 @@ def _simulate(
             battery += stored_energy
             accepted[index] = accepted_import
             stored[index] = stored_energy
+        else:
+            accepted_import = 0.0
         battery_after[index] = battery
+        interval_uncovered = uncovered_import.get(index, 0.0)
+        battery_delta[index] = battery - battery_before
+        gross_grid_import = direct_grid + accepted_import + interval_uncovered
+        if interval_grid_export is None:
+            grid_import[index] = None
+            grid_export[index] = None
+        else:
+            grid_import[index] = max(
+                gross_grid_import - interval_grid_export,
+                0.0,
+            )
+            grid_export[index] = max(
+                interval_grid_export - gross_grid_import,
+                0.0,
+            )
 
     terminal_soc = _effective_terminal_reserve_soc_percent(settings)
     terminal_target = min(
@@ -766,13 +959,628 @@ def _simulate(
         total_optimization_cost_pln=total_optimization_cost,
         terminal_shortfall_kwh=terminal_shortfall,
         terminal_import_kwh=terminal_import,
+        potential_pv_kwh=potential_pv,
+        pv_kwh=traced_pv,
+        pv_curtailed_kwh=curtailed_pv,
+        load_kwh=traced_load,
+        battery_delta_kwh=battery_delta,
+        grid_import_kwh=grid_import,
+        grid_export_kwh=grid_export,
+        physical_dispatch_available=not physical_dispatch_unavailable_slots,
+        physical_dispatch_block_reason=(
+            "none"
+            if not physical_dispatch_unavailable_slots
+            else "export_disposition_unverified"
+        ),
+        physical_dispatch_unavailable_slots=frozenset(
+            physical_dispatch_unavailable_slots
+        ),
     )
 
 
-def optimize_tariff_charging(
+def _compact_equivalent_economic_charges(
     settings: TariffOptimizerInput,
+    starts: list[datetime],
+    loads: list[float],
+    planned_charge: dict[int, float],
+    planned_support: dict[int, float],
+    rates: list[tuple[float, str]],
+    slot_fractions: list[float],
+    allocation_provenance: dict[int, int],
+    simulation: _Simulation,
+) -> tuple[dict[int, float], _Simulation]:
+    """Move only proven-equivalent economic charge into an existing run.
+
+    The greedy allocator decides economic merit.  This final pass changes only
+    layout: a purely economic, non-current battery allocation may move later
+    at the same tariff when a complete simulation proves identical cost,
+    imports, shortages and post-destination battery trajectory.  Required or
+    mixed reserve restoration is never moved.
+    """
+
+    planned = dict(planned_charge)
+    while True:
+        current_ranges = _planned_action_range_count(planned, planned_support)
+        moved = False
+        for source in sorted(planned):
+            if source == 0 or allocation_provenance.get(source) != (
+                _ALLOCATION_ECONOMIC
+            ):
+                continue
+            amount = planned.get(source, 0.0)
+            accepted_source = simulation.accepted_import_kwh.get(source, 0.0)
+            if (
+                amount <= _EPSILON
+                or abs(accepted_source - amount) > _EPSILON
+                or planned_support.get(source, 0.0) > _EPSILON
+            ):
+                continue
+
+            without_source = dict(planned)
+            without_source.pop(source, None)
+            action_indices = set(without_source) | set(planned_support)
+            for target in sorted(action_indices, reverse=True):
+                if target <= source or target == 0:
+                    continue
+                if rates[target][1] != "low" or rates[source][1] != "low":
+                    continue
+                if abs(rates[target][0] - rates[source][0]) > _EPSILON:
+                    continue
+
+                trial = dict(without_source)
+                trial[target] = trial.get(target, 0.0) + amount
+                if (
+                    _planned_action_range_count(trial, planned_support)
+                    >= current_ranges
+                ):
+                    continue
+                trial_simulation = _simulate(
+                    settings,
+                    starts,
+                    loads,
+                    trial,
+                    planned_support,
+                    rates,
+                    slot_fractions,
+                )
+                target_delta = (
+                    trial_simulation.accepted_import_kwh.get(target, 0.0)
+                    - simulation.accepted_import_kwh.get(target, 0.0)
+                )
+                if (
+                    trial_simulation.accepted_import_kwh.get(source, 0.0)
+                    > _EPSILON
+                    or abs(target_delta - accepted_source) > _EPSILON
+                    or abs(
+                        trial_simulation.total_optimization_cost_pln
+                        - simulation.total_optimization_cost_pln
+                    )
+                    > EQUIVALENT_PLAN_COST_TOLERANCE_PLN
+                    or abs(
+                        trial_simulation.total_grid_import_kwh
+                        - simulation.total_grid_import_kwh
+                    )
+                    > _EPSILON
+                    or abs(
+                        trial_simulation.shortage_kwh - simulation.shortage_kwh
+                    )
+                    > _EPSILON
+                    or abs(
+                        trial_simulation.ending_battery_kwh
+                        - simulation.ending_battery_kwh
+                    )
+                    > _EPSILON
+                    or trial_simulation.uncovered_import_kwh
+                    != simulation.uncovered_import_kwh
+                    or any(
+                        abs(
+                            trial_simulation.battery_after_kwh[index]
+                            - simulation.battery_after_kwh[index]
+                        )
+                        > _EPSILON
+                        for index in range(target, len(starts))
+                    )
+                ):
+                    continue
+
+                planned = trial
+                simulation = trial_simulation
+                origin = allocation_provenance.pop(source)
+                allocation_provenance[target] = (
+                    allocation_provenance.get(target, 0) | origin
+                )
+                moved = True
+                break
+            if moved:
+                break
+        if not moved:
+            return planned, simulation
+
+
+def _stabilize_active_tariff_commitment(
+    settings: TariffOptimizerInput,
+    starts: list[datetime],
+    loads: list[float],
+    planned_charge: dict[int, float],
+    planned_support: dict[int, float],
+    rates: list[tuple[float, str]],
+    slot_fractions: list[float],
+    block_limits: list[float],
+    allocation_provenance: dict[int, int],
+    simulation: _Simulation,
+) -> tuple[dict[int, float], _Simulation, bool]:
+    """Move already-needed charge into a fresh active transaction's slot.
+
+    The normal solve remains authoritative about whether energy is needed.
+    This pass runs only when that solve selected an equivalent later low-price
+    charge before the transaction's immutable deadline. It moves, rather than
+    adds, requested energy and compensates for the battery discharge avoided
+    while Mode 4 supplies the current home load.
+    """
+
+    commitment = settings.active_commitment
+    if (
+        commitment is None
+        or not starts
+        or not block_limits
+        or not settings.control_inputs_fresh
+        or rates[0][1] != "low"
+        or commitment.action not in {
+            "battery_charge",
+            "grid_support_and_charge",
+        }
+        or not isinstance(commitment.transaction_id, str)
+        or not commitment.transaction_id
+        or not isfinite(commitment.target_soc_percent)
+        or not isfinite(commitment.maximum_charge_power_percent)
+        or commitment.maximum_charge_power_percent <= 0.0
+        or simulation.accepted_import_kwh.get(0, 0.0) > 0.001
+        or simulation.accepted_support_kwh.get(0, 0.0) > 0.001
+        or planned_charge.get(0, 0.0) > _EPSILON
+        or planned_support.get(0, 0.0) > _EPSILON
+        or block_limits[0] <= 0.001
+        or settings.maximum_soc_percent + _EPSILON
+        < commitment.target_soc_percent
+        or settings.battery_soc_percent + 0.05
+        >= commitment.target_soc_percent
+    ):
+        return planned_charge, simulation, False
+    timestamps = (
+        settings.now,
+        commitment.started_at,
+        commitment.hard_deadline,
+        commitment.physical_verified_at,
+    )
+    if any(
+        value.tzinfo is None or value.utcoffset() is None
+        for value in timestamps
+    ):
+        return planned_charge, simulation, False
+    now_utc = settings.now.astimezone(timezone.utc)
+    started_utc = commitment.started_at.astimezone(timezone.utc)
+    deadline_utc = commitment.hard_deadline.astimezone(timezone.utc)
+    proof_utc = commitment.physical_verified_at.astimezone(timezone.utc)
+    proof_age = (now_utc - proof_utc).total_seconds()
+    if (
+        started_utc > now_utc
+        or now_utc >= deadline_utc
+        or proof_utc < started_utc
+        or proof_age < 0.0
+        or proof_age > ACTIVE_COMMITMENT_PHYSICAL_MAX_AGE_SECONDS
+    ):
+        return planned_charge, simulation, False
+
+    current_rate = rates[0][0]
+    sources = [
+        index
+        for index in sorted(planned_charge)
+        if index > 0
+        and starts[index].astimezone(timezone.utc) < deadline_utc
+        and rates[index][1] == "low"
+        and abs(rates[index][0] - current_rate) <= _EPSILON
+        and planned_charge.get(index, 0.0) > 0.001
+        and abs(
+            simulation.accepted_import_kwh.get(index, 0.0)
+            - planned_charge.get(index, 0.0)
+        ) <= _EPSILON
+        and _allocation_need_class(allocation_provenance.get(index)) != "none"
+    ]
+    if not sources:
+        return planned_charge, simulation, False
+
+    available = sum(planned_charge[index] for index in sources)
+    transfer = min(block_limits[0], available)
+    if transfer <= 0.001:
+        return planned_charge, simulation, False
+
+    origin = 0
+    for index in sources:
+        origin |= allocation_provenance[index]
+
+    def remove_from_sources(
+        plan: dict[int, float],
+        amount: float,
+    ) -> dict[int, float]:
+        adjusted = dict(plan)
+        remaining = max(amount, 0.0)
+        for index in reversed(sources):
+            current = adjusted.get(index, 0.0)
+            removed = min(current, remaining)
+            current -= removed
+            remaining -= removed
+            if current > _EPSILON:
+                adjusted[index] = current
+            else:
+                adjusted.pop(index, None)
+            if remaining <= _EPSILON:
+                break
+        return adjusted
+
+    moved = remove_from_sources(planned_charge, transfer)
+    moved[0] = transfer
+    moved_simulation = _simulate(
+        settings,
+        starts,
+        loads,
+        moved,
+        planned_support,
+        rates,
+        slot_fractions,
+    )
+
+    # Mode 4 also supplies current LOAD from the grid, so moving the same
+    # battery import earlier can leave more energy than the original solve.
+    # Remove only that measured surplus from the remaining future allocations.
+    if moved_simulation.ending_battery_kwh > simulation.ending_battery_kwh + 1e-5:
+        extra_available = sum(moved.get(index, 0.0) for index in sources)
+        if extra_available <= _EPSILON:
+            return planned_charge, simulation, False
+        upper_plan = remove_from_sources(moved, extra_available)
+        upper_plan[0] = transfer
+        upper_simulation = _simulate(
+            settings,
+            starts,
+            loads,
+            upper_plan,
+            planned_support,
+            rates,
+            slot_fractions,
+        )
+        if upper_simulation.ending_battery_kwh > simulation.ending_battery_kwh + 1e-5:
+            return planned_charge, simulation, False
+        lower = 0.0
+        upper = extra_available
+        selected_plan = upper_plan
+        selected_simulation = upper_simulation
+        for _ in range(24):
+            middle = (lower + upper) / 2.0
+            trial = remove_from_sources(moved, middle)
+            trial[0] = transfer
+            trial_simulation = _simulate(
+                settings,
+                starts,
+                loads,
+                trial,
+                planned_support,
+                rates,
+                slot_fractions,
+            )
+            if (
+                trial_simulation.ending_battery_kwh
+                > simulation.ending_battery_kwh
+            ):
+                lower = middle
+            else:
+                upper = middle
+                selected_plan = trial
+                selected_simulation = trial_simulation
+        moved = selected_plan
+        moved_simulation = selected_simulation
+
+    if (
+        moved_simulation.accepted_import_kwh.get(0, 0.0) <= 0.001
+        or moved_simulation.shortage_kwh > simulation.shortage_kwh + 1e-4
+        or moved_simulation.terminal_shortfall_kwh
+        > simulation.terminal_shortfall_kwh + 1e-4
+        or abs(
+            moved_simulation.ending_battery_kwh
+            - simulation.ending_battery_kwh
+        ) > 1e-4
+        or moved_simulation.total_optimization_cost_pln
+        > simulation.total_optimization_cost_pln
+        + ACTIVE_COMMITMENT_COST_TOLERANCE_PLN
+    ):
+        return planned_charge, simulation, False
+
+    for index in sources:
+        if moved.get(index, 0.0) <= _EPSILON:
+            allocation_provenance.pop(index, None)
+    allocation_provenance[0] = origin
+    return moved, moved_simulation, True
+
+
+def _stabilize_active_tariff_support(
+    settings, starts, loads, planned, support, rates, fractions, simulation,
+):
+    """Keep an equally good or better Mode 4 run within its original deadline.
+
+    A fresh physical commitment is required; this cannot manufacture a start,
+    cover missing data, suppress real charging need or extend a transaction.
+    """
+    c = settings.active_commitment
+    if (c is None or c.action not in {
+        "grid_support", "battery_charge", "grid_support_and_charge",
+    } or not settings.control_inputs_fresh):
+        return support, simulation, False
+    dates = (settings.now, c.started_at, c.physical_verified_at, c.hard_deadline)
+    if not c.transaction_id or any(d.tzinfo is None or d.utcoffset() is None for d in dates):
+        return support, simulation, False
+    now, started, proof, end = (d.astimezone(timezone.utc) for d in dates)
+    if not started <= proof <= now < end or (now-proof).total_seconds() > ACTIVE_COMMITMENT_PHYSICAL_MAX_AGE_SECONDS:
+        return support, simulation, False
+    live = (settings.current_load_power_kw, settings.current_pv_power_kw)
+    if any(v is None or not isfinite(v) for v in live) or live[0] <= live[1] + _EPSILON:
+        return support, simulation, False
+    indices = [i for i, start in enumerate(starts) if start.astimezone(timezone.utc) < end]
+    if not indices or any(rates[i][1] != 'low' or starts[i].astimezone(timezone.utc) + SLOT > end for i in indices):
+        return support, simulation, False
+    # A short, still-required charge may be followed by direct house supply in
+    # the same Mode 4 transaction. Preserve its energy allocation; the normal
+    # action-specific target still ends charging at the original slot boundary.
+    trial = dict(support)
+    for i in indices:
+        trial[i] = max(loads[i] - settings.pv_by_slot_kwh.get(starts[i], 0) * fractions[i], 0)
+    candidate = _simulate(settings, starts, loads, planned, trial, rates, fractions)
+    if (candidate.accepted_support_kwh.get(0, 0.0) <= _EPSILON
+        or candidate.total_optimization_cost_pln > simulation.total_optimization_cost_pln + EQUIVALENT_PLAN_COST_TOLERANCE_PLN
+        or candidate.total_grid_cost_pln > simulation.total_grid_cost_pln + EQUIVALENT_PLAN_COST_TOLERANCE_PLN
+        or abs(candidate.total_grid_import_kwh - simulation.total_grid_import_kwh) > _EPSILON
+        or abs(candidate.ending_battery_kwh - simulation.ending_battery_kwh) > _EPSILON
+        or candidate.shortage_kwh > simulation.shortage_kwh + _EPSILON
+        or candidate.terminal_shortfall_kwh > simulation.terminal_shortfall_kwh + _EPSILON
+        or candidate.physical_dispatch_unavailable_slots - simulation.physical_dispatch_unavailable_slots
+        or any(candidate.uncovered_import_kwh.get(i, 0) > simulation.uncovered_import_kwh.get(i, 0) + _EPSILON for i in range(len(starts)))):
+        return support, simulation, False
+    return trial, candidate, True
+
+
+def _tariff_timeline_trace(
+    *,
+    settings: TariffOptimizerInput,
+    starts: list[datetime],
+    slot_fractions: list[float],
+    rates: list[tuple[float, str]],
+    baseline: _Simulation,
+    selected: _Simulation,
+    allocation_provenance: dict[int, int],
+    status_code: str,
+    planning_horizon_hours: float,
+) -> OptimizerTimelineTrace | None:
+    """Merge already-executed baseline/selected simulations into a trace."""
+
+    if (
+        not settings.control_inputs_fresh
+        or not starts
+        or len(starts) != len(slot_fractions)
+        or len(starts) != len(rates)
+    ):
+        return None
+    capacity = max(settings.battery_capacity_kwh, 0.001)
+    protected_soc = min(max(settings.reserve_soc_percent, 0.0), 100.0)
+    dispatch_unavailable_slots = (
+        baseline.physical_dispatch_unavailable_slots
+        | selected.physical_dispatch_unavailable_slots
+    )
+    if dispatch_unavailable_slots:
+        timeline_quality = "unavailable"
+        timeline_blocker = "export_disposition_unverified"
+    elif status_code == "insufficient_cheap_window":
+        timeline_quality = "partial"
+        timeline_blocker = status_code
+    elif planning_horizon_hours < 48.0 - 0.01:
+        timeline_quality = "partial"
+        timeline_blocker = "planning_horizon_limited"
+    else:
+        timeline_quality = "complete"
+        timeline_blocker = None
+    points: list[TimelineTracePoint] = []
+    first_fraction = min(max(slot_fractions[0], 0.0), 1.0)
+    first_end = starts[0].astimezone(timezone.utc) + SLOT
+    horizon_limit = first_end - SLOT * first_fraction + timedelta(hours=48)
+    for index, slot_start in enumerate(starts):
+        fraction = min(max(slot_fractions[index], 0.0), 1.0)
+        end = slot_start.astimezone(timezone.utc) + SLOT
+        start = end - SLOT * fraction
+        if end > horizon_limit:
+            break
+        duration_hours = max((end - start).total_seconds() / 3600.0, 1e-9)
+        battery_import = selected.accepted_import_kwh.get(index, 0.0)
+        direct_support = selected.accepted_support_kwh.get(index, 0.0)
+        planned_import = battery_import + direct_support
+        if battery_import > _EPSILON and direct_support > _EPSILON:
+            action = "grid_support_and_charge"
+        elif battery_import > _EPSILON:
+            action = "battery_charge"
+        elif direct_support > _EPSILON:
+            action = "grid_support"
+        else:
+            action = "idle"
+        need_class = (
+            "none"
+            if action == "idle"
+            else _allocation_need_class(allocation_provenance.get(index))
+        )
+        price, zone = rates[index]
+        selected_point = planned_import > 0.001
+        points.append(
+            TimelineTracePoint(
+                start=start,
+                end=end,
+                pv_kwh=selected.pv_kwh[index],
+                load_kwh=selected.load_kwh[index],
+                battery_delta_kwh=selected.battery_delta_kwh[index],
+                grid_import_kwh=selected.grid_import_kwh[index],
+                grid_export_kwh=selected.grid_export_kwh[index],
+                soc_percent=min(
+                    max(selected.battery_after_kwh[index] / capacity * 100.0, 0.0),
+                    100.0,
+                ),
+                baseline_soc_percent=min(
+                    max(baseline.battery_after_kwh[index] / capacity * 100.0, 0.0),
+                    100.0,
+                ),
+                protected_soc_floor_percent=protected_soc,
+                action_code=action,
+                selected=selected_point,
+                # The trace can be partial because the complete target cannot
+                # be reached or because the horizon is shorter than 48 h,
+                # while each slot with a verified physical disposition remains
+                # fully simulated and energy-balanced. Keep horizon quality
+                # and point validity separate so a feasible selected charge is
+                # not mislabeled as an unverified actuator command.
+                quality=(
+                    "unavailable"
+                    if index in dispatch_unavailable_slots
+                    else "complete"
+                ),
+                policy=TariffPolicyPoint(
+                    buy_price_pln_kwh=price,
+                    tariff_zone=zone,
+                    planned_import_kwh=planned_import,
+                    # These are exact optimizer allocations, not physical
+                    # accounting measurements.  Keeping both makes the
+                    # Aurora action bar truthful when cheap grid energy
+                    # simultaneously serves the house and stores energy.
+                    stored_energy_kwh=selected.stored_import_kwh.get(index, 0.0),
+                    direct_load_kwh=direct_support,
+                    planned_charge_kw=(
+                        selected.stored_import_kwh.get(index, 0.0) / duration_hours
+                    ),
+                    expected_cost_pln=planned_import * price,
+                    # The existing optimizer exposes aggregate savings only.
+                    expected_saving_pln=None,
+                    need_class=need_class,
+                ),
+                target_soc_percent=(
+                    min(
+                        max(
+                            selected.battery_after_kwh[index]
+                            / capacity
+                            * 100.0,
+                            0.0,
+                        ),
+                        100.0,
+                    )
+                    if selected_point
+                    else None
+                ),
+            )
+        )
+    return OptimizerTimelineTrace(
+        policy_id="tariff",
+        points=tuple(points),
+        quality=timeline_quality,
+        blocker_code=timeline_blocker,
+    )
+
+
+def _next_protected_window(
+    rates: list[tuple[float, str]],
+) -> tuple[int, int] | None:
+    """Return the next non-low period reachable from a low-price window."""
+
+    low_seen = False
+    for index, (_price, zone) in enumerate(rates):
+        if zone == "low":
+            low_seen = True
+            continue
+        if zone == "g11" or not low_seen:
+            continue
+        end = index + 1
+        while end < len(rates) and rates[end][1] not in {"low", "g11"}:
+            end += 1
+        return index, end
+    return None
+
+
+def optimize_tariff_charging(settings: TariffOptimizerInput) -> TariffOptimizerResult:
+    """Compare complete feasible layouts, keeping economics authoritative.
+
+    A greedy marginal allocation can scatter whole-slot home support even at
+    one price. Re-solve that first fragmented low window with later economic
+    boundaries. Every trial still runs reserve, margin, power and full-horizon
+    simulation; a boundary never postpones mandatory reserve restoration.
+    This is a bounded layout search, not a claim of global optimality.
+    """
+    original = _optimize_tariff_charging(settings)
+    first = original.next_charge_start
+    if first is None or settings.active_commitment is not None:
+        return replace(original, latest_feasible_start=None)
+    zone = settings.now.tzinfo
+    first_utc = first.astimezone(timezone.utc)
+    cursor = first_utc + SLOT
+    end = settings.now.astimezone(timezone.utc) + timedelta(hours=48)
+    rate = tariff_rate(first, settings.schedule)
+    boundaries = []
+    while cursor < end and tariff_rate(cursor.astimezone(zone), settings.schedule) == rate:
+        boundaries.append(cursor.astimezone(zone))
+        cursor += SLOT
+    first_window = [p for p in original.planned_charges if p.start.astimezone(timezone.utc) < cursor]
+    fragments = sum(i == 0 or p.start.astimezone(timezone.utc) != first_window[i-1].start.astimezone(timezone.utc) + SLOT for i, p in enumerate(first_window))
+    # A contiguous, already deferred run has no demonstrated fragmentation to
+    # repair. Do not multiply routine solver work, or invent a latest-start
+    # diagnostic for a window that has not been searched.
+    if fragments < 2 or original.hard_reserve_restoration_required:
+        return replace(original, latest_feasible_start=None)
+    complete = len(boundaries) <= 18
+    if not complete:
+        boundaries = [boundaries[round(i * (len(boundaries)-1) / 17)] for i in range(18)]
+    selected = original
+    latest_safe = first
+    latest_equal = first
+    def layout_key(result):
+        slots = result.planned_charges
+        count = sum(i == 0 or p.start.astimezone(timezone.utc) != slots[i-1].start.astimezone(timezone.utc) + SLOT for i, p in enumerate(slots))
+        return count, -slots[0].start.timestamp()
+    for boundary in boundaries:
+        trial = _optimize_tariff_charging(settings, economic_not_before=boundary)
+        if (trial.next_charge_start is None or trial.next_charge_start < boundary
+            or trial.next_charge_start.astimezone(timezone.utc) >= cursor):
+            continue
+        if any(getattr(trial, field) > getattr(original, field) + _EPSILON for field in (
+            'remaining_expensive_import_kwh', 'terminal_shortfall_kwh',
+            'base_energy_shortfall_kwh', 'hard_reserve_shortfall_kwh',
+            'demand_margin_unserved_kwh',
+        )) or trial.ending_battery_kwh < original.ending_battery_kwh - _EPSILON:
+            continue
+        latest_safe = max(latest_safe, trial.next_charge_start)
+        if any(abs(getattr(trial, field) - getattr(original, field)) > EQUIVALENT_PLAN_COST_TOLERANCE_PLN for field in (
+            'optimized_grid_cost_pln', 'optimized_optimization_cost_pln',
+        )) or any(abs(getattr(trial, field) - getattr(original, field)) > _EPSILON for field in (
+            'optimized_grid_import_kwh', 'ending_battery_kwh',
+        )):
+            continue
+        latest_equal = max(latest_equal, trial.next_charge_start)
+        if layout_key(trial) < layout_key(selected):
+            selected = trial
+    return replace(selected, latest_feasible_start=latest_safe,
+                   latest_equivalent_start=latest_equal,
+                   latest_start_search_complete=complete,
+                   layout_candidates_evaluated=len(boundaries) + 1)
+
+
+def _optimize_tariff_charging(
+    settings: TariffOptimizerInput,
+    *, economic_not_before: datetime | None = None,
 ) -> TariffOptimizerResult:
     """Build the least-cost feasible charging plan for two or three days."""
+    if (
+        not isfinite(settings.battery_capacity_kwh)
+        or settings.battery_capacity_kwh <= 0.0
+    ):
+        raise ValueError("battery capacity must be finite and positive")
+    if not isfinite(settings.demand_margin_percent):
+        raise ValueError("energy-demand margin must be finite")
     now_slot = floor_half_hour(settings.now)
     (
         horizon_days,
@@ -806,15 +1614,7 @@ def optimize_tariff_charging(
     loads = _slot_loads(settings, starts)
     if loads:
         loads[0] *= first_fraction
-    current_slot_load_source = "profile"
-    if (
-        loads
-        and settings.current_load_power_kw is not None
-        and isfinite(settings.current_load_power_kw)
-        and settings.current_load_power_kw >= 0.0
-    ):
-        loads[0] = settings.current_load_power_kw * 0.5 * first_fraction
-        current_slot_load_source = "live"
+    current_slot_load_source = "shared_forecast"
     current_slot_pv_source = "forecast"
     effective_pv_by_slot = settings.pv_by_slot_kwh
     if (
@@ -835,6 +1635,34 @@ def optimize_tariff_charging(
     )
     rates = [tariff_rate(start, settings.schedule) for start in starts]
     base_loads = list(loads)
+    physical_reserve_soc = min(
+        max(
+            settings.base_reserve_soc_percent
+            if settings.base_reserve_soc_percent is not None
+            else settings.reserve_soc_percent,
+            0.0,
+        ),
+        min(max(settings.reserve_soc_percent, 0.0), 100.0),
+    )
+    protected_window = _next_protected_window(rates)
+    protected_start_index = (
+        protected_window[0] if protected_window is not None else None
+    )
+    protected_end_index = (
+        protected_window[1] if protected_window is not None else None
+    )
+    protected_period_start = (
+        starts[protected_start_index]
+        if protected_start_index is not None
+        else None
+    )
+    protected_period_end = (
+        (
+            starts[protected_end_index - 1].astimezone(timezone.utc) + SLOT
+        ).astimezone(settings.now.tzinfo)
+        if protected_end_index is not None
+        else None
+    )
     load_risk_multiplier = 1.0
     if (
         settings.load_history_days >= 5
@@ -962,6 +1790,99 @@ def optimize_tariff_charging(
         max(effective_pv_by_slot.get(start, 0.0), 0.0) * fraction
         for start, fraction in zip(starts, slot_fractions)
     )
+    # The operator margin is energy that may be consumed during the next
+    # protected non-low period.  Measure the base need on the battery axis
+    # against the physical Self-Use floor, independently of the automatic
+    # P90/forecast scenarios used by the main optimization.
+    demand_settings = replace(
+        effective_settings,
+        battery_soc_percent=physical_reserve_soc,
+        reserve_soc_percent=physical_reserve_soc,
+        base_reserve_soc_percent=physical_reserve_soc,
+        terminal_reserve_soc_percent=physical_reserve_soc,
+        demand_margin_percent=0.0,
+    )
+    protected_starts = (
+        starts[protected_start_index:protected_end_index]
+        if protected_start_index is not None
+        and protected_end_index is not None
+        else []
+    )
+    protected_loads = (
+        base_loads[protected_start_index:protected_end_index]
+        if protected_starts
+        else []
+    )
+    protected_rates = (
+        rates[protected_start_index:protected_end_index]
+        if protected_starts
+        else []
+    )
+    protected_slot_fractions = (
+        slot_fractions[protected_start_index:protected_end_index]
+        if protected_starts
+        else []
+    )
+    # D belongs to the protected period itself.  Start its reference
+    # simulation exactly at that boundary so PV before the boundary changes
+    # the projected entry stock, never the protected demand basis.  Compare a
+    # battery on the physical reserve with one filled to the configured charge
+    # ceiling; only the import that stored energy can actually displace under
+    # the current bridge/DCL limits is consumable demand.
+    demand_baseline = _simulate(
+        demand_settings,
+        protected_starts,
+        protected_loads,
+        {},
+        {},
+        protected_rates,
+        protected_slot_fractions,
+    )
+    demand_available = _simulate(
+        replace(
+            demand_settings,
+            # Physical full stock reveals the demand that energy could serve;
+            # the configured charge ceiling is applied later as an explicit
+            # capacity constraint and reported as base/margin shortfall.
+            battery_soc_percent=100.0,
+        ),
+        protected_starts,
+        protected_loads,
+        {},
+        {},
+        protected_rates,
+        protected_slot_fractions,
+    )
+    protected_unavoidable_import_kwh = sum(
+        demand_available.uncovered_import_kwh.values()
+    )
+    protected_useful_demand_kwh = sum(
+        max(
+            demand_baseline.uncovered_import_kwh.get(item, 0.0)
+            - demand_available.uncovered_import_kwh.get(item, 0.0),
+            0.0,
+        )
+        for item in range(len(protected_starts))
+    )
+    discharge_efficiency = min(
+        max(settings.discharge_efficiency_percent / 100.0, 0.01),
+        1.0,
+    )
+    protected_demand_kwh = (
+        protected_useful_demand_kwh / discharge_efficiency
+    )
+    demand_margin_percent = max(settings.demand_margin_percent, 0.0)
+    demand_margin_requested_kwh = (
+        protected_demand_kwh * demand_margin_percent / 100.0
+    )
+    physical_reserve_energy = (
+        settings.battery_capacity_kwh * physical_reserve_soc / 100.0
+    )
+    requested_target_energy_kwh = (
+        physical_reserve_energy
+        + protected_demand_kwh
+        + demand_margin_requested_kwh
+    )
     baseline = _simulate(
         effective_settings,
         starts,
@@ -973,6 +1894,7 @@ def optimize_tariff_charging(
     )
     planned: dict[int, float] = {}
     planned_support: dict[int, float] = {}
+    allocation_provenance: dict[int, int] = {}
     simulation = baseline
     charge_power = max(settings.charge_power_kw, 0.0)
     requested_charge_power = max(
@@ -1229,9 +2151,17 @@ def optimize_tariff_charging(
                         else:
                             lower = middle
                     planned[index] = base_amount + upper
+                    allocation_provenance[index] = (
+                        allocation_provenance.get(index, 0)
+                        | _ALLOCATION_REQUIRED_ENERGY
+                    )
                     simulation = selected_simulation
                     break
                 planned[index] = base_amount + available
+                allocation_provenance[index] = (
+                    allocation_provenance.get(index, 0)
+                    | _ALLOCATION_REQUIRED_ENERGY
+                )
                 simulation = full_simulation
 
     # The configured Self-Use reserve plus the user's safety correction is a
@@ -1244,8 +2174,8 @@ def optimize_tariff_charging(
     # Build this reserve-restoration run backwards from that deadline.  This
     # gives the inverter one stable, contiguous charge rather than repeatedly
     # taking small bites from every replan (especially on all-low G12w
-    # weekends).  A trial simulation accounts for home LOAD consuming part of
-    # the shared Grid Charge power and for the battery/BMS charge limit.
+    # weekends). A trial simulation accounts separately for grid-supplied LOAD
+    # and the configured battery/BMS charge limit.
     reserve_energy = (
         max(settings.battery_capacity_kwh, 0.001)
         * min(max(settings.reserve_soc_percent, 0.0), 100.0)
@@ -1334,10 +2264,18 @@ def optimize_tariff_charging(
                             else:
                                 lower = middle
                         planned[index] = base_amount + upper
+                        allocation_provenance[index] = (
+                            allocation_provenance.get(index, 0)
+                            | _ALLOCATION_REQUIRED_ENERGY
+                        )
                         simulation = selected_simulation
                         break
 
                     planned[index] = base_amount + available
+                    allocation_provenance[index] = (
+                        allocation_provenance.get(index, 0)
+                        | _ALLOCATION_REQUIRED_ENERGY
+                    )
                     simulation = full_simulation
                     projected_at_deadline = full_projected
 
@@ -1366,6 +2304,8 @@ def optimize_tariff_charging(
         # expensive imports; the complete simulation accepts it only when the
         # total future shortage is genuinely reduced.
         for index in range(len(starts)):
+            if economic_not_before is not None and starts[index] < economic_not_before:
+                continue
             rate = rates[index][0]
             # Grid Charge is a low-zone actuator. Medium G13 pricing remains
             # part of the cost simulation, but it must never become an
@@ -1414,9 +2354,10 @@ def optimize_tariff_charging(
                     uneconomic_low_trial_found = True
                 if feasible_reduction and economically_beneficial:
                     score = (
-                        -cost_reduction / accepted_delta,
+                        (round(-cost_reduction / accepted_delta, 9) if economic_not_before is not None
+                         else -cost_reduction / accepted_delta),
                         rate,
-                        index,
+                        -index,
                         0,
                     )
                     candidate = (
@@ -1466,7 +2407,8 @@ def optimize_tariff_charging(
                     uneconomic_low_trial_found = True
                 if feasible_reduction and economically_beneficial:
                     score = (
-                        -cost_reduction / accepted_delta,
+                        (round(-cost_reduction / accepted_delta, 9) if economic_not_before is not None
+                         else -cost_reduction / accepted_delta),
                         rate,
                         -index,
                         1,
@@ -1484,9 +2426,209 @@ def optimize_tariff_charging(
 
         if best is None:
             break
-        _, _, _, planned, planned_support, simulation = best
+        _, _, selected_index, planned, planned_support, simulation = best
+        allocation_provenance[selected_index] = (
+            allocation_provenance.get(selected_index, 0)
+            | _ALLOCATION_ECONOMIC
+        )
+
+    planned, simulation = _compact_equivalent_economic_charges(
+        effective_settings,
+        starts,
+        loads,
+        planned,
+        planned_support,
+        rates,
+        slot_fractions,
+        allocation_provenance,
+        simulation,
+    )
+    # Fill the consumable margin only after the base optimizer has covered the
+    # protected demand and its independent automatic risk scenarios. Existing
+    # conservative energy therefore counts toward the target and is never
+    # purchased twice. Equal-price allocations are considered from the end of
+    # the cheap window backwards, which implements the latest feasible start.
+    maximum_target_energy = (
+        settings.battery_capacity_kwh
+        * min(max(settings.maximum_soc_percent, 0.0), 100.0)
+        / 100.0
+    )
+    margin_target_energy = min(
+        requested_target_energy_kwh,
+        maximum_target_energy,
+    )
+    if (
+        protected_start_index is not None
+        and protected_start_index > 0
+        and demand_margin_requested_kwh > _EPSILON
+        and not soc_limits_conflict
+    ):
+        deadline_slot = protected_start_index - 1
+        projected_at_deadline = simulation.battery_after_kwh.get(
+            deadline_slot,
+            initial_battery_energy,
+        )
+        for index in range(protected_start_index - 1, -1, -1):
+            if projected_at_deadline >= margin_target_energy - _EPSILON:
+                break
+            if rates[index][1] != "low":
+                continue
+            available = block_limits[index] - planned.get(index, 0.0)
+            if available <= _EPSILON:
+                continue
+            base_amount = planned.get(index, 0.0)
+            full_trial = dict(planned)
+            full_trial[index] = base_amount + available
+            full_simulation = _simulate(
+                effective_settings,
+                starts,
+                loads,
+                full_trial,
+                planned_support,
+                rates,
+                slot_fractions,
+            )
+            full_projected = full_simulation.battery_after_kwh.get(
+                deadline_slot,
+                projected_at_deadline,
+            )
+            if full_projected <= projected_at_deadline + _EPSILON:
+                continue
+            selected_amount = available
+            selected_simulation = full_simulation
+            if full_projected >= margin_target_energy - _EPSILON:
+                lower = 0.0
+                upper = available
+                for _ in range(18):
+                    middle = (lower + upper) / 2.0
+                    trial = dict(planned)
+                    trial[index] = base_amount + middle
+                    trial_simulation = _simulate(
+                        effective_settings,
+                        starts,
+                        loads,
+                        trial,
+                        planned_support,
+                        rates,
+                        slot_fractions,
+                    )
+                    trial_projected = trial_simulation.battery_after_kwh.get(
+                        deadline_slot,
+                        projected_at_deadline,
+                    )
+                    if trial_projected >= margin_target_energy - _EPSILON:
+                        upper = middle
+                        selected_simulation = trial_simulation
+                    else:
+                        lower = middle
+                selected_amount = upper
+            planned[index] = base_amount + selected_amount
+            allocation_provenance[index] = (
+                allocation_provenance.get(index, 0)
+                | _ALLOCATION_REQUIRED_ENERGY
+            )
+            simulation = selected_simulation
+            projected_at_deadline = simulation.battery_after_kwh.get(
+                deadline_slot,
+                projected_at_deadline,
+            )
+    planned, simulation, active_commitment_applied = (
+        _stabilize_active_tariff_commitment(
+            effective_settings,
+            starts,
+            loads,
+            planned,
+            planned_support,
+            rates,
+            slot_fractions,
+            block_limits,
+            allocation_provenance,
+            simulation,
+        )
+    )
+    planned_support, simulation, support_commitment_applied = _stabilize_active_tariff_support(
+        effective_settings, starts, loads, planned, planned_support, rates,
+        slot_fractions, simulation,
+    )
+    if support_commitment_applied:
+        for index in planned_support:
+            allocation_provenance[index] = allocation_provenance.get(index, 0) | _ALLOCATION_ECONOMIC
+    active_commitment_applied |= support_commitment_applied
+    demand_selected = _simulate(
+        replace(
+            demand_settings,
+            battery_soc_percent=settings.battery_soc_percent,
+        ),
+        starts,
+        base_loads,
+        planned,
+        planned_support,
+        rates,
+        slot_fractions,
+    )
+    base_energy_shortfall_kwh = (
+        max(
+            sum(
+                demand_selected.uncovered_import_kwh.get(item, 0.0)
+                for item in range(protected_start_index, protected_end_index)
+            )
+            - protected_unavoidable_import_kwh,
+            0.0,
+        )
+        / discharge_efficiency
+        if protected_start_index is not None
+        and protected_end_index is not None
+        else 0.0
+    )
+    protected_entry_energy = (
+        demand_selected.battery_after_kwh.get(
+            protected_start_index - 1,
+            initial_battery_energy,
+        )
+        if protected_start_index is not None and protected_start_index > 0
+        else initial_battery_energy
+    )
+    demand_margin_feasible_kwh = (
+        min(
+            max(
+                protected_entry_energy
+                - physical_reserve_energy
+                - protected_demand_kwh,
+                0.0,
+            ),
+            demand_margin_requested_kwh,
+        )
+        if base_energy_shortfall_kwh <= 0.01
+        else 0.0
+    )
+    demand_margin_unserved_kwh = max(
+        demand_margin_requested_kwh - demand_margin_feasible_kwh,
+        0.0,
+    )
+    if base_energy_shortfall_kwh > 0.01:
+        demand_margin_constraint_reason = "base_energy_capacity_time_or_power"
+    elif demand_margin_unserved_kwh > 0.01:
+        demand_margin_constraint_reason = (
+            "maximum_soc"
+            if requested_target_energy_kwh > maximum_target_energy + _EPSILON
+            else "time_or_power"
+        )
+    else:
+        demand_margin_constraint_reason = "none"
+    feasible_target_energy_kwh = min(
+        requested_target_energy_kwh,
+        maximum_target_energy,
+        max(protected_entry_energy, 0.0),
+    )
+    active_commitment_deadline_utc = (
+        settings.active_commitment.hard_deadline.astimezone(timezone.utc)
+        if active_commitment_applied
+        and settings.active_commitment is not None
+        else None
+    )
 
     charges: list[PlannedCharge] = []
+    charge_indices: list[int] = []
     capacity = max(settings.battery_capacity_kwh, 0.001)
     action_indices = sorted(
         set(simulation.accepted_import_kwh)
@@ -1525,6 +2667,7 @@ def optimize_tariff_charging(
                 ),
             )
         )
+        charge_indices.append(index)
 
     planned_grid = sum(item.grid_import_kwh for item in charges)
     planned_stored = sum(item.stored_energy_kwh for item in charges)
@@ -1543,16 +2686,36 @@ def optimize_tariff_charging(
     current_planned = bool(charges and charges[0].start == now_slot)
     current_action = charges[0].action if current_planned else "none"
     current_slot_end: datetime | None = None
+    current_grid_charge_run_end: datetime | None = None
     current_run_items: list[PlannedCharge] = []
+    current_run_slot_indices: list[int] = []
     if current_planned:
+        grid_charge_end_utc = charges[0].start.astimezone(timezone.utc) + SLOT
+        for item in charges[1:]:
+            if item.start.astimezone(timezone.utc) != grid_charge_end_utc:
+                break
+            if (
+                active_commitment_deadline_utc is not None
+                and item.start.astimezone(timezone.utc)
+                >= active_commitment_deadline_utc
+            ):
+                break
+            grid_charge_end_utc += SLOT
+        if active_commitment_deadline_utc is not None:
+            grid_charge_end_utc = min(
+                grid_charge_end_utc,
+                active_commitment_deadline_utc,
+            )
+        current_grid_charge_run_end = grid_charge_end_utc.astimezone(settings.now.tzinfo)
         current_run_items = [charges[0]]
+        current_run_slot_indices = [charge_indices[0]]
         current_slot_end_utc = charges[0].start.astimezone(timezone.utc) + SLOT
         current_action_family = (
             "support_only"
             if current_action == "grid_support"
             else "required_charge"
         )
-        for item in charges[1:]:
+        for item_index, item in zip(charge_indices[1:], charges[1:]):
             item_action_family = (
                 "support_only"
                 if item.action == "grid_support"
@@ -1561,11 +2724,27 @@ def optimize_tariff_charging(
             if (
                 item.start.astimezone(timezone.utc) != current_slot_end_utc
                 or item_action_family != current_action_family
+                or (
+                    active_commitment_deadline_utc is not None
+                    and item.start.astimezone(timezone.utc)
+                    >= active_commitment_deadline_utc
+                )
             ):
                 break
             current_run_items.append(item)
+            current_run_slot_indices.append(item_index)
             current_slot_end_utc += SLOT
+        if active_commitment_deadline_utc is not None:
+            current_slot_end_utc = min(
+                current_slot_end_utc,
+                active_commitment_deadline_utc,
+            )
         current_slot_end = current_slot_end_utc.astimezone(settings.now.tzinfo)
+    current_run_need_class = _classify_current_run_need(
+        current_planned=current_planned,
+        current_run_slot_indices=tuple(current_run_slot_indices),
+        allocation_provenance=allocation_provenance,
+    )
     current_run_duration_seconds = (
         max(
             (
@@ -1590,9 +2769,20 @@ def optimize_tariff_charging(
     current_run_direct = sum(
         item.direct_load_kwh for item in current_run_items
     )
+    forecast_run_direct = current_run_direct
+    if (current_action == "grid_support" and current_run_items
+            and settings.current_load_power_kw is not None
+            and settings.current_pv_power_kw is not None
+            and isfinite(settings.current_load_power_kw)
+            and isfinite(settings.current_pv_power_kw)):
+        # Current power can veto a micro support cycle. It must not increase
+        # forecast LOAD or project one spike through the complete energy plan.
+        live_direct = max(settings.current_load_power_kw-settings.current_pv_power_kw, 0.) * .5 * first_fraction
+        first_direct = current_run_items[0].direct_load_kwh
+        current_run_direct -= max(first_direct-live_direct, 0.)
     current_run_benefit = 0.0
     if current_run_items:
-        current_run_indices = set(range(len(current_run_items)))
+        counterfactual_relative_indices = set(range(len(current_run_items)))
         counterfactual = _simulate(
             effective_settings,
             starts,
@@ -1600,12 +2790,12 @@ def optimize_tariff_charging(
             {
                 index: amount
                 for index, amount in planned.items()
-                if index not in current_run_indices
+                if index not in counterfactual_relative_indices
             },
             {
                 index: amount
                 for index, amount in planned_support.items()
-                if index not in current_run_indices
+                if index not in counterfactual_relative_indices
             },
             rates,
             slot_fractions,
@@ -1620,6 +2810,8 @@ def optimize_tariff_charging(
     current_run_continue_eligible = current_planned
     current_run_continue_reason = "not_support_only"
     if current_action == "grid_support":
+        if forecast_run_direct > _EPSILON:
+            current_run_benefit *= min(current_run_direct / forecast_run_direct, 1.)
         # Continuing an already active support run only needs trustworthy live
         # evidence that the home still has a material net demand. Do not check
         # battery discharge here: successful Grid Charge makes it disappear.
@@ -1635,7 +2827,7 @@ def optimize_tariff_charging(
             current_run_continue_reason = "live_data_missing"
         elif (
             settings.current_load_power_kw  # type: ignore[operator]
-            <= settings.current_pv_power_kw + 0.20  # type: ignore[operator]
+            <= settings.current_pv_power_kw + _EPSILON  # type: ignore[operator]
         ):
             current_run_continue_eligible = False
             current_run_continue_reason = "pv_covers_load"
@@ -1652,11 +2844,11 @@ def optimize_tariff_charging(
             current_run_suppression_reason = "live_data_missing"
         elif (
             settings.current_load_power_kw  # type: ignore[operator]
-            <= settings.current_pv_power_kw + 0.20  # type: ignore[operator]
+            <= settings.current_pv_power_kw + _EPSILON  # type: ignore[operator]
         ):
             current_run_start_eligible = False
             current_run_suppression_reason = "pv_covers_load"
-        elif settings.current_battery_power_kw <= 0.20:  # type: ignore[operator]
+        elif settings.current_battery_power_kw <= _EPSILON:  # type: ignore[operator]
             current_run_start_eligible = False
             current_run_suppression_reason = "battery_not_discharging"
         elif (
@@ -1693,25 +2885,9 @@ def optimize_tariff_charging(
     current_index = 0
     if current_planned:
         if current_action == "grid_support":
-            target_energy = simulation.battery_after_kwh.get(
-                0,
-                settings.battery_capacity_kwh
-                * settings.battery_soc_percent
-                / 100.0,
-            )
-            # A pure support cycle must preserve, not charge, the battery. A
-            # target slightly below current SOC prevents the inverter from
-            # interpreting a rounded 100% target as a request to top up.
-            target_energy = min(
-                target_energy,
-                capacity
-                * max(
-                    settings.battery_soc_percent
-                    - GRID_SUPPORT_TARGET_SOC_OFFSET_PERCENT,
-                    settings.reserve_soc_percent,
-                )
-                / 100.0,
-            )
+            # The physical inverter charges past the displayed integer target.
+            # Two points below current SOC allow for inverter SOC hysteresis.
+            target_energy = capacity * max(floor(settings.battery_soc_percent) - 2, 0) / 100.0
         else:
             contiguous = [0]
             for index in range(1, len(starts)):
@@ -1759,6 +2935,12 @@ def optimize_tariff_charging(
         target_energy = charges[0].target_soc_percent / 100.0 * capacity
     else:
         target_energy = settings.battery_capacity_kwh * settings.battery_soc_percent / 100.0
+    if active_commitment_applied and settings.active_commitment is not None:
+        target_energy = (
+            capacity
+            * min(max(settings.active_commitment.target_soc_percent, 0.0), 100.0)
+            / 100.0
+        )
 
     maximum_hard_reserve_energy = max(
         (
@@ -1859,6 +3041,53 @@ def optimize_tariff_charging(
     else:
         status = "ready"
 
+    physical_dispatch_available = bool(
+        baseline.physical_dispatch_available
+        and simulation.physical_dispatch_available
+    )
+    physical_dispatch_block_reason = (
+        "none"
+        if physical_dispatch_available
+        else "export_disposition_unverified"
+    )
+    if not physical_dispatch_available:
+        # The economic plan may remain useful diagnostically, but it cannot
+        # authorize a current write while forecast surplus has neither a
+        # verified export path nor a verified curtailment path.
+        status = "missing_data"
+        current_planned = False
+        current_action = "none"
+        current_slot_end = None
+        current_run_need_class = "none"
+        current_run_duration_seconds = 0.0
+        current_run_grid_import = 0.0
+        current_run_stored = 0.0
+        current_run_direct = 0.0
+        current_run_benefit = 0.0
+        current_run_start_eligible = False
+        current_run_suppression_reason = physical_dispatch_block_reason
+        current_run_continue_eligible = False
+        current_run_continue_reason = physical_dispatch_block_reason
+
+    potential_pv_total = sum(simulation.potential_pv_kwh.values())
+    realized_pv_total = (
+        sum(value for value in simulation.pv_kwh.values() if value is not None)
+        if all(value is not None for value in simulation.pv_kwh.values())
+        else None
+    )
+    curtailed_pv_total = (
+        sum(
+            value
+            for value in simulation.pv_curtailed_kwh.values()
+            if value is not None
+        )
+        if all(
+            value is not None
+            for value in simulation.pv_curtailed_kwh.values()
+        )
+        else None
+    )
+
     current_price, current_zone = rates[current_index]
     return TariffOptimizerResult(
         status_code=status,
@@ -1916,6 +3145,8 @@ def optimize_tariff_charging(
             _effective_terminal_reserve_soc_percent(settings)
         ),
         current_run_end=current_slot_end,
+        current_grid_charge_run_end=current_grid_charge_run_end,
+        current_run_need_class=current_run_need_class,
         current_run_duration_seconds=current_run_duration_seconds,
         current_run_grid_import_kwh=current_run_grid_import,
         current_run_stored_kwh=current_run_stored,
@@ -1963,13 +3194,54 @@ def optimize_tariff_charging(
         remaining_low_direct_import_kwh=remaining_low_direct_import,
         remaining_expensive_import_kwh=remaining_expensive_import,
         capacity_or_power_shortfall_kwh=capacity_or_power_shortfall,
-        control_inputs_fresh=settings.control_inputs_fresh,
+        control_inputs_fresh=(
+            settings.control_inputs_fresh and physical_dispatch_available
+        ),
         control_input_block_reason=(
-            settings.control_input_block_reason.strip()
-            or (
-                "none"
-                if settings.control_inputs_fresh
-                else "control_inputs_stale"
-            )
+            physical_dispatch_block_reason
+            if not physical_dispatch_available
+            else settings.control_input_block_reason.strip()
+            or ("none" if settings.control_inputs_fresh else "control_inputs_stale")
+        ),
+        potential_pv_kwh=potential_pv_total,
+        pv_kwh=realized_pv_total,
+        pv_curtailed_kwh=curtailed_pv_total,
+        physical_dispatch_available=physical_dispatch_available,
+        physical_dispatch_block_reason=physical_dispatch_block_reason,
+        active_commitment_applied=active_commitment_applied,
+        active_commitment_transaction_id=(
+            settings.active_commitment.transaction_id
+            if active_commitment_applied
+            and settings.active_commitment is not None
+            else None
+        ),
+        active_commitment_deadline=(
+            settings.active_commitment.hard_deadline
+            if active_commitment_applied
+            and settings.active_commitment is not None
+            else None
+        ),
+        protected_period_start=protected_period_start,
+        protected_period_end=protected_period_end,
+        protected_demand_kwh=protected_demand_kwh,
+        demand_margin_percent=demand_margin_percent,
+        demand_margin_requested_kwh=demand_margin_requested_kwh,
+        demand_margin_feasible_kwh=demand_margin_feasible_kwh,
+        demand_margin_unserved_kwh=demand_margin_unserved_kwh,
+        base_energy_shortfall_kwh=base_energy_shortfall_kwh,
+        requested_target_energy_kwh=requested_target_energy_kwh,
+        feasible_target_energy_kwh=feasible_target_energy_kwh,
+        demand_margin_constraint_reason=demand_margin_constraint_reason,
+        latest_feasible_start=None,
+        timeline_trace=_tariff_timeline_trace(
+            settings=effective_settings,
+            starts=starts,
+            slot_fractions=slot_fractions,
+            rates=rates,
+            baseline=baseline,
+            selected=simulation,
+            allocation_provenance=allocation_provenance,
+            status_code=status,
+            planning_horizon_hours=planning_horizon_hours,
         ),
     )

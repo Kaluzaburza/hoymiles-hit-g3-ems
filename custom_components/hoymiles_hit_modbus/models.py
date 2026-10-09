@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+
+if TYPE_CHECKING:
+    from .ems_notifications import HoymilesEmsNotificationManager
+    from .ems_shared_inputs import EMSSharedInputsCoordinator
+    from .rce_price_sensor import RCEPriceCoordinator
+    from .supervisor_control_lease import ControlLeaseClient
 
 
 @dataclass(slots=True)
@@ -23,3 +29,8 @@ class RuntimeData:
 
     source_device: dr.DeviceEntry
     entities: dict[str, list[MatchedEntity]]
+    shared_inputs: EMSSharedInputsCoordinator | None = None
+    rce_prices: RCEPriceCoordinator | None = None
+    notifications: HoymilesEmsNotificationManager | None = None
+    profits: Any = None
+    control_lease: ControlLeaseClient | None = None

@@ -1,5 +1,16 @@
 # Release procedure
 
+Current local preparation: **1.5.8RC2**, planned tag `v1.5.8RC2`.
+Use the [RC2 publication map](docs/releases/1.5.8RC2/PUBLICATION.md) and
+[public release body](docs/releases/v1.5.8rc2.md). Earlier freeze manifests
+remain historical evidence; the complete gate list below still applies.
+No tag, push or publication is authorized by preparing these files.
+
+For routine task closure before a release freeze, use
+[the version-independent EMS closeout prompt](docs/EMS_CHANGE_CLOSEOUT_PROMPT.md)
+and the integration branch recorded in [WORK_STATE](docs/WORK_STATE.MD).
+An integration checkpoint does not satisfy the release gates below.
+
 This file is the persistent release checklist for maintainers. HACS presents
 the GitHub Release body to users, so every release must explain the required
 post-update actions in the order in which they must be performed.
@@ -127,6 +138,21 @@ an exact manual-stop timestamp. It is therefore hardware/protocol evidence,
 not acceptance of v1.5.5 or v1.5.6. Repeat the full gate on the exact v1.5.6
 candidate before publication.
 
+### Battery-balancing manual recovery
+
+`RECOVERY_REQUIRED` means that an active/owned balancing cycle has no trusted
+current-cycle snapshot. It is intentionally not migrated or restored
+automatically. Keep balancing disabled, do not clear the active/lifecycle
+helpers, and retain the transaction reason, cycle ID, current physical mode,
+4303/4304 readbacks and a support bundle. A qualified operator must establish
+the intended settings from commissioning evidence or manufacturer controls,
+never from the untrusted legacy record, and obtain fresh physical readbacks.
+Only after the balancing timers and verified-write scripts are idle and those
+readbacks have been reviewed may a maintainer release the retained owner and
+reset the internal lifecycle. Until then, leave the fail-closed reservation in
+place. This is a support/commissioning procedure, not field proof and not an
+automatic legacy-migration promise.
+
 ## Frontend asset startup contract
 
 When a release changes managed dashboard or frontend assets:
@@ -189,6 +215,28 @@ Keep the old slug unclaimed after the cutover so GitHub's redirect continues
 to protect existing HACS and ESPHome configurations. Never rename the stable
 technical identities listed above as part of a later branding change.
 
+## v1.5.8 accepted-base and release-delta contract
+
+Release preparation starts from accepted N12 commit
+`c736b69d985d6f2a75015abdacb8839a461ac7f1`, tree
+`5c15dae9b4b429a22442de1b2fec953c3f89be2d`. The release validator accepts only
+that product plus the exact file/mode/content set pinned by
+`tools/release_manifests/v1_5_8_release_delta.json`. The branch name grants no
+authority. The protected integration, packages, canonical HA assets, example
+firmware and top-level device/dashboard sources must be byte/mode/type-identical
+to N12. A runtime or firmware change is a new product candidate: reopen the
+applicable validation and field acceptance instead of adding it to the
+documentation delta.
+
+For the later closed M01 evidence delta, first record the exact candidate and
+external evidence, then select the smallest explicit documentation/report file
+set. Review every byte, status and mode; pin the new file hashes and manifest
+identity in a new commit; rerun the release-contract mutations, full validator
+and every gate affected by the claims. Do not allow all of `docs/`, edit the
+historical N12 evidence, or put the manifest's own hash/commit SHA inside the
+same commit. Record the final commit and tree in the external handoff after the
+commit exists. M01 documentation cannot authorize product bytes.
+
 ## Release checklist
 
 1. Move the completed `Unreleased` notes to the new version heading.
@@ -198,6 +246,10 @@ technical identities listed above as part of a later branding change.
    only when runtime firmware changes; otherwise keep the last compatible tag
    and explain explicitly that no ESP32 rebuild is required.
 4. Run the release validators and tests:
+
+   **Python 3.12 — structural/offline gate.** Run the generator, validator,
+   focused contract and the remaining non-HA commands below with the reviewed
+   Python 3.12 environment. Do not install Home Assistant into this environment.
 
    ```text
    python tools/build_hacs_assets.py
@@ -209,19 +261,70 @@ technical identities listed above as part of a later branding change.
    python tools/test_tariff_optimizer.py
    python tools/test_rcm_history.py
    python tools/test_rcm_optimizer.py
+   python tools/test_automation_plan_timeline.py
+   python tools/test_rcm_timeline_model.py
    python tools/test_energy_data.py
    python tools/test_load_model.py
    python tools/test_power_balance.py
    python tools/test_firmware_readback_contract.py
+   python tools/test_overview_control_poll_contract.py
+   python tools/test_supervisor_transport_lifecycle_contract.py
+   python tools/test_supervisor_adapter_response.py
+   python tools/test_supervisor_not_queued_reprepare.py
+   python tools/test_rce_run_end_extension.py
+   python tools/test_rce_small_power_retarget.py
    python tools/test_optimizer_executor_contract.py
    python tools/test_optimizer_startup_contract.py
    python tools/test_source_device_rebind.py
+   python tools/test_battery_balancing_contract.py
    python tools/test_automation_matrix.py
    python tools/test_diagnostics.py
+   python tools/test_diagnostics_future.py
+   python tools/test_pstryk_buy_refinement.py
+   python tools/test_lease_acceptance_journal.py
+   python tools/test_rc2_release_contract.py
    python tools/test_diagnostic_analyzer.py
    python tools/test_automation_matrix.py --exhaustive
+   node tools/test_supervisor_aurora_ui_contract.js
    node tools/validate_rce_card.js
    ```
+
+   **Python 3.14.7 + Home Assistant 2026.8.2 — isolated runtime gate.** In a
+   separate disposable virtual environment whose interpreter reports exactly
+   Python 3.14.7 and whose installed `homeassistant` reports exactly 2026.8.2,
+   run only:
+
+   ```text
+   python tools/test_battery_balancing_ha_runtime.py
+   python tools/test_shared_load_current_slot.py
+   python tools/test_shared_load_rcm.py
+   python tools/test_shared_load_execution_budget.py
+   python tools/test_ems_notifications.py
+   python -m pytest -q tests/test_timeline_platform_registration.py
+   python tools/test_ems_initial_defaults.py
+   python tools/test_ems_shared_input_migration.py
+   python -m pytest -q tests/test_ems_initial_defaults_storage.py tests/test_ems_shared_input_migration_storage.py
+   ```
+
+   Do not merge this command into the Python 3.12 path and do not accept a
+   different Home Assistant version as equivalent evidence.
+
+   **Python 3.14.7 + Home Assistant 2026.9.2 — isolated notifier gate.** Also
+   run the complete `tools/test_ems_notifications.py` in the retained isolated
+   2026.9.2 environment. It is a separate compatibility result: neither the
+   2026.8.2 runtime contract nor the 2026.9.2 notifier run substitutes for the
+   other. Do not mount production `/config`, tokens, devices or notification
+   services.
+
+   For the v1.5.8 balancing gate, retain the exact service-boundary fixtures:
+   generation drift before the first physical helper; SOC loss across the
+   `HOLD_ARMING` timing write; sunrise, sunset and owner/hard-stop changes at
+   the guarded lifecycle write; and 100 lower-priority triggers followed by a
+   101st higher-priority trigger. The accepted steady lifecycle is conditional:
+   the durable record remains raw `APPLYING` with a phase/mode token, and the
+   canonical parser may expose the steady phase only while the live sun, mode,
+   owner, cycle, timing and abort guards match. These are isolated offline
+   checks, not real-inverter or field acceptance.
 
    Run the generator determinism check from a clean release-preparation tree;
    unrelated working-tree changes must not be mistaken for generated-asset
@@ -239,10 +342,23 @@ technical identities listed above as part of a later branding change.
    To reproduce that CI job locally, use its exact pin and fixture:
 
    ```text
-   python -m pip install --disable-pip-version-check "esphome==2026.7.2"
+   python -m pip install --disable-pip-version-check "esphome==2026.9.0"
+   python tools/test_esphome_entry_points.py
+   python tools/test_esphome_2026_9_migration.py
    esphome config tools/esphome_verify_ci.yaml
-   esphome compile tools/esphome_verify_ci.yaml
+   python tools/test_esphome_entry_points.py --compile esp32
+   python tools/test_esphome_entry_points.py --compile flow-control
+   python tools/test_esphome_entry_points.py --compile s3
    ```
+
+   The public-entry test validates all three root device files and the example
+   against this checkout's complete local package set, using placeholder
+   secrets. It also reproduces the invalid UART list/`!extend` form from #33.
+   When changing the manual-direction variant, additionally run
+   `python tools/test_esphome_entry_points.py --compile-flow-control`.
+   This builds the actual flow-control entry file with local package paths;
+   it does not upload firmware or require the unpublished release tag.
+
 5. Create the GitHub tag and release.
 6. Copy the complete version notes, including the numbered bilingual user
    steps, into the GitHub Release body visible in HACS.
@@ -255,3 +371,28 @@ technical identities listed above as part of a later branding change.
 The project uses the OSI-approved MIT License. The official HACS Action,
 Hassfest and all `project-checks` are mandatory and must pass without ignores
 or `continue-on-error` before a release is published.
+
+## Public 1.5.7 upgrade regression
+
+Run `python tools/test_upgrade_from_157.py` on the exact candidate. It checks
+immutable 1.5.7 PL/EN package delivery, backup, preservation of local edits,
+294 existing source identities and seven copy-once legacy mappings. Run the
+shared-input/default/storage/source-device suites as well. Keep numbered
+user steps in CHANGELOG and the release body; link `docs/UPGRADE_1_5_7.md`
+and `docs/ESP32_VARIANTS.md`. The firmware CI matrix compiles all three full
+public profiles, not only a reduced smoke fixture.
+
+
+## Public snapshot provenance
+
+The RC2 public branch starts at the published 1.5.7 commit. Its exact
+parent, subject, path set, modes and bytes are pinned by the current RC2
+contract. `rc2_public_provenance.json` additionally pins every runtime file
+against the reviewed source snapshot. Run `python tools/test_rc2_public_snapshot.py`.
+
+Public CI runs the unchanged public 1.5.7 structural baseline and the full
+current behavioral suite. Workstation-only N12/Task02 Git-lineage validators
+remain historical tools for their original checkouts; their original results
+are retained separately and are not relabelled as tests of the public parent.
+Current Recorder/RCE comparisons use exact, SHA256-verified source fixtures,
+not missing private Git objects. Keep unknown or modified fixtures fail-closed.

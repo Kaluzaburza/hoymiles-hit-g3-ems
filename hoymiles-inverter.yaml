@@ -5,7 +5,7 @@
 #
 # Wiring: use a 3.3 V logic-compatible UART/TTL <-> RS485 converter.
 # Automatic-direction converters need TX, RX and GND. MAX3485/MAX485 modules
-# with DE and /RE need an additional GPIO and the UART override from README.
+# with DE and /RE use hoymiles-inverter-flow-control.yaml instead.
 # Parallel EMS control additionally requires this same external RS485 A/B bus
 # to reach the Master and every Slave; a cable ending at the Master cannot
 # deliver Modbus address-0 broadcasts to a disconnected Slave.
@@ -22,8 +22,7 @@ substitutions:
   modbus_settings_controller_id: hoymiles_modbus_settings
   modbus_inverter_address: "1"      # Modbus slave/unit address of the inverter
   baud_rate: "115200"
-  # Stabilny cykl operacyjny. Przy 5 s pełna mapa rejestrów nie opróżniała
-  # kolejki przed następnym wywołaniem i ESPHome odrzucał duplikaty poleceń.
+  # Keep these polling intervals: faster full-map polling can fill the queue.
   fast_update_interval: "13s"
   control_update_interval: "5s"
   settings_update_interval: "20s"
@@ -42,7 +41,6 @@ substitutions:
   wifi_password: !secret wifi_password
   fallback_password: !secret fallback_password
   api_key: !secret api_key
-  ota_password: !secret ota_password
 
 esp32:
   board: ${board}
@@ -56,12 +54,11 @@ esp32:
 # dashboard. Firmware changes still require an explicit build and upload.
 # Secrets remain local and are never downloaded from or uploaded to GitHub.
 dashboard_import:
-  package_import_url: github://Kaluzaburza/hoymiles-hit-g3-ems/hoymiles-inverter.yaml@main
+  package_import_url: github://Kaluzaburza/hoymiles-hit-g3-ems/hoymiles-inverter.yaml@v1.5.8RC2
   import_full_config: true
 
-# Ograniczamy szczegółowe logi magistrali, zachowując komunikaty INFO potrzebne
-# do potwierdzenia pełnego handshake API i diagnostyki sieci.
-# `baud_rate: 0` z packages/core.yaml pozostaje zachowane przez scalanie pakietów.
+# Keep API/network INFO logs while limiting verbose Modbus messages.
+# Package merging preserves `baud_rate: 0` from packages/core.yaml.
 logger:
   level: INFO
   logs:
@@ -71,7 +68,7 @@ logger:
 packages:
   hoymiles_hit_g3:
     url: https://github.com/Kaluzaburza/hoymiles-hit-g3-ems
-    ref: v1.5.6
+    ref: v1.5.8RC2
     refresh: 1d
     files:
       - packages/core.yaml

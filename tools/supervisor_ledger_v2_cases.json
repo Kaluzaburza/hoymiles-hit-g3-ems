@@ -1,0 +1,402 @@
+{
+  "schema": "hoymiles.supervisor-ledger.cases.v1",
+  "case_count": 24,
+  "expected_results_sha256": "8a44b0d05bd2a997b1dc198181c6bbad2c0dd427845761d5c7abce292f406cd7",
+  "base": {
+    "intent": {
+      "policy_id": "tariff",
+      "requested_action": "tariff_grid_support_and_charge",
+      "active": true,
+      "owner_kind": "tariff",
+      "active_action": "grid_support_and_charge",
+      "intent_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "evidence": {
+      "observed_at": "2026-08-31T10:00:00Z",
+      "readback_confirmed": true,
+      "mode_readback": {
+        "value": "grid_charge",
+        "reported_at": "2026-08-31T09:59:55Z",
+        "source": "sensor.hoymiles_hit_ems_mode_readback_code"
+      },
+      "readback_generation": {
+        "value": 41,
+        "reported_at": "2026-08-31T09:59:55Z",
+        "source": "sensor.hoymiles_hit_ems_control_readback_generation"
+      },
+      "grid_to_battery_power_w": {
+        "value": 3000.0,
+        "reported_at": "2026-08-31T09:59:58Z",
+        "source": "sensor.hoymiles_hit_grid_to_battery_power"
+      },
+      "grid_power_w": {
+        "value": -4000.0,
+        "reported_at": "2026-08-31T09:59:58Z",
+        "source": "sensor.hoymiles_hit_overview_grid_total_active_power"
+      }
+    }
+  },
+  "baseline_expected": {
+    "qualified": true,
+    "reason_code": "attributed_physical_grid_to_battery",
+    "classification": "attributed",
+    "actual_flow": "grid_to_battery",
+    "intent_matched": true,
+    "active_action": "grid_support_and_charge",
+    "attributed_power_w": 3000.0,
+    "feedback_power_w": 3000.0
+  },
+  "cases": [
+    {
+      "id": "M01_IMPORT_IS_THE_LOWER_PHYSICAL_BOUND",
+      "overrides": {"evidence": {"grid_power_w": {"value": -2500.0}}},
+      "expected": {
+        "qualified": true,
+        "reason_code": "attributed_physical_grid_to_battery",
+        "classification": "attributed",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 2500.0,
+        "feedback_power_w": 2500.0
+      }
+    },
+    {
+      "id": "M02_BATTERY_CHARGE_IDENTITY_IS_PRESERVED",
+      "overrides": {
+        "intent": {
+          "requested_action": "tariff_battery_charge",
+          "active_action": "battery_charge"
+        }
+      },
+      "expected": {
+        "qualified": true,
+        "reason_code": "attributed_physical_grid_to_battery",
+        "classification": "attributed",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "battery_charge",
+        "attributed_power_w": 3000.0,
+        "feedback_power_w": 3000.0
+      }
+    },
+    {
+      "id": "M03_WRONG_POLICY",
+      "overrides": {"intent": {"policy_id": "rce"}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "policy_not_tariff",
+        "classification": "confirmed_actual_without_eligible_intent",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": false,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M04_WRONG_REQUESTED_ACTION",
+      "overrides": {"intent": {"requested_action": "none"}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "requested_action_not_battery_charge",
+        "classification": "confirmed_actual_without_eligible_intent",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": false,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M05_POLICY_INACTIVE",
+      "overrides": {"intent": {"active": false}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "policy_inactive",
+        "classification": "confirmed_actual_without_eligible_intent",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": false,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M06_WRONG_OWNER",
+      "overrides": {"intent": {"owner_kind": "rce"}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "owner_not_tariff",
+        "classification": "confirmed_actual_without_eligible_intent",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": false,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M07_GRID_SUPPORT_IS_NOT_BATTERY_ACCOUNTING",
+      "overrides": {
+        "intent": {
+          "requested_action": "tariff_grid_support",
+          "active_action": "grid_support"
+        }
+      },
+      "expected": {
+        "qualified": false,
+        "reason_code": "requested_action_not_battery_charge",
+        "classification": "confirmed_actual_without_eligible_intent",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": false,
+        "active_action": "grid_support",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M08_MODE_MISSING",
+      "overrides": {"evidence": {"mode_readback": {"value": null}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "mode_readback_missing",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M09_MODE_STALE",
+      "overrides": {"evidence": {"mode_readback": {"reported_at": "2026-08-31T09:57:59Z"}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "mode_readback_stale",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M10_MODE_FUTURE",
+      "overrides": {"evidence": {"mode_readback": {"reported_at": "2026-08-31T10:00:06Z"}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "mode_readback_future",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M11_MODE_NOT_GRID_CHARGE",
+      "overrides": {"evidence": {"mode_readback": {"value": "self_use"}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "mode_not_grid_charge",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M12_GENERATION_MISSING",
+      "overrides": {"evidence": {"readback_generation": {"value": null}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "readback_generation_missing",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M13_GENERATION_BOOL_IS_INVALID",
+      "overrides": {"evidence": {"readback_generation": {"value": true}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "readback_generation_invalid",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M14_GENERATION_STALE",
+      "overrides": {"evidence": {"readback_generation": {"reported_at": "2026-08-31T09:57:59Z"}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "readback_generation_stale",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M15_READBACK_UNCONFIRMED",
+      "overrides": {"evidence": {"readback_confirmed": false}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "readback_not_confirmed",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M16_EVIDENCE_COHORT_INCOHERENT",
+      "overrides": {
+        "evidence": {
+          "mode_readback": {"reported_at": "2026-08-31T09:58:00Z"},
+          "grid_to_battery_power_w": {"reported_at": "2026-08-31T10:00:05Z"}
+        }
+      },
+      "expected": {
+        "qualified": false,
+        "reason_code": "evidence_incoherent",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_to_battery",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M17_GRID_TO_BATTERY_MISSING",
+      "overrides": {"evidence": {"grid_to_battery_power_w": {"value": null}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "grid_to_battery_missing",
+        "classification": "unverified",
+        "actual_flow": "unverified",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M18_GRID_TO_BATTERY_NONFINITE",
+      "overrides": {"evidence": {"grid_to_battery_power_w": {"value": "nan"}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "grid_to_battery_invalid",
+        "classification": "unverified",
+        "actual_flow": "unverified",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M19_GRID_TO_BATTERY_STALE",
+      "overrides": {"evidence": {"grid_to_battery_power_w": {"reported_at": "2026-08-31T09:57:59Z"}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "grid_to_battery_stale",
+        "classification": "unverified",
+        "actual_flow": "unverified",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M20_GRID_TO_BATTERY_ZERO",
+      "overrides": {"evidence": {"grid_to_battery_power_w": {"value": 0.0}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "grid_to_battery_non_positive",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "grid_import_other",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M21_GRID_POWER_MISSING",
+      "overrides": {"evidence": {"grid_power_w": {"value": null}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "grid_import_missing",
+        "classification": "unverified",
+        "actual_flow": "unverified",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M22_GRID_POWER_NONFINITE",
+      "overrides": {"evidence": {"grid_power_w": {"value": "nan"}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "grid_import_invalid",
+        "classification": "unverified",
+        "actual_flow": "unverified",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M23_GRID_POWER_STALE",
+      "overrides": {"evidence": {"grid_power_w": {"reported_at": "2026-08-31T09:57:59Z"}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "grid_import_stale",
+        "classification": "unverified",
+        "actual_flow": "unverified",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    },
+    {
+      "id": "M24_PV_CHARGE_WITHOUT_GRID_IMPORT",
+      "overrides": {"evidence": {"grid_power_w": {"value": 500.0}}},
+      "expected": {
+        "qualified": false,
+        "reason_code": "grid_import_not_confirmed",
+        "classification": "eligible_intent_without_confirmed_actual",
+        "actual_flow": "battery_charge_without_grid_import",
+        "intent_matched": true,
+        "active_action": "grid_support_and_charge",
+        "attributed_power_w": 0.0,
+        "feedback_power_w": 0.0
+      }
+    }
+  ]
+}

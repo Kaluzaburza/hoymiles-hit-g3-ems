@@ -1,0 +1,69 @@
+# Hoymiles EMS shared installation inputs.
+#
+# This package is intentionally separate from hoymiles_ems_scheduler.yaml.
+# It defines configuration only: no automation, service call, Modbus write, or
+# control authority is created here.  The neutral integration broker reads
+# these helpers and permits each legacy alias only while that field's durable
+# copy-once migration is pending. A terminal field decision closes its legacy
+# fallback permanently; the neutral helper or automatic source then wins.
+
+input_text:
+  hoymiles_ems_pv_forecast_today_entity:
+    name: "EMS — encja prognozy PV na dzisiaj"
+    max: 255
+    icon: mdi:solar-power-variant
+
+  hoymiles_ems_pv_forecast_tomorrow_entity:
+    name: "EMS — encja prognozy PV na jutro"
+    max: 255
+    icon: mdi:solar-power-variant
+
+  hoymiles_ems_pv_forecast_day_3_entity:
+    name: "EMS — encja prognozy PV na trzeci dzień"
+    max: 255
+    icon: mdi:solar-power-variant-outline
+
+input_number:
+  hoymiles_ems_fallback_daily_home_load:
+    name: "EMS — zastępcze dobowe zużycie domu"
+    min: 0
+    max: 200
+    step: 0.5
+    mode: box
+    unit_of_measurement: "kWh"
+    icon: mdi:home-lightning-bolt-outline
+
+  # Neutral forecast-model directions. Zero is only the pre-migration
+  # sentinel; consumers treat it as unavailable. The lifecycle migration may
+  # seed each field once from its legacy policy helper, then these helpers are
+  # independent writable sources of truth.
+  hoymiles_ems_pv_to_battery_efficiency:
+    name: "EMS — sprawność modelu PV → magazyn"
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-arrow-up-outline
+
+  hoymiles_ems_battery_to_home_efficiency:
+    name: "EMS — sprawność modelu magazyn → dom"
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:home-import-outline
+
+input_select:
+  hoymiles_ems_inverter_rated_power_each:
+    name: "EMS — moc znamionowa jednego falownika"
+    options:
+      - "Automatycznie"
+      - "5 kW"
+      - "8 kW"
+      - "10 kW"
+      - "12 kW"
+      - "15 kW"
+      - "20 kW"
+    icon: mdi:solar-power

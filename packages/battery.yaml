@@ -134,7 +134,10 @@ sensor:
     - multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    # Independent physical BMS power for PV-charge-hold verification. Keep the
+    # same public entity/history; only this two-register FC04 moves to the
+    # existing fast scan. Unchanged zero must remain a physical report in HA.
+    modbus_controller_id: ${modbus_fast_controller_id}
     name: "Battery Power (BMS)"
     id: battery_power_1914
     register_type: read
@@ -145,6 +148,7 @@ sensor:
     icon: mdi:flash
     accuracy_decimals: 0
     value_type: S_DWORD
+    force_update: true
 
   - platform: modbus_controller
     modbus_controller_id: ${modbus_controller_id}

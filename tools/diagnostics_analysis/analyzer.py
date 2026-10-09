@@ -20,7 +20,7 @@ from .archive import (
     discover_archives,
     load_diagnostic_archive,
 )
-from .extractors import extract_archive_evidence, merge_events
+from .extractors import extract_archive_evidence, merge_events, prefer_control_event
 from .history import analyze_control_history
 from .models import (
     ANALYSIS_SCHEMA_VERSION,
@@ -46,11 +46,12 @@ LIMITATIONS = (
         ),
     },
     {
-        "code": "PLANNER_HISTORY_ATTRIBUTES_UNAVAILABLE",
+        "code": "CONTROL_HISTORY_CAPABILITY_DEPENDENT",
         "message": (
-            "Historia 24 h zawiera stany i timestampy, ale nie historyczne "
-            "atrybuty planera ani surową szybką telemetrię. Wyjątkiem są "
-            "ograniczone atrybuty zdarzeń odpowiedzi agregatowej od v1.5.6."
+            "Historia 24 h zawiera ograniczone atrybuty zapisane przez Recorder "
+            "i rozpoznany schemat zdarzeń. Pola wyłączone z Recordera oraz "
+            "szybka telemetria mogą być niedostępne. Ostatnie odnowienie lease "
+            "i ramki STOP nie dowodzą każdego odnowienia ani FC03 każdego Slave."
         ),
     },
     {
@@ -387,10 +388,18 @@ def _retain_control_events(
         identity = _control_event_identity(event)
         current = retained.get(identity)
         if current is not None:
-            if str(event.get("archive_key", "")) < str(
-                current.get("archive_key", "")
-            ):
+            if prefer_control_event(event, current):
+                estimated_bytes = _control_event_estimated_bytes(event)
+                replacement_bytes = (
+                    counters["retained_estimated_bytes"] - retained_sizes[identity] + estimated_bytes
+                )
+                if replacement_bytes > MAX_RETAINED_CONTROL_EVENT_BYTES:
+                    counters["drop_operations"] += 1
+                    counters["oversized_events"] += int(estimated_bytes > MAX_RETAINED_CONTROL_EVENT_BYTES)
+                    continue
                 retained[identity] = event
+                retained_sizes[identity] = estimated_bytes
+                counters["retained_estimated_bytes"] = replacement_bytes
             continue
 
         estimated_bytes = _control_event_estimated_bytes(event)

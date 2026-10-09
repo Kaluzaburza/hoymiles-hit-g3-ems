@@ -1,0 +1,9 @@
+{
+  "schema": "hoymiles.supervisor-canonical-ledger.golden.v1",
+  "scenario": "three-slot-post-arbitration-soc-chain",
+  "expected_slot_count": 3,
+  "expected_final_soc_percent": 63.0,
+  "expected_reserve_violation_count": 0,
+  "expected_ledger_revision": "881a6abd6530a3197a49ed6db95c0975902b3315e7a80dacda2f98905b188e99",
+  "expected_serialized_sha256": "648166e2fbc82bcada559eba56b65b8b5b9de7829a17da04a1699f7d3e60e99d"
+}

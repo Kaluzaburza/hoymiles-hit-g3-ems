@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "files": [
+    {
+      "revision": "177215b",
+      "commit": "177215b4827c3f52edb1426c5dc75148e5244b45",
+      "source_path": "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+      "fixture": "tools/release_fixtures/rc2_baselines/177215b/rce_optimizer.py",
+      "sha256": "5620f002ac9d96e5d349fab6236646eaaceffcaecfdd0867ba45eea4dc8696f1",
+      "bytes": 170371
+    },
+    {
+      "revision": "6484a82",
+      "commit": "6484a8249780d144756e83a6c293ebebed2a9fae",
+      "source_path": "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+      "fixture": "tools/release_fixtures/rc2_baselines/6484a82/rce_optimizer.py",
+      "sha256": "cdc4968ead73b969e5272e51380ceed2b87d1a658adac437e2a4fa9f388dae2e",
+      "bytes": 169208
+    },
+    {
+      "revision": "6484a82",
+      "commit": "6484a8249780d144756e83a6c293ebebed2a9fae",
+      "source_path": "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+      "fixture": "tools/release_fixtures/rc2_baselines/6484a82/rce_sensor.py",
+      "sha256": "a346feeb9b03799751465aca9d075f3233458ab02a9f5c06aa78e2fbac9bca0b",
+      "bytes": 248654
+    },
+    {
+      "revision": "6484a82",
+      "commit": "6484a8249780d144756e83a6c293ebebed2a9fae",
+      "source_path": "custom_components/hoymiles_hit_modbus/execution_history.py",
+      "fixture": "tools/release_fixtures/rc2_baselines/6484a82/execution_history.py",
+      "sha256": "093912896cda7b83a36f703f6d3d9d482404fbff5890c2b1e73f428854106374",
+      "bytes": 16785
+    }
+  ]
+}

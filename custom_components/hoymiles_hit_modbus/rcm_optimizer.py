@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from math import ceil
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta, timezone
+from math import ceil, floor, isfinite
+
+try:
+    from .load_model import expected_load_by_slot
+except ImportError:
+    from load_model import expected_load_by_slot
 
 
 MINIMUM_CHARGE_LIMIT_PERCENT = 10.0
@@ -13,10 +18,18 @@ P_U_START_V = 248.4
 CONTROL_TARGET_V = 249.2
 WARNING_V = 251.0
 EMERGENCY_V = 252.2
+LIVE_ACTION_VALIDITY_SECONDS = 60.0
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return min(max(value, lower), upper)
+
+
+def _quantize_power_percent(value: float) -> float:
+    """Floor a new control limit; never quantize observed or saved settings."""
+    if not isfinite(value) or value < 1.0:
+        return 0.0
+    return float(floor(min(value, 100.0)))
 
 
 def _within_window(minute: int, start: int, end: int) -> bool:
@@ -33,6 +46,7 @@ class RCMProfileSelection:
     source: str
     confidence: float
     selected_total_kwh: float
+    by_start_kwh: Mapping[datetime, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +293,7 @@ def select_rcm_load_envelopes(
     weekend_profile: Sequence[float] | None,
     average_daily_kwh: float,
     daily_totals_kwh: Sequence[float] | None = None,
+    nominal: RCMProfileSelection | None = None,
 ) -> RCMLoadEnvelopeSelection:
     """Build opposite LOAD envelopes for headroom and reserve protection.
 
@@ -287,7 +302,7 @@ def select_rcm_load_envelopes(
     (P90) profile is conservative for protecting household energy before a
     planned discharge. Both retain the selected weekday/weekend shape.
     """
-    nominal = select_rcm_load_profile(
+    nominal = nominal or select_rcm_load_profile(
         weekend=weekend,
         average_profile=average_profile,
         weekday_profile=weekday_profile,
@@ -329,6 +344,7 @@ def select_rcm_load_envelopes(
             f"{nominal.source}_{percentile}_{source_suffix}",
             confidence,
             sum(slots),
+            {stamp: value * ratio for stamp, value in nominal.by_start_kwh.items()},
         )
 
     return RCMLoadEnvelopeSelection(
@@ -336,6 +352,36 @@ def select_rcm_load_envelopes(
         low=scaled(low_total, "p10"),
         high=scaled(high_total, "p90"),
     )
+
+
+def shared_rcm_load_envelopes(
+    *, now: datetime, target_date: date, daily_totals_kwh: Sequence[float] = (),
+    **model_inputs,
+) -> RCMLoadEnvelopeSelection:
+    """Use the common nominal LOAD; RCEm owns only P10/P90 policy margins.
+
+    Absolute UTC keys preserve both folds and omit the missing spring hour.
+    Values are full half-hours; consumers clip elapsed time exactly once.
+    """
+    cursor = datetime.combine(target_date, time.min, now.tzinfo).astimezone(timezone.utc)
+    end = datetime.combine(target_date + timedelta(days=1), time.min,
+                           now.tzinfo).astimezone(timezone.utc)
+    starts = []
+    while cursor < end:
+        starts.append(cursor)
+        cursor += timedelta(minutes=30)
+    forecast = expected_load_by_slot(starts, now=now, **model_inputs)
+    profile = [0.] * 48
+    for stamp, value in forecast.by_slot_kwh.items():
+        local = stamp.astimezone(now.tzinfo)
+        profile[local.hour*2 + local.minute//30] += value
+    nominal = RCMProfileSelection(tuple(profile), 'shared_' + forecast.profile_mode,
+        .95 if 'fallback' not in forecast.profile_mode else .30,
+        sum(forecast.by_slot_kwh.values()), forecast.by_slot_kwh)
+    return select_rcm_load_envelopes(weekend=target_date.weekday() >= 5,
+        average_profile=None, weekday_profile=None, weekend_profile=None,
+        average_daily_kwh=model_inputs['daily_energy_kwh'],
+        daily_totals_kwh=daily_totals_kwh, nominal=nominal)
 
 
 def select_rcm_pv_profile(
@@ -570,6 +616,7 @@ class RCMOptimizerInput:
     gcf_active: bool = True
     gcf_data_fresh: bool = True
     charge_efficiency_percent: float = 95.0
+    house_discharge_efficiency_percent: float = 95.0
     expected_pre_risk_surplus_kwh: float = 0.0
     risk_window_forecasts: tuple[RCMRiskWindowInput, ...] = ()
     expected_unavoidable_charge_input_kwh: float | None = None
@@ -609,6 +656,8 @@ class RCMOptimizerResult:
 
     status_code: str
     action: str
+    action_interval_start: datetime | None
+    action_interval_end: datetime | None
     maximum_voltage_v: float
     control_voltage_v: float
     voltage_risk_score: float
@@ -653,6 +702,7 @@ class RCMOptimizerResult:
     bms_charge_available: bool
     bms_charge_quantization_limited: bool
     bms_discharge_available: bool
+    bms_discharge_dc_power_limit_kw: float
     bms_discharge_power_limit_kw: float
     absorbable_risk_surplus_kwh: float
     protected_home_energy_kwh: float
@@ -710,6 +760,15 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
         if settings.export_actuator_data_fresh is None
         else settings.export_actuator_data_fresh
     )
+    efficiency = _clamp(settings.charge_efficiency_percent, 1.0, 100.0) / 100.0
+    discharge_efficiency = (
+        _clamp(
+            settings.house_discharge_efficiency_percent,
+            1.0,
+            100.0,
+        )
+        / 100.0
+    )
     bms_charge_telemetry_available = bool(
         settings.system_power_data_valid
         and settings.bms_charge_data_fresh
@@ -751,15 +810,19 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
         bms_charge_telemetry_available
         and not bms_charge_quantization_limited
     )
-    bms_discharge_limit_kw = (
-        min(
-            settings.system_power_kw,
-            settings.battery_voltage_v
-            * settings.bms_max_discharge_current_a
-            / 1000.0,
-        )
+    bms_discharge_dc_limit_kw = (
+        settings.battery_voltage_v
+        * settings.bms_max_discharge_current_a
+        / 1000.0
         if bms_discharge_available
         else 0.0
+    )
+    # BMS voltage x current is a battery-side (DC) capability. Register 4306
+    # controls inverter AC output, so discharge conversion losses must be
+    # applied before this value is allowed to cap a command.
+    bms_discharge_limit_kw = min(
+        settings.system_power_kw,
+        bms_discharge_dc_limit_kw * discharge_efficiency,
     )
 
     maximum_voltage = max(
@@ -898,7 +961,6 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
     usable_capacity = (
         settings.battery_capacity_kwh * (100.0 - reserve_soc) / 100.0
     )
-    efficiency = _clamp(settings.charge_efficiency_percent, 1.0, 100.0) / 100.0
     pre_risk_hours = max(
         min(float(settings.minutes_to_risk or 0), 24 * 60) / 60.0,
         0.0,
@@ -1104,9 +1166,18 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
         )
         target_soc = pre_discharge_target_soc
 
+    # Preserve the SOC floor before calculating achievable commanded energy.
+    pre_discharge_target_soc = float(ceil(pre_discharge_target_soc))
+    target_soc = float(ceil(target_soc))
+    planned_grid_discharge = min(
+        planned_grid_discharge,
+        max(settings.battery_soc_percent - pre_discharge_target_soc, 0.0)
+        * settings.battery_capacity_kwh / 100.0,
+    )
+
     maximum_limit_percent = (
         _clamp(
-            bms_limit_kw / settings.system_power_kw * 100.0,
+            bms_limit_kw * 100.0 / settings.system_power_kw,
             MINIMUM_CHARGE_LIMIT_PERCENT,
             100.0,
         )
@@ -1245,6 +1316,7 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
         MINIMUM_CHARGE_LIMIT_PERCENT,
         maximum_limit_percent,
     )
+    recommended = _quantize_power_percent(recommended)
     recommended_power = (
         min(
             settings.system_power_kw * recommended / 100.0,
@@ -1322,6 +1394,7 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
         if export_control_path_enabled
         else current_export_limit,
     )
+    recommended_export_limit = _quantize_power_percent(recommended_export_limit)
 
     export_capacity_kw = (
         settings.system_power_kw * effective_export_cap / 100.0
@@ -1377,9 +1450,17 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
     else:
         pre_discharge_power = 0.0
     pre_discharge_power_percent = _clamp(
-        pre_discharge_power / settings.system_power_kw * 100.0,
+        pre_discharge_power * 100.0 / settings.system_power_kw,
         0.0,
         100.0,
+    )
+    # New register 4306 commands use whole percentage points. Quantize down,
+    # then use that same command-equivalent AC power in the public result and
+    # timeline so rounding can never exceed the battery-side DC allowance.
+    pre_discharge_power_percent = _quantize_power_percent(pre_discharge_power_percent)
+    pre_discharge_power = min(
+        pre_discharge_power,
+        settings.system_power_kw * pre_discharge_power_percent / 100.0,
     )
     pre_discharge_deadline = (
         settings.now
@@ -1455,9 +1536,33 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
     if saturated and status == "controlling":
         status = "battery_limited"
 
+    action_interval_start: datetime | None = None
+    action_interval_end: datetime | None = None
+    if action == "grid_discharge_preparation":
+        action_interval_start = settings.now
+        action_interval_end = (
+            pre_discharge_deadline
+            if pre_discharge_deadline is not None
+            and pre_discharge_deadline > settings.now
+            else settings.now
+            + timedelta(seconds=LIVE_ACTION_VALIDITY_SECONDS)
+        )
+    elif action == "preserve_headroom" and settings.minutes_to_risk is not None:
+        action_interval_start = settings.now
+        action_interval_end = settings.now + timedelta(
+            minutes=max(settings.minutes_to_risk, 0)
+        )
+    elif action in {"absorb_pv", "limit_export"}:
+        action_interval_start = settings.now
+        action_interval_end = settings.now + timedelta(
+            seconds=LIVE_ACTION_VALIDITY_SECONDS
+        )
+
     return RCMOptimizerResult(
         status_code=status,
         action=action,
+        action_interval_start=action_interval_start,
+        action_interval_end=action_interval_end,
         maximum_voltage_v=round(maximum_voltage, 2),
         control_voltage_v=round(control_voltage, 2),
         voltage_risk_score=round(risk_score * 100.0, 1),
@@ -1470,14 +1575,11 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
         headroom_shortfall_kwh=round(headroom_shortfall, 3),
         expected_natural_headroom_kwh=round(natural_headroom, 3),
         planned_grid_discharge_kwh=round(planned_grid_discharge, 3),
-        pre_discharge_target_soc_percent=round(
-            ceil(pre_discharge_target_soc * 10.0) / 10.0,
-            1,
-        ),
+        pre_discharge_target_soc_percent=pre_discharge_target_soc,
         pre_discharge_power_kw=round(pre_discharge_power, 3),
         pre_discharge_power_percent=round(pre_discharge_power_percent, 1),
         pre_discharge_ready=pre_discharge_ready,
-        target_soc_before_risk_percent=round(ceil(target_soc * 10.0) / 10.0, 1),
+        target_soc_before_risk_percent=target_soc,
         pv_surplus_power_kw=round(pv_surplus, 3),
         bms_charge_power_limit_kw=round(bms_limit_kw, 3),
         recommended_charge_limit_percent=round(recommended, 1),
@@ -1513,6 +1615,10 @@ def optimize_rcm(settings: RCMOptimizerInput) -> RCMOptimizerResult:
         bms_charge_available=bms_charge_available,
         bms_charge_quantization_limited=bms_charge_quantization_limited,
         bms_discharge_available=bms_discharge_available,
+        bms_discharge_dc_power_limit_kw=round(
+            bms_discharge_dc_limit_kw,
+            3,
+        ),
         bms_discharge_power_limit_kw=round(bms_discharge_limit_kw, 3),
         absorbable_risk_surplus_kwh=round(absorbable_risk_surplus, 3),
         protected_home_energy_kwh=round(nominal_home_buffer, 3),

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import ast
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta
+import hashlib
+import json
 from pathlib import Path
 from random import Random
 import sys
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 
@@ -13,8 +18,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "custom_components" / "hoymiles_hit_modbus"))
 
 from tariff_optimizer import (  # noqa: E402
+    ExportState,
+    SLOT,
+    TariffActiveCommitment,
     TariffOptimizerInput,
     TariffSchedule,
+    _allocation_need_class,
+    _classify_current_run_need,
+    _slot_loads,
     _simulate,
     adaptive_forecast_factor,
     horizon_gap_load_reserve_kwh,
@@ -30,6 +41,90 @@ from tariff_optimizer import (  # noqa: E402
 
 
 ZONE = ZoneInfo("Europe/Warsaw")
+
+# Recovered from the 96 published points of the 2026-09-13 G12w observation.
+# This is deliberately only the evidenced 48 h prefix.  The test labels the
+# remaining 16.48 h as deterministic fixture fallback; it does not claim to
+# reconstruct the unavailable historical full-horizon inputs.
+N11_G12W_LOAD_48H_KWH = tuple(
+    float(value)
+    for value in """
+0.121032 0.550957 0.387397 0.339395 0.693566 0.506630 0.598812 0.944970
+0.546767 0.556911 0.591387 0.481784 0.548384 0.338807 0.271913 0.293084
+0.349466 0.475609 0.493913 0.429886 0.510968 0.633509 0.564409 0.448264
+0.528389 0.638875 0.624614 0.777147 0.784939 0.867123 0.731571 0.592196
+0.662251 1.026884 0.839693 0.462958 0.418404 0.345963 0.313162 0.334210
+0.289122 0.238584 0.241148 0.179820 0.243392 0.392761 0.549916 0.530460
+0.289707 0.481380 0.545773 0.513639 0.375941 0.367154 0.768200 0.400041
+0.370920 0.533095 0.421004 0.525035 0.739365 0.679319 0.610938 0.910919
+0.917195 0.597489 0.494309 0.536861 0.540250 0.830710 0.510752 0.420878
+0.588074 0.459916 0.685229 1.093178 1.479287 1.192494 0.944400 0.962884
+0.899098 1.026884 0.839693 0.462958 0.418404 0.345963 0.313162 0.334210
+0.289122 0.238584 0.241148 0.179820 0.243392 0.392761 0.549916 0.530460
+""".split()
+)
+N11_G12W_PV_48H_KWH = tuple(
+    float(value)
+    for value in """
+0.080000 0.236963 0.348225 0.465984 0.591605 0.716705 0.903130 0.986396
+0.974725 0.978856 0.983589 0.913478 0.781641 0.662919 0.559999 0.462014
+0.367437 0.307996 0.258301 0.181051 0.092611 0.047208 0.020175 0.001845
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0.005640 0.018800 0.039079 0.061399 0.068839 0.072559 0.076278 0.077438
+0.082958 0.088518 0.098678 0.110318 0.113598 0.936480 0.965560 0.934760
+0.852680 0.771480 0.694320 0.596720 0.496880 0.378320 0.252400 0.111760
+0.035040 0.001840 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 0 0.044680 0.380000
+""".split()
+)
+
+
+def existing_result_digest(result) -> str:
+    """Hash every result field that existed before Phase 1B-1."""
+    payload = asdict(result)
+    # Normalize only the explicitly verified provenance-label migration.
+    # Energy/action goldens stay frozen except the live-pulse fixture below.
+    assert payload["current_slot_load_source"] == "shared_forecast"
+    payload["current_slot_load_source"] = "profile"
+    payload.pop("timeline_trace")
+    payload.pop("current_grid_charge_run_end")
+    payload.pop("potential_pv_kwh")
+    payload.pop("pv_kwh")
+    payload.pop("pv_curtailed_kwh")
+    payload.pop("physical_dispatch_available")
+    payload.pop("physical_dispatch_block_reason")
+    payload.pop("active_commitment_applied")
+    payload.pop("active_commitment_transaction_id")
+    payload.pop("active_commitment_deadline")
+    payload.pop("protected_period_start")
+    payload.pop("protected_period_end")
+    payload.pop("protected_demand_kwh")
+    payload.pop("demand_margin_percent")
+    payload.pop("demand_margin_requested_kwh")
+    payload.pop("demand_margin_feasible_kwh")
+    payload.pop("demand_margin_unserved_kwh")
+    payload.pop("base_energy_shortfall_kwh")
+    payload.pop("requested_target_energy_kwh")
+    payload.pop("feasible_target_energy_kwh")
+    payload.pop("demand_margin_constraint_reason")
+    payload.pop("latest_feasible_start")
+    payload.pop("latest_equivalent_start")
+    payload.pop("latest_start_search_complete")
+    payload.pop("layout_candidates_evaluated")
+    assert payload.pop("current_run_need_class") in {
+        "required_energy",
+        "economic",
+        "mixed",
+        "none",
+    }
+    serialized = json.dumps(
+        payload,
+        default=lambda value: value.isoformat(),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
 
 
 def schedule(kind: str = "G12") -> TariffSchedule:
@@ -59,16 +154,1016 @@ def settings(now: datetime, **overrides) -> TariffOptimizerInput:
         "night_start_minute": 20 * 60,
         "night_end_minute": 7 * 60,
         "charge_power_kw": 5.0,
+        # Existing pure-model fixtures predate an explicit inverter AC bound;
+        # keep them effectively unbounded unless a scenario pins the hardware.
+        "system_ac_power_kw": 1_000.0,
         "charge_efficiency_percent": 95.0,
         "discharge_efficiency_percent": 95.0,
         "minimum_saving_pln_kwh": 0.05,
         "schedule": schedule(),
+        # Legacy scenarios deliberately model an installation where export is
+        # physically verified. The production/default contract is fail-closed.
+        "export_state": ExportState.VERIFIED_ALLOWED,
     }
     values.update(overrides)
     return TariffOptimizerInput(**values)
 
 
+def test_active_commitment_stabilization_contracts() -> None:
+    """An active transaction may stabilize layout, never manufacture need."""
+
+    now = datetime(2026, 9, 16, 5, 3, tzinfo=ZONE)
+    base = settings(
+        now,
+        battery_capacity_kwh=26.0,
+        battery_soc_percent=40.0,
+        reserve_soc_percent=50.0,
+        base_reserve_soc_percent=25.0,
+        maximum_soc_percent=95.0,
+        average_daily_load_kwh=0.0,
+        average_night_load_kwh=0.0,
+        load_by_slot_kwh={},
+        current_load_power_kw=1.2,
+        current_pv_power_kw=0.0,
+        current_battery_power_kw=-5.0,
+        charge_power_kw=6.0,
+        battery_charge_power_kw=6.0,
+        charge_efficiency_percent=92.0,
+        discharge_efficiency_percent=95.0,
+        minimum_saving_pln_kwh=0.05,
+    )
+    uncommitted = optimize_tariff_charging(base)
+    assert not uncommitted.current_slot_planned
+    assert uncommitted.planned_charges[0].start == now.replace(minute=30, second=0)
+
+    commitment = TariffActiveCommitment(
+        transaction_id="tariff-test-commitment-0001",
+        action="grid_support_and_charge",
+        started_at=now - timedelta(seconds=122),
+        hard_deadline=now.replace(hour=6, minute=0, second=0),
+        target_soc_percent=51.0,
+        maximum_charge_power_percent=60.0,
+        physical_verified_at=now,
+    )
+    committed = optimize_tariff_charging(
+        replace(base, active_commitment=commitment)
+    )
+    assert committed.active_commitment_applied
+    assert committed.active_commitment_transaction_id == commitment.transaction_id
+    assert committed.current_slot_planned
+    # The nominal zero-LOAD fixture now stays zero; a lone live power sample
+    # cannot invent forecast energy. The attested charging family is retained.
+    assert committed.current_action == "battery_charge"
+    assert committed.current_grid_charge_run_end == commitment.hard_deadline
+    assert committed.target_soc_percent == 51.0
+    assert abs(
+        committed.ending_battery_kwh - uncommitted.ending_battery_kwh
+    ) <= 1e-4
+    assert committed.remaining_shortage_kwh <= (
+        uncommitted.remaining_shortage_kwh + 1e-4
+    )
+
+    rejected = (
+        replace(
+            commitment,
+            transaction_id="tariff-test-commitment-stale",
+            physical_verified_at=now - timedelta(seconds=31),
+        ),
+        replace(
+            commitment,
+            transaction_id="tariff-test-commitment-expired",
+            hard_deadline=now,
+        ),
+        replace(
+            commitment,
+            transaction_id="tariff-test-commitment-support",
+            action="grid_support",
+        ),
+    )
+    for item in rejected:
+        result = optimize_tariff_charging(replace(base, active_commitment=item))
+        assert not result.active_commitment_applied
+        assert not result.current_slot_planned
+
+    short_deadline = replace(
+        commitment,
+        transaction_id="tariff-test-commitment-short",
+        hard_deadline=now.replace(minute=20, second=0),
+    )
+    assert not optimize_tariff_charging(
+        replace(base, active_commitment=short_deadline)
+    ).active_commitment_applied
+    assert not optimize_tariff_charging(
+        replace(base, maximum_soc_percent=45.0, active_commitment=commitment)
+    ).active_commitment_applied
+    assert not optimize_tariff_charging(
+        replace(base, battery_soc_percent=51.0, active_commitment=commitment)
+    ).active_commitment_applied
+    assert not optimize_tariff_charging(
+        replace(base, battery_charge_power_kw=0.0, active_commitment=commitment)
+    ).active_commitment_applied
+    stale_inputs = optimize_tariff_charging(
+        replace(
+            base,
+            active_commitment=commitment,
+            control_inputs_fresh=False,
+            control_input_block_reason="soc_data_stale",
+        )
+    )
+    assert not stale_inputs.active_commitment_applied
+    assert not stale_inputs.current_slot_planned
+
+
+def test_physical_pv_dispatch_contracts() -> None:
+    """Separate potential PV, realized PV, curtailment and export authority."""
+
+    start = datetime(2026, 9, 6, 12, 0, tzinfo=ZONE)
+
+    def simulate(
+        export_state: ExportState,
+        *,
+        battery_soc_percent: float = 95.0,
+    ):
+        return _simulate(
+            settings(
+                start,
+                pv_by_slot_kwh={start: 4.0},
+                battery_soc_percent=battery_soc_percent,
+                average_daily_load_kwh=0.0,
+                average_night_load_kwh=0.0,
+                charge_efficiency_percent=100.0,
+                discharge_efficiency_percent=100.0,
+                battery_charge_power_kw=20.0,
+                pv_charge_power_kw=20.0,
+                export_state=export_state,
+            ),
+            [start],
+            [1.0],
+            {},
+            {},
+            [(1.03, "peak")],
+            [1.0],
+        )
+
+    allowed = simulate(ExportState.VERIFIED_ALLOWED)
+    assert allowed.physical_dispatch_available
+    assert allowed.potential_pv_kwh[0] == 4.0
+    assert allowed.pv_kwh[0] == 4.0
+    assert allowed.pv_curtailed_kwh[0] == 0.0
+    assert allowed.grid_export_kwh[0] == 2.0
+    assert allowed.battery_delta_kwh[0] == 1.0
+
+    allowed_at_cap = simulate(
+        ExportState.VERIFIED_ALLOWED,
+        battery_soc_percent=100.0,
+    )
+    assert allowed_at_cap.pv_kwh[0] == 4.0
+    assert allowed_at_cap.pv_curtailed_kwh[0] == 0.0
+    assert allowed_at_cap.grid_export_kwh[0] == 3.0
+    assert allowed_at_cap.battery_delta_kwh[0] == 0.0
+
+    for export_state in (
+        ExportState.CONFIRMED_ZERO_EXPORT,
+        ExportState.PROHIBITED,
+    ):
+        zero_export = simulate(export_state)
+        assert zero_export.physical_dispatch_available
+        assert zero_export.potential_pv_kwh[0] == 4.0
+        assert zero_export.pv_kwh[0] == 2.0
+        assert zero_export.pv_curtailed_kwh[0] == 2.0
+        assert zero_export.grid_export_kwh[0] == 0.0
+        assert zero_export.battery_delta_kwh[0] == 1.0
+
+    full_at_cap = simulate(
+        ExportState.CONFIRMED_ZERO_EXPORT,
+        battery_soc_percent=100.0,
+    )
+    assert full_at_cap.battery_delta_kwh[0] == 0.0
+    assert full_at_cap.potential_pv_kwh[0] == 4.0
+    assert full_at_cap.pv_kwh[0] == 1.0
+    assert full_at_cap.pv_curtailed_kwh[0] == 3.0
+    assert full_at_cap.grid_export_kwh[0] == 0.0
+
+    unverified = simulate(
+        ExportState.UNVERIFIED,
+        battery_soc_percent=100.0,
+    )
+    assert not unverified.physical_dispatch_available
+    assert unverified.physical_dispatch_block_reason == (
+        "export_disposition_unverified"
+    )
+    assert unverified.physical_dispatch_unavailable_slots == frozenset({0})
+    assert unverified.potential_pv_kwh[0] == 4.0
+    assert unverified.pv_kwh[0] is None
+    assert unverified.pv_curtailed_kwh[0] is None
+    assert unverified.grid_import_kwh[0] is None
+    assert unverified.grid_export_kwh[0] is None
+
+    fully_absorbed = _simulate(
+        settings(
+            start,
+            pv_by_slot_kwh={start: 2.0},
+            battery_soc_percent=50.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+            charge_efficiency_percent=100.0,
+            battery_charge_power_kw=20.0,
+            pv_charge_power_kw=20.0,
+            export_state=ExportState.UNVERIFIED,
+        ),
+        [start],
+        [1.0],
+        {},
+        {},
+        [(1.03, "peak")],
+        [1.0],
+    )
+    assert fully_absorbed.physical_dispatch_available
+    assert fully_absorbed.pv_kwh[0] == 2.0
+    assert fully_absorbed.pv_curtailed_kwh[0] == 0.0
+    assert fully_absorbed.grid_export_kwh[0] == 0.0
+
+    # The BMS reports a battery-side DC limit; it cannot enlarge the inverter's
+    # installation-wide AC bridge.  A 10 kW system serving 15 kW for 30 minutes
+    # must import 2.5 kWh even when the BMS permits 20 kW of DC discharge.
+    ac_limited_settings = settings(
+        start,
+        pv_by_slot_kwh={},
+        load_by_slot_kwh={start: 7.5},
+        battery_capacity_kwh=20.0,
+        battery_soc_percent=100.0,
+        reserve_soc_percent=0.0,
+        maximum_soc_percent=100.0,
+        average_daily_load_kwh=0.0,
+        average_night_load_kwh=0.0,
+        system_ac_power_kw=10.0,
+        battery_discharge_power_kw=20.0,
+        charge_efficiency_percent=95.0,
+        discharge_efficiency_percent=95.0,
+        schedule=schedule("G11"),
+    )
+    ac_limited = _simulate(
+        ac_limited_settings,
+        [start],
+        [7.5],
+        {},
+        {},
+        [(0.85, "g11")],
+        [1.0],
+    )
+    expected_withdrawal_kwh = 5.0 / 0.95
+    assert abs(ac_limited.battery_delta_kwh[0] + expected_withdrawal_kwh) < 1e-9
+    assert abs(ac_limited.battery_after_kwh[0] - (20.0 - expected_withdrawal_kwh)) < 1e-9
+    assert abs(ac_limited.uncovered_import_kwh[0] - 2.5) < 1e-9
+    assert abs(ac_limited.grid_import_kwh[0] - 2.5) < 1e-9
+
+    ac_limited_result = optimize_tariff_charging(ac_limited_settings)
+    assert ac_limited_result.timeline_trace is not None
+    first_point = ac_limited_result.timeline_trace.points[0]
+    assert abs(first_point.battery_delta_kwh + expected_withdrawal_kwh) < 1e-9
+    assert abs(first_point.grid_import_kwh - 2.5) < 1e-9
+    assert abs(
+        first_point.soc_percent
+        - (20.0 - expected_withdrawal_kwh) / 20.0 * 100.0
+    ) < 1e-9
+
+    # The same bridge is shared in the other direction.  At 18 kW PV and 8 kW
+    # LOAD, a 10 kW inverter has only 2 kW left for charging: over 30 minutes
+    # that is 1 kWh AC / 0.95 kWh stored, with the other 4 kWh curtailed.
+    shared_pv_settings = settings(
+        start,
+        pv_by_slot_kwh={start: 9.0},
+        load_by_slot_kwh={start: 4.0},
+        battery_capacity_kwh=20.0,
+        battery_soc_percent=50.0,
+        reserve_soc_percent=0.0,
+        maximum_soc_percent=100.0,
+        average_daily_load_kwh=0.0,
+        average_night_load_kwh=0.0,
+        system_ac_power_kw=10.0,
+        battery_charge_power_kw=20.0,
+        pv_charge_power_kw=20.0,
+        charge_efficiency_percent=95.0,
+        export_state=ExportState.VERIFIED_ALLOWED,
+    )
+    shared_pv = _simulate(
+        shared_pv_settings,
+        [start],
+        [4.0],
+        {},
+        {},
+        [(0.85, "g11")],
+        [1.0],
+    )
+    assert abs(shared_pv.battery_delta_kwh[0] - 0.95) < 1e-9
+    assert abs(shared_pv.battery_after_kwh[0] / 20.0 * 100.0 - 54.75) < 1e-9
+    assert shared_pv.potential_pv_kwh[0] == 9.0
+    assert shared_pv.pv_kwh[0] == 5.0
+    assert shared_pv.pv_curtailed_kwh[0] == 4.0
+    assert shared_pv.grid_export_kwh[0] == 0.0
+
+    shared_pv_result = optimize_tariff_charging(shared_pv_settings)
+    assert shared_pv_result.timeline_trace is not None
+    shared_pv_point = shared_pv_result.timeline_trace.points[0]
+    assert abs(shared_pv_point.battery_delta_kwh - 0.95) < 1e-9
+    assert abs(shared_pv_point.soc_percent - 54.75) < 1e-9
+    assert shared_pv_point.pv_kwh == 5.0
+    assert shared_pv_point.grid_export_kwh == 0.0
+    assert shared_pv_result.potential_pv_kwh == 9.0
+    assert shared_pv_result.pv_kwh == 5.0
+    assert shared_pv_result.pv_curtailed_kwh == 4.0
+
+    shared_pv_unverified = _simulate(
+        replace(
+            shared_pv_settings,
+            export_state=ExportState.UNVERIFIED,
+        ),
+        [start],
+        [4.0],
+        {},
+        {},
+        [(0.85, "g11")],
+        [1.0],
+    )
+    assert shared_pv_unverified.physical_dispatch_available
+    assert shared_pv_unverified.pv_kwh[0] == 5.0
+    assert shared_pv_unverified.pv_curtailed_kwh[0] == 4.0
+    assert shared_pv_unverified.grid_export_kwh[0] == 0.0
+
+    bridge_export = _simulate(
+        settings(
+            start,
+            pv_by_slot_kwh={start: 9.0},
+            battery_soc_percent=100.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+            system_ac_power_kw=10.0,
+            battery_charge_power_kw=20.0,
+            pv_charge_power_kw=20.0,
+            export_state=ExportState.VERIFIED_ALLOWED,
+        ),
+        [start],
+        [0.0],
+        {},
+        {},
+        [(0.85, "g11")],
+        [1.0],
+    )
+    assert bridge_export.pv_kwh[0] == 5.0
+    assert bridge_export.pv_curtailed_kwh[0] == 4.0
+    assert bridge_export.grid_export_kwh[0] == 5.0
+
+    # A net PV surplus does not prove that the home can be fully served.  With
+    # 20 kW PV and 15 kW LOAD behind a 10 kW bridge, the 30-minute slot admits
+    # 5 kWh of PV, imports 2.5 kWh for the uncovered LOAD and curtails the
+    # remaining 5 kWh.  No bridge budget remains for charging or export.
+    load_above_bridge_settings = settings(
+        start,
+        pv_by_slot_kwh={start: 10.0},
+        load_by_slot_kwh={start: 7.5},
+        battery_capacity_kwh=20.0,
+        battery_soc_percent=50.0,
+        reserve_soc_percent=0.0,
+        maximum_soc_percent=100.0,
+        average_daily_load_kwh=0.0,
+        average_night_load_kwh=0.0,
+        system_ac_power_kw=10.0,
+        battery_charge_power_kw=20.0,
+        battery_discharge_power_kw=20.0,
+        pv_charge_power_kw=20.0,
+        charge_efficiency_percent=100.0,
+        discharge_efficiency_percent=100.0,
+        export_state=ExportState.VERIFIED_ALLOWED,
+    )
+    load_above_bridge = _simulate(
+        load_above_bridge_settings,
+        [start],
+        [7.5],
+        {},
+        {},
+        [(0.85, "g11")],
+        [1.0],
+    )
+    assert load_above_bridge.battery_delta_kwh[0] == 0.0
+    assert load_above_bridge.battery_after_kwh[0] == 10.0
+    assert load_above_bridge.potential_pv_kwh[0] == 10.0
+    assert load_above_bridge.pv_kwh[0] == 5.0
+    assert load_above_bridge.pv_curtailed_kwh[0] == 5.0
+    assert load_above_bridge.grid_import_kwh[0] == 2.5
+    assert load_above_bridge.grid_export_kwh[0] == 0.0
+    assert load_above_bridge.uncovered_import_kwh[0] == 2.5
+
+    load_above_bridge_result = optimize_tariff_charging(
+        load_above_bridge_settings
+    )
+    assert load_above_bridge_result.timeline_trace is not None
+    load_above_bridge_point = load_above_bridge_result.timeline_trace.points[0]
+    assert load_above_bridge_point.battery_delta_kwh == 0.0
+    assert load_above_bridge_point.soc_percent == 50.0
+    assert load_above_bridge_point.pv_kwh == 5.0
+    assert load_above_bridge_point.load_kwh == 7.5
+    assert load_above_bridge_point.grid_import_kwh == 2.5
+    assert load_above_bridge_point.grid_export_kwh == 0.0
+    assert load_above_bridge_result.potential_pv_kwh == 10.0
+    assert load_above_bridge_result.pv_kwh == 5.0
+    assert load_above_bridge_result.pv_curtailed_kwh == 5.0
+
+    # PV-to-LOAD consumes the bridge before natural battery discharge.  At
+    # 8 kW PV and 15 kW LOAD, 4 kWh of PV occupy 8 kW of the 10 kW bridge for
+    # this slot.  The battery can therefore deliver only 1 kWh (2 kW), while
+    # the grid supplies the remaining 2.5 kWh (5 kW).
+    mixed_deficit_settings = replace(
+        load_above_bridge_settings,
+        pv_by_slot_kwh={start: 4.0},
+    )
+    mixed_deficit = _simulate(
+        mixed_deficit_settings,
+        [start],
+        [7.5],
+        {},
+        {},
+        [(0.85, "g11")],
+        [1.0],
+    )
+    assert mixed_deficit.battery_delta_kwh[0] == -1.0
+    assert mixed_deficit.battery_after_kwh[0] == 9.0
+    assert mixed_deficit.potential_pv_kwh[0] == 4.0
+    assert mixed_deficit.pv_kwh[0] == 4.0
+    assert mixed_deficit.pv_curtailed_kwh[0] == 0.0
+    assert mixed_deficit.grid_import_kwh[0] == 2.5
+    assert mixed_deficit.grid_export_kwh[0] == 0.0
+    assert mixed_deficit.uncovered_import_kwh[0] == 2.5
+
+    mixed_deficit_result = optimize_tariff_charging(mixed_deficit_settings)
+    assert mixed_deficit_result.timeline_trace is not None
+    mixed_deficit_point = mixed_deficit_result.timeline_trace.points[0]
+    assert mixed_deficit_point.battery_delta_kwh == -1.0
+    assert mixed_deficit_point.soc_percent == 45.0
+    assert mixed_deficit_point.pv_kwh == 4.0
+    assert mixed_deficit_point.load_kwh == 7.5
+    assert mixed_deficit_point.grid_import_kwh == 2.5
+    assert mixed_deficit_point.grid_export_kwh == 0.0
+
+    invalid_system_limit = _simulate(
+        settings(
+            start,
+            system_ac_power_kw=float("nan"),
+            battery_capacity_kwh=20.0,
+            battery_soc_percent=100.0,
+            reserve_soc_percent=0.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+            battery_discharge_power_kw=20.0,
+        ),
+        [start],
+        [7.5],
+        {},
+        {},
+        [(0.85, "g11")],
+        [1.0],
+    )
+    assert invalid_system_limit.battery_delta_kwh[0] == 0.0
+    assert invalid_system_limit.grid_import_kwh[0] == 7.5
+
+    unavailable_result = optimize_tariff_charging(
+        settings(
+            start,
+            pv_by_slot_kwh={start: 4.0},
+            load_by_slot_kwh={start: 1.0},
+            battery_soc_percent=100.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+            charge_efficiency_percent=100.0,
+            discharge_efficiency_percent=100.0,
+            export_state=ExportState.UNVERIFIED,
+        )
+    )
+    assert unavailable_result.status_code == "missing_data"
+    assert not unavailable_result.physical_dispatch_available
+    assert not unavailable_result.control_inputs_fresh
+    assert unavailable_result.control_input_block_reason == (
+        "export_disposition_unverified"
+    )
+    assert unavailable_result.potential_pv_kwh == 4.0
+    assert unavailable_result.pv_kwh is None
+    assert unavailable_result.pv_curtailed_kwh is None
+    assert not unavailable_result.current_slot_planned
+    assert unavailable_result.timeline_trace is not None
+    assert unavailable_result.timeline_trace.quality == "unavailable"
+    assert unavailable_result.timeline_trace.blocker_code == (
+        "export_disposition_unverified"
+    )
+    assert any(
+        point.quality == "unavailable"
+        and point.pv_kwh is None
+        and point.grid_export_kwh is None
+        for point in unavailable_result.timeline_trace.points
+    )
+
+    sensor_path = (
+        ROOT / "custom_components" / "hoymiles_hit_modbus" / "tariff_sensor.py"
+    )
+    sensor_tree = ast.parse(sensor_path.read_text(encoding="utf-8"))
+    helper = next(
+        node
+        for node in sensor_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_tariff_export_state_from_shared_snapshot"
+    )
+    helper_namespace = {"Any": object, "ExportState": ExportState}
+    exec(
+        compile(
+            ast.fix_missing_locations(ast.Module(body=[helper], type_ignores=[])),
+            "<tariff-export-state>",
+            "exec",
+        ),
+        helper_namespace,
+    )
+    resolve_export_state = helper_namespace[
+        "_tariff_export_state_from_shared_snapshot"
+    ]
+    assert resolve_export_state(None) is ExportState.UNVERIFIED
+    assert resolve_export_state(
+        SimpleNamespace(
+            gcf=SimpleNamespace(
+                gcf_readback_ready=False,
+                zero_export_confirmed=False,
+                export_allowed=True,
+            )
+        )
+    ) is ExportState.UNVERIFIED
+    assert resolve_export_state(
+        SimpleNamespace(
+            gcf=SimpleNamespace(
+                gcf_readback_ready=True,
+                zero_export_confirmed=True,
+                export_allowed=False,
+            )
+        )
+    ) is ExportState.CONFIRMED_ZERO_EXPORT
+    assert resolve_export_state(
+        SimpleNamespace(
+            gcf=SimpleNamespace(
+                gcf_readback_ready=True,
+                zero_export_confirmed=False,
+                export_allowed=True,
+            )
+        )
+    ) is ExportState.VERIFIED_ALLOWED
+    assert "export_state=_tariff_export_state_from_shared_snapshot(" in (
+        sensor_path.read_text(encoding="utf-8")
+    )
+    publish_source = sensor_path.read_text(encoding="utf-8").split(
+        "def _publish_timeline_result", 1
+    )[1].split("def _same_entry_rce_plan_state", 1)[0]
+    assert "not self._result.physical_dispatch_available" in publish_source
+    assert "self._result.physical_dispatch_block_reason" in publish_source
+
+
+def test_zero_export_forecast_and_pv_soc_contracts() -> None:
+    """Use one zero-export margin and keep physical PV in every action."""
+
+    sensor_path = (
+        ROOT / "custom_components" / "hoymiles_hit_modbus" / "tariff_sensor.py"
+    )
+    tree = ast.parse(sensor_path.read_text(encoding="utf-8"))
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_tariff_forecast_risk_weight"
+    )
+    namespace = {"ForecastLearningPolicy": object}
+    exec(
+        compile(
+            ast.fix_missing_locations(ast.Module(body=[helper], type_ignores=[])),
+            "<tariff-zero-export-risk-weight>",
+            "exec",
+        ),
+        namespace,
+    )
+    effective_weight = namespace["_tariff_forecast_risk_weight"]
+    assert effective_weight(SimpleNamespace(mode="fixed_zero_export"), 0.80) == 0.0
+    assert effective_weight(SimpleNamespace(mode="adaptive"), 0.80) == 0.80
+
+    # Strong P50 and a much lower P10 must receive exactly one complete
+    # zero-export margin: 0.80 * P50, not 0.80 * a P10/P50 blend.
+    p50_kwh = 40.0
+    p10_kwh = 4.0
+    fixed_factor_only = p50_kwh * 0.80
+    old_double_derating = (0.20 * p50_kwh + 0.80 * p10_kwh) * 0.80
+    assert fixed_factor_only == 32.0
+    assert abs(old_double_derating - 8.96) < 1e-12
+    assert fixed_factor_only > old_double_derating
+
+    start = datetime(2026, 8, 31, 10, 0, tzinfo=ZONE)
+    zero_export_pv = 2.5 * 0.80
+    idle = _simulate(
+        settings(
+            start,
+            pv_by_slot_kwh={start: zero_export_pv},
+            battery_soc_percent=40.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+        ),
+        [start],
+        [0.5],
+        {},
+        {},
+        [(1.0, "peak")],
+        [1.0],
+    )
+    # PV 2.0 - LOAD 0.5 = 1.5 kWh AC; 95% is stored.
+    assert abs(idle.battery_delta_kwh[0] - 1.425) < 1e-12
+    assert idle.battery_after_kwh[0] > 8.0
+
+    grid_charge = _simulate(
+        settings(
+            start,
+            pv_by_slot_kwh={start: 2.5},
+            battery_soc_percent=20.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+        ),
+        [start],
+        [0.5],
+        {0: 2.0},
+        {},
+        [(0.5, "low")],
+        [1.0],
+    )
+    # The 2.5 kWh charge budget already includes 2.0 kWh from PV.
+    # Only the remaining 0.5 kWh comes from the grid, at 95% efficiency.
+    assert abs(grid_charge.stored_import_kwh[0] - 0.475) < 1e-12
+    assert abs(grid_charge.battery_delta_kwh[0] - 2.375) < 1e-12
+    assert abs(
+        grid_charge.battery_delta_kwh[0]
+        - grid_charge.stored_import_kwh[0]
+        - 1.9
+    ) < 1e-12
+
+
+def test_timeline_quality_and_legacy_output_contract() -> None:
+    """Pin partial/complete truth without changing any legacy result field."""
+
+    pre_peak = datetime(2026, 8, 6, 12, 30, tzinfo=ZONE)
+    peak_load = {
+        pre_peak.replace(hour=hour, minute=minute): 10.0 / 14.0
+        for hour in range(15, 22)
+        for minute in (0, 30)
+    }
+    common = {
+        "now": pre_peak.replace(hour=14, minute=50),
+        "reserve_soc_percent": 20.0,
+        "average_daily_load_kwh": 0.0,
+        "average_night_load_kwh": 0.0,
+        "load_by_slot_kwh": peak_load,
+        "charge_power_kw": 10.0,
+        "battery_charge_power_kw": 20.0,
+        "charge_efficiency_percent": 100.0,
+        "discharge_efficiency_percent": 100.0,
+        "minimum_saving_pln_kwh": 0.0,
+    }
+
+    soc_cases = (
+        (20.0, 8.333333333333334, "eeee285a1ec96443037881f1bb4c0cb0dc4b5230b8c2b3b137d2889cc4a00938"),
+        (25.0, 7.333333333333335, "1602ebc10ba2f6b81e5fb84eef1923b712f5418c7d6eeaa2529bd33b3fe42665"),
+        (50.0, 2.333333333333331, "e88238e65fc132e9bc354d16b212c991b07e3ef88fafa2116688a6036393c37f"),
+    )
+    for soc, residual, legacy_digest in soc_cases:
+        result = optimize_tariff_charging(
+            settings(**common, battery_soc_percent=soc)
+        )
+        assert result.status_code == "insufficient_cheap_window"
+        assert len(result.planned_charges) == 1
+        assert abs(result.remaining_shortage_kwh - residual) < 1e-12
+        assert existing_result_digest(result) == legacy_digest
+        assert result.timeline_trace is not None
+        assert len(result.timeline_trace.points) == 67
+        assert result.timeline_trace.quality == "partial"
+        assert result.timeline_trace.blocker_code == "insufficient_cheap_window"
+        assert all(
+            point.quality == "complete"
+            for point in result.timeline_trace.points
+        )
+
+    no_charge = optimize_tariff_charging(
+        settings(**common, battery_soc_percent=90.0, horizon_days=3)
+    )
+    assert no_charge.status_code == "no_charge_needed"
+    assert not no_charge.planned_charges
+    assert no_charge.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(no_charge) == (
+        "5c1d74084a7df2fc34ef7558ae92cb310ddaebf296ea4638f21576534f13ec8e"
+    )
+    assert no_charge.timeline_trace is not None
+    assert len(no_charge.timeline_trace.points) == 96
+    assert no_charge.timeline_trace.quality == "complete"
+    assert no_charge.timeline_trace.blocker_code is None
+
+    complete_battery = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak,
+                "battery_soc_percent": 20.0,
+                "horizon_days": 3,
+            }
+        )
+    )
+    assert complete_battery.status_code == "ready"
+    assert complete_battery.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(complete_battery) == (
+        "75228e72e1d4b14cc51dc55907484d3ec25b39345097a7024ebc1e01c2a165cd"
+    )
+    assert complete_battery.timeline_trace is not None
+    assert len(complete_battery.timeline_trace.points) == 96
+    assert complete_battery.timeline_trace.quality == "complete"
+    assert complete_battery.timeline_trace.blocker_code is None
+    assert {
+        point.action_code
+        for point in complete_battery.timeline_trace.points
+        if point.selected
+    } == {"battery_charge"}
+
+    loaded_cheap_period = dict(peak_load)
+    loaded_cheap_period.update(
+        {
+            pre_peak.replace(hour=hour, minute=minute): 2.0
+            for hour in (13, 14)
+            for minute in (0, 30)
+        }
+    )
+    support_and_charge = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak.replace(hour=13, minute=0),
+                "battery_soc_percent": 20.0,
+                "load_by_slot_kwh": loaded_cheap_period,
+                "horizon_days": 3,
+            }
+        )
+    )
+    # The earlier two cheap slots use ordinary Self-Use grid supply at reserve;
+    # they no longer need a charging run just to fit LOAD into the charge setting.
+    assert support_and_charge.remaining_shortage_kwh == 4.0
+    assert support_and_charge.remaining_expensive_import_kwh == 0.0
+    assert existing_result_digest(support_and_charge) == (
+        "d14365881ea52b36aaece0f2a9dfc845527d5bc8f6d825856ac75223e9124ff1"
+    )
+    assert support_and_charge.timeline_trace is not None
+    assert len(support_and_charge.timeline_trace.points) == 96
+    assert support_and_charge.timeline_trace.quality == "complete"
+    assert support_and_charge.timeline_trace.blocker_code is None
+    assert {
+        point.action_code
+        for point in support_and_charge.timeline_trace.points
+        if point.selected
+    } == {"grid_support_and_charge"}
+
+    grid_support = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak.replace(hour=13, minute=0),
+                "battery_soc_percent": 100.0,
+                "load_by_slot_kwh": loaded_cheap_period,
+                "horizon_days": 3,
+            }
+        )
+    )
+    assert grid_support.remaining_shortage_kwh == 0.0
+    assert [item.start for item in grid_support.planned_charges] == [
+        pre_peak.replace(hour=14, minute=30)
+    ]
+    assert grid_support.next_charge_start == pre_peak.replace(hour=14, minute=30)
+    assert grid_support.latest_feasible_start is None  # no independent window search
+    assert existing_result_digest(grid_support) == (
+        "1776f8504933e97ed693f49e4b486715d594b77d94ffebc7cb53e27e49e5ef3a"
+    )
+    assert grid_support.timeline_trace is not None
+    assert len(grid_support.timeline_trace.points) == 96
+    assert grid_support.timeline_trace.quality == "complete"
+    assert grid_support.timeline_trace.blocker_code is None
+    assert {
+        point.action_code
+        for point in grid_support.timeline_trace.points
+        if point.selected
+    } == {"grid_support"}
+
+    partial_horizon = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak,
+                "battery_soc_percent": 20.0,
+                "horizon_days": 2,
+            }
+        )
+    )
+    assert partial_horizon.status_code == "ready"
+    assert partial_horizon.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(partial_horizon) == (
+        "cdd6a2a3644ec4ce336926e230b6c286d969d23198a3a6ce985c5a114b10a4cd"
+    )
+    assert partial_horizon.timeline_trace is not None
+    assert len(partial_horizon.timeline_trace.points) == 71
+    assert partial_horizon.timeline_trace.quality == "partial"
+    assert partial_horizon.timeline_trace.blocker_code == "planning_horizon_limited"
+    assert all(
+        point.quality == "complete"
+        for point in partial_horizon.timeline_trace.points
+    )
+
+    stale = optimize_tariff_charging(
+        settings(
+            **{
+                **common,
+                "now": pre_peak,
+                "battery_soc_percent": 20.0,
+                "horizon_days": 3,
+                "control_inputs_fresh": False,
+                "control_input_block_reason": "missing_soc",
+            }
+        )
+    )
+    assert not stale.control_inputs_fresh
+    assert stale.control_input_block_reason == "missing_soc"
+    assert stale.remaining_shortage_kwh == 0.0
+    assert existing_result_digest(stale) == (
+        "fc9951d16f8eed790a3a81cf8e967dd4025603a3d743a713ce4174c2072da302"
+    )
+    assert stale.timeline_trace is None
+
+    # Missing critical input never reaches the optimizer in the HA adapter;
+    # it clears the result and retains the existing unavailable publication.
+    sensor_source = (
+        ROOT
+        / "custom_components"
+        / "hoymiles_hit_modbus"
+        / "tariff_sensor.py"
+    ).read_text(encoding="utf-8")
+    publish_start = sensor_source.index("def _publish_timeline_result")
+    publish_end = sensor_source.index("\n    def ", publish_start + 8)
+    publish_source = sensor_source[publish_start:publish_end]
+    assert "quality=" not in publish_source
+    assert "self._result is None" in publish_source
+    assert "publish_unavailable" in publish_source
+
+
+def test_n11_g12w_full_fixture_compacts_only_equivalent_economic_charge() -> None:
+    """Reproduce the Sunday split with a labeled full-horizon fixture."""
+
+    assert len(N11_G12W_LOAD_48H_KWH) == 96
+    assert len(N11_G12W_PV_48H_KWH) == 96
+    now = datetime(2026, 9, 13, 7, 31, 17, 802009, tzinfo=ZONE)
+    first_start = now.replace(minute=30, second=0, microsecond=0)
+    published_starts = [
+        (first_start.astimezone(ZoneInfo("UTC")) + timedelta(minutes=30 * index))
+        .astimezone(ZONE)
+        for index in range(96)
+    ]
+    live_schedule = replace(
+        schedule("G12w"),
+        g11_price_pln_kwh=0.9741,
+        low_price_pln_kwh=0.6306,
+        medium_price_pln_kwh=1.2304,
+        peak_price_pln_kwh=1.2304,
+    )
+    fixture = settings(
+        now,
+        pv_by_slot_kwh=dict(zip(
+            published_starts,
+            N11_G12W_PV_48H_KWH,
+            strict=True,
+        )),
+        load_by_slot_kwh=dict(zip(
+            published_starts,
+            N11_G12W_LOAD_48H_KWH,
+            strict=True,
+        )),
+        battery_capacity_kwh=26.0,
+        battery_soc_percent=30.0,
+        base_reserve_soc_percent=25.0,
+        reserve_soc_percent=45.0,
+        maximum_soc_percent=100.0,
+        average_daily_load_kwh=25.62,
+        average_night_load_kwh=14.88,
+        charge_power_kw=6.0,
+        system_ac_power_kw=10.0,
+        battery_charge_power_kw=12.5,
+        battery_discharge_power_kw=13.29,
+        charge_efficiency_percent=95.0,
+        discharge_efficiency_percent=95.0,
+        terminal_reserve_soc_percent=45.8,
+        battery_wear_cost_pln_kwh=0.06,
+        minimum_saving_pln_kwh=0.02,
+        schedule=live_schedule,
+        export_state=ExportState.CONFIRMED_ZERO_EXPORT,
+        horizon_days=3,
+    )
+
+    result = optimize_tariff_charging(fixture)
+    repeated = optimize_tariff_charging(fixture)
+    assert result == repeated
+    assert result.planning_slot_count == 129
+    assert abs(result.planning_horizon_hours - 64.47838833083333) < 1e-9
+    charge_by_start = {item.start: item for item in result.planned_charges}
+    sunday_fragment = datetime(2026, 9, 13, 15, 30, tzinfo=ZONE)
+    monday_target = datetime(2026, 9, 14, 4, 30, tzinfo=ZONE)
+    assert sunday_fragment not in charge_by_start
+    assert abs(charge_by_start[monday_target].stored_energy_kwh - 0.95) < 1e-9
+
+    def range_count(charges: list) -> int:
+        return sum(
+            index == 0
+            or charges[index - 1].start.astimezone(ZoneInfo("UTC")) + SLOT
+            != item.start.astimezone(ZoneInfo("UTC"))
+            for index, item in enumerate(charges)
+        )
+
+    assert range_count(result.planned_charges) == 3
+
+    # Independently restore the published split and run both complete 129-slot
+    # trajectories.  The moved 0.5 kWh AC is accepted at 04:30, while cost,
+    # shortage, total imports and every SOC after that destination are equal.
+    _, horizon_end, _, _ = resolve_planning_horizon(
+        fixture.now,
+        fixture.horizon_days,
+        minimum_hours=48.0,
+    )
+    starts: list[datetime] = []
+    cursor = first_start.astimezone(ZoneInfo("UTC"))
+    while cursor < horizon_end.astimezone(ZoneInfo("UTC")):
+        starts.append(cursor.astimezone(ZONE))
+        cursor += SLOT
+    fractions = [1.0 for _ in starts]
+    fractions[0] = (1800.0 - 77.802009) / 1800.0
+    loads = _slot_loads(fixture, starts)
+    loads[0] *= fractions[0]
+    rates = [tariff_rate(start, fixture.schedule) for start in starts]
+    index_by_start = {start: index for index, start in enumerate(starts)}
+    efficiency = fixture.charge_efficiency_percent / 100.0
+    compacted_charge = {
+        index_by_start[item.start]: item.stored_energy_kwh / efficiency
+        for item in result.planned_charges
+        if item.stored_energy_kwh > 1e-9
+    }
+    support = {
+        index_by_start[item.start]: item.direct_load_kwh
+        for item in result.planned_charges
+        if item.direct_load_kwh > 1e-9
+    }
+    source_index = index_by_start[sunday_fragment]
+    target_index = index_by_start[monday_target]
+    published_split = dict(compacted_charge)
+    published_split[source_index] = 0.5
+    published_split[target_index] -= 0.5
+    before = _simulate(
+        fixture,
+        starts,
+        loads,
+        published_split,
+        support,
+        rates,
+        fractions,
+    )
+    after = _simulate(
+        fixture,
+        starts,
+        loads,
+        compacted_charge,
+        support,
+        rates,
+        fractions,
+    )
+    assert abs(
+        before.total_optimization_cost_pln - after.total_optimization_cost_pln
+    ) < 1e-8
+    assert abs(before.shortage_kwh - after.shortage_kwh) < 1e-9
+    assert abs(before.total_grid_import_kwh - after.total_grid_import_kwh) < 1e-9
+    assert abs(before.ending_battery_kwh - after.ending_battery_kwh) < 1e-9
+    assert max(
+        abs(before.battery_after_kwh[index] - after.battery_after_kwh[index])
+        for index in range(target_index, len(starts))
+    ) < 1e-9
+
+    noisy_pv = dict(fixture.pv_by_slot_kwh)
+    noisy_pv[published_starts[-1]] += 1e-9
+    noisy = optimize_tariff_charging(replace(fixture, pv_by_slot_kwh=noisy_pv))
+    semantic = lambda value: [
+        (item.start, item.action) for item in value.planned_charges
+    ]
+    assert semantic(noisy) == semantic(result)
+
+
 def main() -> None:
+    test_active_commitment_stabilization_contracts()
+    test_n11_g12w_full_fixture_compacts_only_equivalent_economic_charge()
+    test_timeline_quality_and_legacy_output_contract()
+    test_zero_export_forecast_and_pv_soc_contracts()
+    test_physical_pv_dispatch_contracts()
     monday = datetime(2026, 8, 3, 21, 10, tzinfo=ZONE)
 
     # Freshness treats a repeated exact zero as a real sample. HA's
@@ -81,8 +1176,8 @@ def main() -> None:
     assert not numeric_sample_is_fresh(float("nan"), 0.0, 300.0)
     assert not numeric_sample_is_fresh(10.0, -5.1, 300.0)
 
-    # The inverter has one shared Grid Charge budget.  With a 10 kW command in
-    # a 30-minute slot, 4 kWh of LOAD leaves only 1 kWh AC for the battery.
+    # A 10 kW charge setting permits 5 kWh AC for charging in a half-hour.
+    # The grid supplies another 4 kWh to LOAD independently of that setting.
     # Merely enabling the mode also moves the complete remaining LOAD to grid;
     # the requested support value is a mode flag, not a fractional flow.
     physical = settings(
@@ -103,15 +1198,15 @@ def main() -> None:
         [1.0],
     )
     assert abs(physical_simulation.accepted_support_kwh[0] - 4.0) < 1e-6
-    assert abs(physical_simulation.accepted_import_kwh[0] - 1.0) < 1e-6
+    assert abs(physical_simulation.accepted_import_kwh[0] - 5.0) < 1e-6
     assert abs(
         physical_simulation.accepted_support_kwh[0]
         + physical_simulation.accepted_import_kwh[0]
-        - 5.0
+        - 9.0
     ) < 1e-6
 
     # The BMS limit applies only to battery-side DC power.  It must not reduce
-    # the part of the common AC budget that supplies the home.
+    # the independent grid supply to the home.
     bms_limited = settings(
         physical.now,
         battery_soc_percent=50.0,
@@ -207,7 +1302,7 @@ def main() -> None:
     assert result.estimated_savings_pln > 0
     assert all(item.price_pln_kwh == 0.62 for item in result.planned_charges)
     assert all(
-        item.grid_import_kwh <= result.charge_power_kw * 0.5 + 1e-6
+        item.grid_import_kwh - item.direct_load_kwh <= result.charge_power_kw * 0.5 + 1e-6
         for item in result.planned_charges
     )
 
@@ -243,10 +1338,8 @@ def main() -> None:
     assert abs(ten_kw_lead.planned_stored_energy_kwh - 10.0) < 1e-6
     assert ten_kw_lead.remaining_shortage_kwh < 0.01
 
-    # The percentage sent to the inverter is a shared Grid Charge budget, not
-    # pure battery power.  With 2 kWh of LOAD in every cheap half-hour, only
-    # 3 kWh from each 10 kW block remain for storage, so charging must begin at
-    # 13:00 instead of incorrectly assuming that 14:00 is still sufficient.
+    # An additional 2 kWh of LOAD per cheap half-hour does not reduce the
+    # configured battery charging power. The same two charge slots suffice.
     loaded_cheap_period = dict(peak_load)
     loaded_cheap_period.update(
         {
@@ -271,13 +1364,13 @@ def main() -> None:
         )
     )
     assert net_power_lead.status_code == "ready"
-    assert net_power_lead.planned_charges[0].start.strftime("%H:%M") == "13:00"
+    assert net_power_lead.planned_charges[0].start.strftime("%H:%M") == "14:00"
     assert abs(net_power_lead.planned_stored_energy_kwh - 10.0) < 1e-6
-    assert abs(net_power_lead.planned_direct_load_kwh - 8.0) < 1e-6
+    assert abs(net_power_lead.planned_direct_load_kwh - 4.0) < 1e-6
 
     combined_active = optimize_tariff_charging(
         settings(
-            pre_peak.replace(hour=13, minute=0),
+            pre_peak.replace(hour=14, minute=0),
             battery_soc_percent=20.0,
             reserve_soc_percent=20.0,
             average_daily_load_kwh=0.0,
@@ -401,7 +1494,7 @@ def main() -> None:
     # Regression for the 14:50 micro-cycle: a full battery and a small home
     # load may produce a few groszy of theoretical Grid Support saving, but it
     # must not be eligible for a new EMS mode transition. Fresh live telemetry
-    # replaces the historical current-slot estimate.
+    # limits executable support without replacing the nominal LOAD forecast.
     micro_support_load = {
         start: 20.0 / 14.0
         for start in peak_load
@@ -429,10 +1522,10 @@ def main() -> None:
     assert micro_support.current_run_suppression_reason == "insufficient_energy"
     assert micro_support.current_run_continue_eligible
     assert micro_support.current_run_continue_reason == "eligible"
-    assert micro_support.current_slot_load_source == "live"
-    assert abs(micro_support.current_slot_load_kwh - 0.45 * 585 / 3600) < 1e-6
+    assert micro_support.current_slot_load_source == "shared_forecast"
+    assert abs(micro_support.current_slot_load_kwh - .75 * 585 / 1800) < 1e-6
     assert abs(micro_support.current_run_duration_seconds - 585.0) < 1e-6
-    assert micro_support.target_soc_percent <= 99.0 + 1e-6
+    assert abs(micro_support.target_soc_percent - 98.0) < 1e-9
 
     # The same ten-minute tail remains useful for a genuinely high LOAD. The
     # energy and absolute benefit gates scale naturally instead of imposing a
@@ -459,8 +1552,174 @@ def main() -> None:
     assert material_support.current_run_suppression_reason == "eligible"
     assert material_support.current_run_continue_eligible
     assert material_support.current_run_continue_reason == "eligible"
-    assert material_support.current_run_direct_load_kwh > 0.8
+    assert abs(material_support.current_run_direct_load_kwh - .25) < 1e-9
     assert material_support.current_run_benefit_pln >= 0.10
+
+    # Phase 1B-1 provenance is owned by the allocation steps themselves. A
+    # normal empty current run is not promoted to an economic action.
+    provenance_none = optimize_tariff_charging(
+        settings(
+            monday.replace(day=4, hour=12, minute=0),
+            battery_soc_percent=100.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+        )
+    )
+    assert provenance_none.current_action == "none"
+    assert provenance_none.current_run_need_class == "none"
+    assert provenance_none.timeline_trace is not None
+    assert all(
+        point.policy.need_class == "none"
+        for point in provenance_none.timeline_trace.points
+    )
+
+    provenance_required = optimize_tariff_charging(
+        settings(
+            datetime(2026, 8, 9, 6, 13, tzinfo=ZONE),
+            schedule=schedule("G12w"),
+            battery_soc_percent=20.0,
+            base_reserve_soc_percent=25.0,
+            reserve_soc_percent=27.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+        )
+    )
+    assert provenance_required.current_action == "battery_charge"
+    assert provenance_required.current_run_need_class == "required_energy"
+    assert material_support.current_run_need_class == "economic"
+    assert provenance_required.timeline_trace is not None
+    assert provenance_required.timeline_trace.points[0].policy.need_class == (
+        "required_energy"
+    )
+    assert material_support.timeline_trace is not None
+    assert material_support.timeline_trace.points[0].policy.need_class == "economic"
+
+    mixed_now = datetime(2026, 8, 3, 22, 0, tzinfo=ZONE)
+    provenance_mixed = optimize_tariff_charging(
+        settings(
+            mixed_now,
+            battery_soc_percent=15.0,
+            base_reserve_soc_percent=25.0,
+            reserve_soc_percent=27.0,
+            average_daily_load_kwh=30.0,
+            average_night_load_kwh=12.0,
+            charge_power_kw=8.0,
+            battery_charge_power_kw=8.0,
+            charge_efficiency_percent=100.0,
+            discharge_efficiency_percent=100.0,
+            minimum_saving_pln_kwh=0.0,
+        )
+    )
+    assert provenance_mixed.current_slot_planned
+    assert provenance_mixed.current_run_need_class == "mixed"
+    assert provenance_mixed.timeline_trace is not None
+    assert provenance_mixed.timeline_trace.points[0].policy.need_class == "mixed"
+
+    # The current run is classified across every contiguous accepted slot,
+    # including separate required and economic allocations merged by action.
+    merged_now = datetime(2026, 8, 4, 4, 30, tzinfo=ZONE)
+    merged_load = {
+        merged_now.replace(hour=hour, minute=minute): 2.0
+        for hour in range(6, 22)
+        for minute in (0, 30)
+    }
+    provenance_merged = optimize_tariff_charging(
+        settings(
+            merged_now,
+            battery_soc_percent=15.0,
+            base_reserve_soc_percent=25.0,
+            reserve_soc_percent=27.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+            load_by_slot_kwh=merged_load,
+            charge_power_kw=8.0,
+            battery_charge_power_kw=8.0,
+            charge_efficiency_percent=100.0,
+            discharge_efficiency_percent=100.0,
+            minimum_saving_pln_kwh=0.0,
+        )
+    )
+    assert provenance_merged.current_run_need_class == "mixed"
+    assert provenance_merged.current_slot_end == datetime(
+        2026, 8, 4, 6, 0, tzinfo=ZONE
+    )
+    assert len([
+        item
+        for item in provenance_merged.planned_charges
+        if item.start < provenance_merged.current_slot_end
+    ]) == 3
+
+    # UTC stepping preserves the origin while a required run crosses a local
+    # day boundary.
+    midnight_now = datetime(2026, 8, 3, 23, 30, tzinfo=ZONE)
+    midnight_run = optimize_tariff_charging(
+        settings(
+            midnight_now,
+            battery_capacity_kwh=20.0,
+            battery_soc_percent=0.0,
+            base_reserve_soc_percent=50.0,
+            reserve_soc_percent=50.0,
+            average_daily_load_kwh=0.0,
+            average_night_load_kwh=0.0,
+            charge_power_kw=5.0,
+            battery_charge_power_kw=5.0,
+            charge_efficiency_percent=100.0,
+            discharge_efficiency_percent=100.0,
+            minimum_saving_pln_kwh=0.0,
+        )
+    )
+    assert midnight_run.current_run_need_class == "required_energy"
+    assert midnight_run.current_slot_end == datetime(
+        2026, 8, 4, 1, 30, tzinfo=ZONE
+    )
+
+    # Missing or malformed allocation metadata fails closed to none; it can
+    # never be silently interpreted as an economic origin.
+    assert _classify_current_run_need(
+        current_planned=False,
+        current_run_slot_indices=(),
+        allocation_provenance={},
+    ) == "none"
+    assert _classify_current_run_need(
+        current_planned=True,
+        current_run_slot_indices=(0,),
+        allocation_provenance={},
+    ) == "none"
+    assert _classify_current_run_need(
+        current_planned=True,
+        current_run_slot_indices=(0,),
+        allocation_provenance={0: 99},
+    ) == "none"
+    assert {
+        origin: _allocation_need_class(origin)
+        for origin in (None, 0, 1, 2, 3, 99)
+    } == {
+        None: "none",
+        0: "none",
+        1: "required_energy",
+        2: "economic",
+        3: "mixed",
+        99: "none",
+    }
+    assert _allocation_need_class(True) == "none"
+
+    # Frozen pre-change hashes cover every existing result field. The new
+    # bounded scalar is removed before hashing and is the sole schema delta.
+    assert existing_result_digest(result) == (
+        "21a7535b8aa7b92f3899d70b7d2ff75b54fd02d9b337acf48f75cfc60d8bb255"
+    )
+    assert existing_result_digest(provenance_required) == (
+        "b2dcbab49ce360888b4e52b075a62dd0e735164ab66266803cead7ae9e96abff"
+    )
+    # Grid support now requests SOC - 2 pp. Normalize only that intentional
+    # change so the frozen digest still guards every other result field.
+    assert abs(material_support.target_soc_percent - 98.0) < 1e-9
+    assert existing_result_digest(replace(material_support, target_soc_percent=99.0)) == (
+        "47ae38150c19efafc1ed4487d20db3502413ba3d0be327abc11c6089c7629247"
+    )
+    assert existing_result_digest(provenance_none) == (
+        "c09feecb9602724237e107f12a770588a80e442bc8ddd954e63e318bb01b7806"
+    )
 
     # Pure support fails closed when live powers are missing/stale, or when PV
     # already covers LOAD / the battery is not actually discharging. Required
@@ -521,7 +1780,9 @@ def main() -> None:
             reserve_soc_percent=20.0,
             average_daily_load_kwh=0.0,
             average_night_load_kwh=0.0,
-            load_by_slot_kwh=micro_support_load,
+            # This physical-veto fixture has a qualified 5 kW nominal load;
+            # the 100 W residual is not synthesized from a raw LOAD pulse.
+            load_by_slot_kwh={**micro_support_load, pre_peak.replace(hour=14, minute=30): 2.5},
             current_load_power_kw=5.0,
             current_pv_power_kw=4.9,
             current_battery_power_kw=0.1,
@@ -532,8 +1793,12 @@ def main() -> None:
         )
     )
     assert pv_nearly_covers.current_action == "grid_support"
-    assert not pv_nearly_covers.current_run_continue_eligible
-    assert pv_nearly_covers.current_run_continue_reason == "pv_covers_load"
+    # The remaining 100 W house demand permits continuity. A new 20-minute
+    # cycle still fails the independent minimum-energy economics gate.
+    assert not pv_nearly_covers.current_run_start_eligible
+    assert pv_nearly_covers.current_run_suppression_reason == "insufficient_energy"
+    assert pv_nearly_covers.current_run_continue_eligible
+    assert pv_nearly_covers.current_run_continue_reason == "eligible"
     pv_covers = optimize_tariff_charging(
         settings(
             pre_peak.replace(hour=14, minute=40),
@@ -831,6 +2096,7 @@ def main() -> None:
     tariff_sensor_source = (
         ROOT / "custom_components" / "hoymiles_hit_modbus" / "tariff_sensor.py"
     ).read_text(encoding="utf-8")
+    tariff_sensor_tree = ast.parse(tariff_sensor_source)
     for required_attribute in (
         '"planning_horizon_fallback_reason"',
         '"planning_horizon_gap_to_target_hours"',
@@ -838,9 +2104,11 @@ def main() -> None:
         '"model_input_forecast_day_3_kwh"',
         '"model_input_modeled_load_kwh"',
         '"model_input_effective_charge_power_kw"',
+        '"model_input_system_ac_power_kw"',
         '"charge_power_feedback_state"',
         '"charge_power_feedback_samples_remaining"',
         '"charge_power_feedback_applied_factor"',
+        '"current_run_need_class"',
         '"current_run_start_eligible"',
         '"current_run_suppression_reason"',
         '"current_run_continue_eligible"',
@@ -855,6 +2123,9 @@ def main() -> None:
         '"capacity_or_power_shortfall_kwh"',
         '"control_inputs_fresh"',
         '"control_input_block_reason"',
+        '"system_ac_power_data_fresh"',
+        '"system_ac_power_age_seconds"',
+        '"system_ac_power_provenance"',
         '"soc_data_fresh"',
         '"soc_age_seconds"',
         '"bms_charge_data_fresh"',
@@ -881,13 +2152,38 @@ def main() -> None:
         "sample = numeric_state_sample(",
     ):
         assert required_attribute in tariff_sensor_source
+    pending_method = tariff_sensor_source.split(
+        "def _mark_recalculation_pending", 1
+    )[1].split("def _mark_result_current", 1)[0]
+    current_method = tariff_sensor_source.split(
+        "def _mark_result_current", 1
+    )[1].split("async def", 1)[0]
+    assert "**self._attributes" in pending_method
+    assert "**self._attributes" in current_method
+    assert '"current_run_need_class"' not in pending_method
+    assert '"current_run_need_class"' not in current_method
     assert "if bms_charge_data_fresh\n            else 0.0" in tariff_sensor_source
     assert "if bms_discharge_data_fresh\n            else 0.0" in tariff_sensor_source
     assert "battery_charge_power_kw=bms_power_kw" in tariff_sensor_source
     assert "battery_discharge_power_kw=bms_discharge_power_kw" in tariff_sensor_source
+    assert "system_ac_power_kw=system_ac_power_kw" in tariff_sensor_source
+    assert '"system_rated_power_kw"' in tariff_sensor_source
     assert "pv_charge_power_kw=bms_power_kw" in tariff_sensor_source
     assert "else system_power_kw" not in tariff_sensor_source
-    assert "efficiency_value is None" in tariff_sensor_source
+    assert "efficiency_value is None" not in tariff_sensor_source
+    assert '"sensor.hoymiles_hit_grid_to_battery_power"' in tariff_sensor_source
+    assert '"sensor.hoymiles_tariff_grid_charge_power"' not in tariff_sensor_source
+    feedback_method = tariff_sensor_source.split(
+        "def observe_supervisor_accounting_feedback", 1
+    )[1].split("async def _async_forecast_accuracy_timer", 1)[0]
+    assert "delivered_power_feedback_w" in feedback_method
+    assert "evidence_fingerprint" in feedback_method
+    assert '"sensor.hoymiles_hit_overview_load_active_power"' not in feedback_method
+    assert '"sensor.hoymiles_hit_grid_to_battery_power"' not in feedback_method
+    assert '"sensor.hoymiles_hit_overview_grid_total_active_power"' not in feedback_method
+    assert '"input_boolean.hoymiles_tariff_charge_active"' not in feedback_method
+    assert '"sensor.hoymiles_ems_control_owner"' not in feedback_method
+    assert "abs(grid_power" not in feedback_method
     assert "max_age_seconds=max_age_seconds" in tariff_sensor_source
     assert "rce_state_raw is None" in tariff_sensor_source
     assert "and load_profile_broker_fresh" in tariff_sensor_source
@@ -896,13 +2192,99 @@ def main() -> None:
         "def _configured_forecast_source_ids(",
         "def _refresh_dynamic_forecast_listener(",
         "_configured_forecast_entity_ids(self.hass)",
-        'if event.data["entity_id"] in FORECAST_ENTITY_HELPERS:',
-        "day_3_forecast_sample = numeric_state_sample(",
+        "if entity_id in FORECAST_ENTITY_HELPERS:",
+        "day_3_forecast_sample = evaluate_pv_forecast_usefulness(",
         "max_age_seconds=FORECAST_MAX_AGE_SECONDS",
+        "target_date=now.date() + timedelta(days=2)",
+        '"forecast_today_usability_mode"',
+        '"forecast_valid_until"',
         'if day_3_status != "fresh":',
     ):
         assert marker in tariff_sensor_source
     assert 'required["Solcast Forecast Day 3"]' not in tariff_sensor_source
+
+    # Published Supervisor provenance is an output, never a consumed planner
+    # input. Execute the real fingerprint method body against two otherwise
+    # identical fixtures whose only difference is the published scalar.
+    fingerprint_method = next(
+        node
+        for node in ast.walk(tariff_sensor_tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_current_input_fingerprint"
+    )
+    fingerprint_segment = ast.get_source_segment(
+        tariff_sensor_source,
+        fingerprint_method,
+    )
+    assert fingerprint_segment is not None
+    assert "current_run_need_class" not in fingerprint_segment
+    assert "self._attributes" not in fingerprint_segment
+    fingerprint_method.decorator_list = []
+    fingerprint_module = ast.fix_missing_locations(
+        ast.Module(body=[fingerprint_method], type_ignores=[])
+    )
+    fingerprint_namespace = {
+        "TARIFF_EVENT_DRIVEN_ENTITIES": {
+            "sensor.input",
+            "sensor.hoymiles_hit_rce_optimized_plan",
+        },
+        "RCE_LOAD_BROKER_ATTRIBUTES": ("bounded_attribute",),
+        "_shared_inputs_snapshot": lambda _runtime: None,
+        "_shared_optimizer_signature": lambda _runtime: None,
+        "_tariff_shared_critical_signature": lambda _runtime: None,
+        "_live_forecast_gcf_optimizer_signature": lambda _hass, _runtime: None,
+        "optimizer_input_fingerprint": lambda hass, entities, **_kwargs: (
+            hass,
+            tuple(sorted(entities)),
+        ),
+    }
+    exec(
+        compile(fingerprint_module, "<tariff-fingerprint-contract>", "exec"),
+        fingerprint_namespace,
+    )
+
+    class FingerprintFixture:
+        hass = "same-hass-state"
+
+        def __init__(self, published_need: str) -> None:
+            self._attributes = {"current_run_need_class": published_need}
+            self._runtime = None
+            self._dynamic_forecast_entities = frozenset({"sensor.forecast"})
+            self._rce_plan_source = None
+
+        @staticmethod
+        def _configured_forecast_source_ids() -> frozenset[str]:
+            return frozenset({"sensor.forecast"})
+
+    fingerprint_function = fingerprint_namespace[
+        "_current_input_fingerprint"
+    ]
+    assert fingerprint_function(
+        FingerprintFixture("required_energy")
+    ) == fingerprint_function(FingerprintFixture("economic"))
+
+    watched_assignment = next(
+        node
+        for node in tariff_sensor_tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "WATCHED_TARIFF_ENTITIES"
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else (node.target,)
+            )
+        )
+    )
+    watched_segment = ast.get_source_segment(
+        tariff_sensor_source,
+        watched_assignment,
+    )
+    assert watched_segment is not None
+    assert "sensor.hoymiles_hit_tariff_charge_plan" not in watched_segment
+    assert 'return "hoymiles_hit_tariff_charge_plan"' in tariff_sensor_source
+    assert '"current_run_need_class": result.current_run_need_class' in (
+        tariff_sensor_source
+    )
 
     # The reserve is dynamic.  With Self-Use 25% and a 2-point correction the
     # optimizer restores 27%; changing the user threshold changes the target.
@@ -1274,6 +2656,12 @@ def main() -> None:
     assert partial_hard_reserve_restore.hard_reserve_unavailable
     assert partial_hard_reserve_restore.hard_reserve_shortfall_kwh > 0.0
     assert partial_hard_reserve_restore.status_code == "insufficient_cheap_window"
+    assert partial_hard_reserve_restore.timeline_trace is not None
+    assert partial_hard_reserve_restore.timeline_trace.quality == "partial"
+    assert all(
+        point.quality == "complete"
+        for point in partial_hard_reserve_restore.timeline_trace.points
+    )
 
     # Missing Day 3 assumes zero PV, but only until the next cheap opportunity
     # in the unmodelled tail. It must not turn every winter fallback into a
@@ -1461,8 +2849,8 @@ def main() -> None:
     assert winter.optimized_grid_cost_pln < winter.baseline_grid_cost_pln
 
     # Local HIT-10 winter fixture: 21 kWh storage, 31 kWh/day heat-pump LOAD
-    # and a shared 5 kW Grid Charge budget. The current block must respect the
-    # shared AC and BMS limits and preserve the 27% composite reserve.
+    # and a 5 kW battery charge setting. Charging must respect that setting
+    # and BMS limits and preserve the 27% composite reserve.
     local_winter_fixture = optimize_tariff_charging(
         settings(
             monday.replace(hour=22, minute=0),
@@ -1484,13 +2872,13 @@ def main() -> None:
     assert local_winter_fixture.planned_charges
     assert local_winter_fixture.next_charge_start is not None
     assert all(
-        item.grid_import_kwh <= 2.5 + 1e-6
+        item.grid_import_kwh - item.direct_load_kwh <= 2.5 + 1e-6
         and item.stored_energy_kwh <= 2.5 * 0.95 + 1e-6
         for item in local_winter_fixture.planned_charges
     )
     assert local_winter_fixture.ending_battery_soc_percent >= 27.0 - 0.1
 
-    # Field-scale miernik.com.pl fixture: 230 kWh at 58% SOC, 37.4 kWh/day
+    # Field-scale installation_2 fixture: 230 kWh at 58% SOC, 37.4 kWh/day
     # LOAD and 167 kWh of next-day PV. It must not manufacture a reason to
     # fill a large already-protected store to 100%.
     meter_now = monday.replace(hour=21, minute=0)
@@ -1830,6 +3218,19 @@ def main() -> None:
 
     # Deterministic property sweep: varied batteries, loads, power limits and
     # efficiencies must never violate energy, shared-power or cost invariants.
+    g12e_schedule = replace(official, tariff_type="G12e")
+    october = datetime(2026, 10, 2, 10, 0, tzinfo=ZONE)
+    g12e_result = optimize_tariff_charging(settings(
+        october, schedule=g12e_schedule, battery_soc_percent=10.0,
+    ))
+    assert g12e_result.planned_charges
+    assert any(item.start == october.replace(hour=11)
+               for item in g12e_result.planned_charges)
+    for item in g12e_result.planned_charges:
+        assert item.zone == "low" and item.price_pln_kwh == 0.5969
+        if item.start.date() == october.date():
+            assert 11 <= item.start.hour < 15 or item.start.hour >= 22
+
     random = Random(20260804)
     for _ in range(40):
         capacity = random.uniform(5.0, 230.0)
@@ -1866,7 +3267,7 @@ def main() -> None:
         assert 0.0 <= swept.target_soc_percent <= 100.0
         for item in swept.planned_charges:
             assert item.zone == "low"
-            assert item.grid_import_kwh <= swept.charge_power_kw * 0.5 + 1e-6
+            assert item.grid_import_kwh - item.direct_load_kwh <= swept.charge_power_kw * 0.5 + 1e-6
             assert item.stored_energy_kwh <= (
                 (item.grid_import_kwh - item.direct_load_kwh)
                 * charge_efficiency

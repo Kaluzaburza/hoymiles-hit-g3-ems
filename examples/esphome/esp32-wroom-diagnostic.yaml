@@ -1,0 +1,38 @@
+# Optional local acceptance profile for a classic ESP32-WROOM board.
+# PCB revision (for example v1.1) is not the silicon revision. Do not use on S3.
+# Include after the complete, locally pinned inverter configuration.
+esp32:
+  board: esp32dev
+  variant: ESP32
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_APP_RETRIEVE_LEN_ELF_SHA: "64"
+    advanced:
+      minimum_chip_revision: "0.0"
+      sram1_as_iram: false
+
+esphome:
+  includes:
+    - <esp_app_desc.h>
+    - <esp_heap_caps.h>
+    - <esp_system.h>
+
+# Local log only: no additional HA entities, Recorder writes or Modbus queries.
+# Report the running ELF hash too, so a retained crash can be tied to its build.
+interval:
+  - interval: 60s
+    startup_delay: 15s
+    then:
+      - lambda: |-
+          char elf_sha[65] = {};
+          esp_app_get_elf_sha256(elf_sha, sizeof(elf_sha));
+          const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+          ESP_LOGI("wroom_diag",
+                   "uptime_ms=%lu reset=%d heap=%u min_heap=%u largest=%u",
+                   static_cast<unsigned long>(millis()),
+                   static_cast<int>(esp_reset_reason()),
+                   static_cast<unsigned>(heap_caps_get_free_size(caps)),
+                   static_cast<unsigned>(heap_caps_get_minimum_free_size(caps)),
+                   static_cast<unsigned>(heap_caps_get_largest_free_block(caps)));
+          ESP_LOGI("wroom_diag", "elf=%s", elf_sha);

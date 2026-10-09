@@ -1,0 +1,43 @@
+{
+  "schema": "pv_noc01_installation_1_observation_v1",
+  "scope": "read_only_installation_1_evidence",
+  "incident": {
+    "observed_at": "2026-09-13T23:47:00+02:00",
+    "forecast_today_age_seconds": 24501.3,
+    "legacy_today_ttl_seconds": 21600,
+    "legacy_result": "missing_data",
+    "last_successful_api_update": "2026-09-13T16:38:18+02:00",
+    "next_automatic_update": "2026-09-14T06:26:29+02:00",
+    "api_queries_used": 10,
+    "api_queries_limit": 10,
+    "physical_mode": "self_use",
+    "ems_health": "healthy_idle"
+  },
+  "live_metadata_confirmation": {
+    "frontend_revision": "1.5.8.79",
+    "today_entity": "sensor.solcast_pv_forecast_prognoza_na_dzisiaj",
+    "tomorrow_entity": "sensor.solcast_pv_forecast_prognoza_na_jutro",
+    "day3_entity": "sensor.solcast_pv_forecast_prognoza_na_dzien_3",
+    "api_update_entity": "sensor.solcast_pv_forecast_ostatnia_aktualizacja_api",
+    "api_update_attributes": [
+      "last_attempt",
+      "next_auto_update",
+      "auto_update_queue",
+      "failure_count_today"
+    ],
+    "forecast_attributes": [
+      "dataCorrect",
+      "detailedForecast",
+      "detailedHourly",
+      "analysis"
+    ],
+    "today_coverage_date": "2026-09-14",
+    "today_half_hour_slots": 48
+  },
+  "boundaries": {
+    "no_time_change": true,
+    "no_forced_solcast_update": true,
+    "no_ttl_increase": true,
+    "no_device_write": true
+  }
+}

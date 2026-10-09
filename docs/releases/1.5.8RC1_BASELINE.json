@@ -1,0 +1,438 @@
+{
+  "files": [
+    {
+      "path": "custom_components/hoymiles_hit_modbus/__init__.py",
+      "sha256": "ada164d99a23c9138eaa0edef8781216027455ccdc49b700c80dfa937947aea7",
+      "bytes": 29070
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/assets.py",
+      "sha256": "73e026475d2730c69055dd061c08f17a8219eda781c897f08e3b1772275e0a8a",
+      "bytes": 71562
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+      "sha256": "4c2061b7d22755192b80eb798d7e937e90933845938f9415ddc2da3aca5cfa7a",
+      "bytes": 44141
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/baseline_energy_timeline.py",
+      "sha256": "d6c6037574653becef466970a2faa27b82750c444e53c16945bf0dd30c27d932",
+      "bytes": 20474
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/baseline_energy_timeline_sensor.py",
+      "sha256": "e45415b99cda7957bb5c9d35b5ea8d6c755b731790c6476251c65ab45bc2c46a",
+      "bytes": 18158
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/bounded_history.py",
+      "sha256": "0ff34a83697df09d549fa533e4a785fb845d7b53f8bcf74d67077a80cbcee306",
+      "bytes": 6682
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/dark_icon.png",
+      "sha256": "f4548b5d481ace4f9353b6e367f09c15d7fc576a45d5375cbc96a0541da00b57",
+      "bytes": 1662
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/dark_icon@2x.png",
+      "sha256": "c03db4ea5c099ed0a2299d4a2b0b653bc65041eb6d1cf2e17ca4692028f9d85e",
+      "bytes": 3534
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/dark_logo.png",
+      "sha256": "fdcd6d8af11e28ec0b76d638dfda0aa0799b521b1e93159e40352533e7554b60",
+      "bytes": 14300
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/icon.png",
+      "sha256": "1be414d984605d2a43c240f73ea2925015b1c3c785ea324040c4a8c2d9d44089",
+      "bytes": 1664
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/icon@2x.png",
+      "sha256": "17d118acd6b1262897a4caad4c09f5910acfa7c1aa00724bdef1395bdb8b71e8",
+      "bytes": 3524
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/logo.png",
+      "sha256": "2ddec7e9354e74e5d9b4b4c4735062813b7ff9b68a4270fe5b0184e676c106fc",
+      "bytes": 14334
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/button.py",
+      "sha256": "3055918ff1d575e0933e07a2b6c910c519806f309b4fad0fba2a2b178bc3e4ae",
+      "bytes": 1832
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/catalog.py",
+      "sha256": "cc6fb9219b2a7fd7893cb5e46cf9e1e8fb352c8d8b9f23cb48dd7c7cd775dfed",
+      "bytes": 3990
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/collect_diagnostics.sh",
+      "sha256": "e98aa120bf242df00e53ad4a038646852502b6f89be9459b11aeb79099093c6f",
+      "bytes": 4308
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/config_flow.py",
+      "sha256": "c701d81755c6516ee81a880c58304ed8b0240ea359dee4fcd42c18b313d11067",
+      "bytes": 4152
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/const.py",
+      "sha256": "91ca1bf0e16adf369811e68a8b89b06c1d9886f2478a261cd8003af464698899",
+      "bytes": 2037
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/diagnostic_bundle.py",
+      "sha256": "293055b3967f3602ab9e2d0030ea2d35d0643c4214c2fc130e32992aaa9dba4c",
+      "bytes": 17247
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/diagnostic_redaction.py",
+      "sha256": "d93dfc2ebc58c0d39360b28752fec883fef7e918c16a41890a09d7d8cb511edf",
+      "bytes": 8842
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/diagnostics.py",
+      "sha256": "e671d470bf2cbe6720eb801124318b173cce982c18d1d83cbf9fa2be63138572",
+      "bytes": 36950
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_initial_defaults.py",
+      "sha256": "ae892d0bdb20eb66323c9471ff3cd4a2908f35ce2bfd47f4209fc07c3e7fcefd",
+      "bytes": 54887
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_notifications.py",
+      "sha256": "8c765009588d432776919ce0253e4f66c2f687e8c4b602e63411087708730c7b",
+      "bytes": 49296
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_shared_input_migration.py",
+      "sha256": "207208b3fc64d85752544b08246f1e4c404a92c47877d9f476b41883cdee872f",
+      "bytes": 39380
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_shared_inputs.py",
+      "sha256": "43990be77b5c3f451080a1d518712fb53062ff4be348caaeaffc883caebab2ec",
+      "bytes": 93722
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+      "sha256": "e80425fc4e2a154ab5368f68a21902bf8e7838872382c4ea07b13714491cff50",
+      "bytes": 63799
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/energy_data.py",
+      "sha256": "6d89670a1030240e7be99ba47474cb6b4f42fd6e84386629e1b9ce6a487c902d",
+      "bytes": 4445
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/entity.py",
+      "sha256": "70cbc34673e6763c3e8d63ca073bf5dd0aff95ad004738184eaba82d193bda2c",
+      "bytes": 5333
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/entity_catalog.json",
+      "sha256": "a2dacc1d45a0cde36fb25dc8c9b3774c7fd5328d217c11154782897ff2e4c5b4",
+      "bytes": 183840
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/execution_history.py",
+      "sha256": "fe98ff10e7f8064887f09e476c0a03de96c47142371cb7763ed7737b925ba2c3",
+      "bytes": 16440
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/execution_history_http.py",
+      "sha256": "d8781122c2a4ea9bf46e12c079834a9215724eb359c241df115f7e65ccfb2697",
+      "bytes": 13521
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/forecast_model.py",
+      "sha256": "8ed0e5d8255b0139bae328f7cac4991fb22e56bbe008e7671ac2a235be4f35be",
+      "bytes": 12082
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/installation_identity.py",
+      "sha256": "8692f0b35a28990b790490aef21971cac40b3e2a616e8ed848ebfb3a64d2a7df",
+      "bytes": 4194
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/load_model.py",
+      "sha256": "2ab050d186f53c2eac3edbc0c5ce25045723ddce9c1a9c4cad6570931ce20e97",
+      "bytes": 19601
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/localization.py",
+      "sha256": "f20453177562ed5e1f20e5deb2d1f4e428d36a97bfd70d5a28dc6d7e22033934",
+      "bytes": 13423
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/manifest.json",
+      "sha256": "15425ceac7588471508cb66dd29e899ddc8d83a03cac0d99949149999c6d2a57",
+      "bytes": 485
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/models.py",
+      "sha256": "957fb2f97dd190782fb4a73e48463703d2abeff9fc22e0acf1b4f67966d1ff45",
+      "bytes": 776
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/number.py",
+      "sha256": "21520becd87e12396e78b342e9264561a730414941608b44664bcb306b508412",
+      "bytes": 4323
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/optimizer_revision.py",
+      "sha256": "5ad0741a0ba903d906d122d1773e19ace82328aee8881101c1df8044fed0e99b",
+      "bytes": 6242
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/power_balance.py",
+      "sha256": "96296bf61821934fb18e1eb9afebc228a0e670bdd27071a67444c860d9b5b26f",
+      "bytes": 4085
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/pv_forecast_usability.py",
+      "sha256": "53fadc8570b99f106a4a0e76961328e860911912b127eda8f4d276ffb14540a8",
+      "bytes": 12935
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rce_history.py",
+      "sha256": "4b6aa62ea2c12884c9c97bbbf7c073fe21e300de08987c60b448c106b9a37b70",
+      "bytes": 13756
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+      "sha256": "6734530ef4c615a6ffb22e28932efcd5afb5cec4c0c00b0113e8adbcad4f6065",
+      "bytes": 140780
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rce_self_consumption_shadow.py",
+      "sha256": "822580e4b1772d23beb50a3b6eda943eb007ede97e6d41a6b5a3bf7b7c2203a7",
+      "bytes": 22497
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+      "sha256": "f1d9c0d7c936a856750429bd48e8469a21c02d1c11c7d88cd7dfa93b650a63aa",
+      "bytes": 199791
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rcm_history.py",
+      "sha256": "ced44e11e9b1347ece3be950897792156fb61b0dd8697984d25106eb6de82433",
+      "bytes": 5077
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rcm_optimizer.py",
+      "sha256": "b874a5e189b1fdb57ba8c41b03dcce56c2e88a35501f8066f4864edb664140dc",
+      "bytes": 58686
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+      "sha256": "bf9c46b87a74fdfd041d1238a7eefdea3d85ff4b44cbbf7d3ca7223f3a49dee3",
+      "bytes": 185440
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+      "sha256": "e4022918271e22b76b1a0996f363a89254184d76f59bbd1b5ba9420fb68d59e6",
+      "bytes": 29067
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+      "sha256": "69ba609fc788ee7824d47de43c314ffd07e916f3934d3fa69cc6485ffed9ad06",
+      "bytes": 200245
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+      "sha256": "2ab91da0708ade5870ad2ab32bd4dd86af15d87c54a56ca99c5964e72802b25a",
+      "bytes": 203422
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+      "sha256": "5a29d42636a8a4b4080340a2de035d42d532299b0fbde82d5d3ba79ae63050b2",
+      "bytes": 962480
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_shared_inputs.yaml",
+      "sha256": "6ed352665655e5ae2e7e0740d9eca26a686bdf11080044a9ff9b3a60e614694f",
+      "bytes": 2123
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+      "sha256": "b2fe633bee877d0977a68e274d628aad14e605073f3e4ed08fd993c7563e3762",
+      "bytes": 964234
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_shared_inputs.yaml",
+      "sha256": "f1ed1379b4fe2140b020cb8e5b3772ea5f10d9116d28ea635f35b49176330120",
+      "bytes": 2140
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+      "sha256": "bbc681602c6d011b815db52d0eb27b6d4196c25a94ee97456c86f70b07fba5bc",
+      "bytes": 239780
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+      "sha256": "74e5ec8ee623437a018c8d7cf3eb3b203955d99b06a59bc14112275d3efe545f",
+      "bytes": 242903
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+      "sha256": "892a7b09419a146057e390050293ef2fd4d074eddb75b75cc4509646d3871b76",
+      "bytes": 4217
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-inverter.png",
+      "sha256": "4531e85081e78cf94dee82dbde75b2f931860886457ce9800f546afb4a3b3d15",
+      "bytes": 45516
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+      "sha256": "6c27e97020c282e7cb6611964849077575fd042eba3f9d879b8586b48cf74edd",
+      "bytes": 1358952
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/select.py",
+      "sha256": "40b1e706638c420c2e3dc232485cbe0e2af0e3eeefaee34c66dfdf5ec8e7048b",
+      "bytes": 3762
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/sensor.py",
+      "sha256": "e71f320118b92b9fb0bf67ce25d77ca4b24300db3025bc40e80801d6ff5b0d52",
+      "bytes": 20635
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/services.yaml",
+      "sha256": "996a8938dcff68d8e76becc4a00e53e1f34509a624fcc3ace11f44cbc9c9e8cb",
+      "bytes": 520
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/source_device.py",
+      "sha256": "b0e3f570dfb0c727ca4840635448303693c751cc350b1999cd0438fc3a1819ff",
+      "bytes": 9161
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_accounting_runtime.py",
+      "sha256": "75441f1645745c41f45eae112490713e54508fa12d52a52b5767f54759aa7992",
+      "bytes": 9038
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_accounting_sensor.py",
+      "sha256": "ec77c86dc643da2c547bdc143c6a886ac5474ecb3084347023ddb78a1a3d79c2",
+      "bytes": 15227
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_accounting_v2.py",
+      "sha256": "1dbb6e60edc115f60f323c97a381c169d36c08934ec1a07b8ceea78ab2f77aac",
+      "bytes": 28401
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_active_bridge.py",
+      "sha256": "61bf95fef6f0823a44c1a8e6a6b577572f630bb817583056b7a71ff18ebdeff3",
+      "bytes": 80008
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_active_controller.py",
+      "sha256": "defec200b78198f1a07623bf98b187ee106d58b120704cb3900493f7bac22010",
+      "bytes": 102007
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_canonical_ledger.py",
+      "sha256": "9d2e1affe4667a8abf5a51434af522b7ba7188aaec377969a6049a06634c0a5f",
+      "bytes": 46346
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_canonical_runtime.py",
+      "sha256": "b20b69782e1fa3f28833313d224cd290ce5458a55bbd029b77f37c818b025f66",
+      "bytes": 101873
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_canonical_sensor.py",
+      "sha256": "1f24a6c32a11efa6e79cc0a6d129ca61e7baad1b14348df8e3db039f7b4f2b7e",
+      "bytes": 24547
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_control_lease.py",
+      "sha256": "66535c6dfcd8b778b34a9a4dc593f0e8920c215b0ad4b835e603d8741af41ff0",
+      "bytes": 12866
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_executor.py",
+      "sha256": "630403433f9aef58e85ca10d92e52c4c207c973ff9cac837bb175c7d608e6b10",
+      "bytes": 151842
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_executor_codec.py",
+      "sha256": "6c5ff0fe08b9db388df00611f8643052c50bb1a84a2eff965a75e4257393f05b",
+      "bytes": 46491
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_ledger.py",
+      "sha256": "e922b373db6e3b1d944c327bf6a82809eb4b1b43818e9401b4a49d8f8403c196",
+      "bytes": 30434
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+      "sha256": "5f28cd1ac311c340d2806d146e90dbe71aeedd29e111cbce60dedd0deb8b629b",
+      "bytes": 60297
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+      "sha256": "8177c210992bf9a0dc072d5b95076d18b0ddc2b022addd5f9746808796e2520f",
+      "bytes": 212284
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/support_http.py",
+      "sha256": "209298f940741721bf31de597d95d9f2d806869533680aa85b5a872431ba012c",
+      "bytes": 2761
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+      "sha256": "78dd74919116a9488d2e0b0a59ba9829c391ff2fc27cfdc4890696725453f866",
+      "bytes": 123386
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_price_schedule.py",
+      "sha256": "73463c03e597947049d837e05b1a690d94bd7f416a718f5041ce77e8a9e889e8",
+      "bytes": 17728
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_price_sensor.py",
+      "sha256": "f672484918982fb1ac797f89ddf4af661a5393f7393419f3bac24fc8ccc508ee",
+      "bytes": 10108
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_profiles.py",
+      "sha256": "2ec9166344463dd4250e0d4f14943ac562caf46fb28602bea8a2bfd8373dfa20",
+      "bytes": 13626
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+      "sha256": "05fa761200a8363e289a5f71cb282416b6d9912b3f9189c2431bd0c6e2a9cb9b",
+      "bytes": 195602
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+      "sha256": "404dbb8f8ef09cdc377809f7cba8e7610b682f152976b0996b29551b6a4bb9dc",
+      "bytes": 29278
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/translations/en.json",
+      "sha256": "044ad5ccfaa3c53a8f6abd29688e28b9f63c89d5eeff1abb5d0d54ba2dc964c5",
+      "bytes": 72652
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/translations/pl.json",
+      "sha256": "5052640dedf387347575f3c15f5753371295054838fbb001617bfc385227ab35",
+      "bytes": 76119
+    }
+  ],
+  "count": 86,
+  "source_tree_sha256": "b61e7417a83079cc101a4c6b67d82497f98232b7b60c1094efe078fd740df891",
+  "observed_at": "2026-09-21 09:12 Europe/Warsaw",
+  "method": "Read-only remote terminal aggregate validated against reconstructed byte-exact local source copies. Excludes only __pycache__, .pyc, ZIP backup and .bak-* backup; includes collect_diagnostics.sh."
+}

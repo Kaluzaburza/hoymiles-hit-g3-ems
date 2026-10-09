@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "identity": "soc01-installation_1-anonymized-2026-09-13",
+  "observed_window": "2026-09-13T22:26:00+02:00/2026-09-13T22:32:00+02:00",
+  "provenance": {
+    "live_observation": "operator-approved installation_1 read-only observation; installation identifiers removed",
+    "supporting_report": "2026-09-13_audyt_poprawek_1812/LIVE_UI_OBSERVATIONS.md",
+    "operator_follow_up": "margin changed 5 pp to 0 pp and the plan returned; latency was not independently timed",
+    "derived_values": "capacity derives from 6.5 kWh at 25 percent; protected floor is Self-Use plus the additional margin",
+    "controlled_energy_cases": "PV and LOAD series below are deterministic regression stimuli because the original point series was not retained"
+  },
+  "observed": {
+    "current_soc_percent": 25.0,
+    "stored_energy_kwh": 6.5,
+    "battery_capacity_kwh": 26.0,
+    "self_use_soc_percent": 25.0,
+    "soc_safety_margin_percent": 5.0,
+    "protected_soc_floor_percent": 30.0,
+    "maximum_soc_percent": 100.0,
+    "rcm_enabled": false,
+    "ems_enabled": false,
+    "physical_mode": "self_use",
+    "owner_kind": "none",
+    "supervisor_phase": "idle",
+    "master_stop": "not_requested",
+    "gcf_active": true,
+    "effective_export_cap_percent": 0.0,
+    "rcm_timeline_state": "unavailable",
+    "rcm_timeline_blocker_code": "current_soc_outside_operating_bounds",
+    "rcm_timeline_point_count": 0,
+    "canonical_plan_state": "partial",
+    "canonical_plan_blocker_code": "rcm_timeline_unavailable"
+  },
+  "model_contract": {
+    "charge_power_limit_kw": 9.1,
+    "discharge_power_limit_kw": 9.1,
+    "system_power_kw": 10.0,
+    "charge_efficiency": 0.95,
+    "discharge_efficiency": 0.95,
+    "input_revision": 8,
+    "plan_revision": 1,
+    "inputs_fresh": true,
+    "quality": "complete",
+    "limits_provenance": "existing RCEm regression contract and the accepted 10 kW installation_1 topology; not represented as a retained per-second BMS snapshot"
+  },
+  "controlled_energy_cases": {
+    "idle_four_slots": {"pv_kwh": 0.0, "load_kwh": 0.0, "slots": 4},
+    "load_only_four_slots": {"pv_kwh": 0.0, "load_kwh": 0.25, "slots": 4},
+    "small_pv_then_idle": [
+      {"pv_kwh": 0.5, "load_kwh": 0.0},
+      {"pv_kwh": 0.0, "load_kwh": 0.0}
+    ],
+    "cross_floor_then_load": [
+      {"pv_kwh": 2.0, "load_kwh": 0.0},
+      {"pv_kwh": 0.0, "load_kwh": 1.0}
+    ]
+  }
+}

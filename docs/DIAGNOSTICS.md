@@ -7,10 +7,11 @@ automation loop or a failed startup.
 
 ## Download one ZIP from the dashboard
 
-Open the last **Diagnostics** view and press **Collect data and download ZIP**.
+Open **EMS settings → Service** and press **Collect data and download ZIP**.
 An administrator's browser receives a fresh ZIP containing the native report,
-24 hours of significant control history and filtered Home Assistant Core logs.
-The archive is built in memory and is not left in `/config`.
+a requested 24-hour window of significant control history and filtered Home
+Assistant Core logs. The archive is built in memory and is not left in
+`/config`.
 
 Email the ZIP to [info@kaluzaaa.com](mailto:info@kaluzaaa.com) together with a
 description of the problem, what you expected and the exact local date and time
@@ -28,9 +29,41 @@ Builder. The current ESPHome entity states are already present in the ZIP.
    time of the fault and a short description of the expected behaviour.
 
 The report contains integration/firmware versions, entity coverage, current
-Hoymiles states, calculation attributes and 24 hours of significant control
-changes. Fast telemetry history is deliberately omitted so the report remains
-small and does not overload Recorder.
+Hoymiles states, calculation attributes and a requested 24-hour window of
+significant control changes. Fast telemetry history is deliberately omitted so
+the report remains small and does not overload Recorder.
+
+For selected EMS entities the control history also records allowlisted
+attribute-only transitions: compact RCE, tariff and RCEm decisions and
+freshness, plan-timeline context, automation execution times, active-writer
+ownership, balancing state, aggregate response and Supervisor transaction
+evidence. Repeated states which differ only by their Recorder timestamps are
+counted and compacted before retention limits are applied. Each entity reports
+the queried and retained time coverage, semantic duplicate count, omitted and
+dropped-event count. The export keeps the newest evidence and is bounded to 500
+semantic events per entity, 4,000 events and 8 MiB of encoded history-event
+payload, with a 64 KiB limit per event. These are history limits, not a claim
+that the whole JSON or ZIP is 8 MiB. A selected entity with no Recorder rows is
+reported as unknown and makes coverage incomplete; it is never interpreted as
+proof that no control action occurred.
+
+The dashboard archive also bounds collection and transfer: at most 32
+config-entry reports are exported (with at most one extra iterator probe to
+declare truncation), an individual report is limited to 12 MiB, the diagnostic
+JSON member to 20 MiB, and the filtered Core-log member to 2 MiB and the newest
+2,500 matching lines. Combined uncompressed members are limited to 23 MiB and
+the final compressed ZIP to 24 MiB. Data which does not fit is replaced
+atomically by an omission marker; metadata reports incomplete collection
+instead of treating omitted evidence as healthy. These are resource bounds,
+not evidence that every requested historical event was available.
+
+Rich-history profiles currently use the managed default entity IDs. If an
+entity was renamed in Home Assistant, its current state remains useful when it
+is still selected for the report, but the report may not attach the specialised
+history profile. Mention renamed entities when submitting a support archive.
+With multiple configured Hoymiles entries, each native report currently
+includes the installation-wide managed-state snapshot and selected history;
+the per-entry catalog section remains the reliable entry-specific context.
 
 Every Home Assistant installation receives one random UUID v4 named
 `anonymous_installation_id`. It is generated without using device, network,
@@ -46,6 +79,45 @@ analyzer described in [DIAGNOSTICS_ANALYZER.md](DIAGNOSTICS_ANALYZER.md). It
 groups successive archives by the anonymous installation ID, evaluates RCE,
 RCEm and tariff charging with versioned rules, and produces JSON, CSV,
 Markdown and HTML reports without extracting the input archives.
+
+### Current EMS evidence (2026-10-03)
+
+The exporter decodes Recorder's compact Supervisor execution and compressed
+STOP records before privacy filtering. Frozen STOP inputs, transaction proof,
+tariff decisions and RCE physical-export evidence remain structured JSON.
+Corrupt or unsupported STOP storage is marked unavailable; it is never turned
+into an empty, supposedly complete journal. The encoded payload is not copied
+into the support report.
+
+Current snapshots include live lease state/renewal, command/readback evidence,
+deadlines, planner input/result revisions, Pstryk joint revisions, PV-delay
+state and LOAD model provenance. Rich history keeps the corresponding
+allowlisted fields **only when Recorder actually retained them**. In particular,
+tariff-plan attributes excluded from Recorder cannot be reconstructed from the
+current plan; an expired LOAD profile is distinct from loss of Recorder data.
+`full_plan_solver_calls` is an attempt counter: pair it with `last_full_plan_at`,
+publication and `result_current`. Arbitration revision alone is not a full
+replan. Pstryk uses `joint_plan_revision` after optimize/revalidate.
+
+`notification_history` reads the manager's already-loaded last 32 delivery
+records, active logical range, transaction IDs and persistence revisions.
+Reading it performs no provider call or Store write. Provider success means
+acceptance by HA/provider, not verified delivery to a phone. Missing manager
+state and incomplete persistence are explicit. This is a retained ledger,
+not an unbounded lifetime notification history.
+
+Opaque transaction, lease, range/event and revision identifiers use stable
+`diag-id-…` pseudonyms instead of a shared redaction marker, preserving
+correlation across evidence sections and repeat ZIP captures. Credentials and
+network identifiers remain masked. Repeated sanitization preserves pseudonyms.
+
+`evidence_contract` states the remaining limits: current snapshots describe
+export time; historical coverage is bounded; the report does not contain every
+accepted 20-second lease renewal, per-Slave FC03, phone delivery confirmation
+or deployed source hashes. A last accepted renewal and STOP source frame cannot
+prove uninterrupted lease continuity. Use version/hash receipts and bounded
+device journals separately when such acceptance is required. This update does
+not increase Modbus polling or Recorder writes.
 
 ### Planner readiness
 
@@ -109,9 +181,9 @@ nieudanego uruchomienia.
 
 ## Pobranie jednego ZIP-u z dashboardu
 
-Otwórz ostatnią zakładkę **Diagnostyka** i naciśnij **Zbierz dane i pobierz
-ZIP**. Przeglądarka administratora otrzyma świeżą paczkę zawierającą natywny
-raport, 24 godziny istotnych zmian sterowania i odfiltrowane logi HA Core.
+Otwórz **Ustawienia EMS → Serwis** i naciśnij **Zbierz dane i pobierz ZIP**.
+Przeglądarka administratora otrzyma świeżą paczkę zawierającą natywny raport,
+żądane 24-godzinne okno istotnych zmian sterowania i odfiltrowane logi HA Core.
 Paczka powstaje w pamięci i nie pozostaje w katalogu `/config`.
 
 Wyślij ZIP na [info@kaluzaaa.com](mailto:info@kaluzaaa.com) razem z opisem
@@ -130,9 +202,41 @@ fragment z ESPHome Device Builder. Bieżące stany encji ESPHome są już w ZIP-
    wystąpienia błędu i krótkim opisem oczekiwanego działania.
 
 Raport zawiera wersje integracji i firmware, kompletność encji, bieżące stany
-Hoymiles, parametry obliczeń oraz 24 godziny istotnych zmian sterowania. Historia
-szybkiej telemetrii jest celowo pomijana, aby raport pozostał mały i nie
-obciążał bazy Recorder.
+Hoymiles, parametry obliczeń oraz żądane 24-godzinne okno istotnych zmian
+sterowania. Historia szybkiej telemetrii jest celowo pomijana, aby raport
+pozostał mały i nie obciążał bazy Recorder.
+
+Dla wybranych encji EMS historia sterowania zapisuje również dozwolone zmiany
+samych atrybutów: zwięzłe decyzje i świeżość RCE, taryfy oraz RCEm, kontekst osi
+planu, czasy wykonań automatyzacji, właściciela aktywnego sterowania, stan
+balansowania, odpowiedź instalacji oraz dowody transakcji Supervisora. Powtórki
+różniące się wyłącznie znacznikami czasu Recordera są liczone i scalane przed
+zastosowaniem limitów. Każda encja podaje zakres zapytania i zachowanych danych,
+liczbę scalonych powtórek, pominięć i odrzuconych zdarzeń. Eksport zachowuje
+najnowsze dowody i ma limity: 500 semantycznych zdarzeń na encję, 4000 zdarzeń,
+8 MiB zakodowanych zdarzeń samej historii oraz 64 KiB na zdarzenie. Nie oznacza
+to, że cały JSON albo ZIP ma 8 MiB. Wybrana encja bez rekordów Recordera jest
+oznaczana jako brak znanych dowodów i powoduje niekompletny zakres; nie stanowi
+dowodu, że sterowanie nie zadziałało.
+
+ZIP z dashboardu ma też limity zbierania i przesyłania: eksportuje najwyżej 32
+raporty config entry (i odczytuje najwyżej jeden dodatkowy element iteratora,
+aby uczciwie oznaczyć obcięcie), pojedynczy raport może mieć do 12 MiB, plik
+JSON diagnostyki do 20 MiB, a odfiltrowany log Core do 2 MiB i 2500 najnowszych
+pasujących linii. Łączny rozmiar nieskompresowanych składników jest ograniczony
+do 23 MiB, a końcowego skompresowanego ZIP-u do 24 MiB. Dane niemieszczące się
+w limicie są atomowo zastępowane znacznikiem pominięcia, a metadane zgłaszają
+niekompletność zamiast uznawać brak dowodów za stan prawidłowy. Są to limity
+zasobów, nie dowód dostępności każdego oczekiwanego zdarzenia historycznego.
+
+Rozszerzone profile historii używają obecnie zarządzanych, domyślnych ID encji.
+Po ręcznej zmianie nazwy bieżący stan nadal może trafić do raportu, ale profil
+rozszerzonej historii może nie zostać przypisany. Przy zgłoszeniu podaj, które
+encje zostały przemianowane.
+Przy wielu skonfigurowanych wpisach Hoymiles każdy raport natywny zawiera
+obecnie ogólnoinstalacyjny snapshot zarządzanych stanów i wybraną historię;
+sekcja katalogu danego wpisu pozostaje wiarygodnym kontekstem specyficznym dla
+tego config entry.
 
 Każda instalacja Home Assistanta otrzymuje jeden losowy UUID v4 o nazwie
 `anonymous_installation_id`. Powstaje on bez użycia danych urządzenia, sieci,
@@ -200,3 +304,22 @@ Hasła, klucze API, tokeny, dane Wi-Fi, adresy URL, IP/MAC, numery seryjne i ID
 urządzenia źródłowego są maskowane. Komenda nigdy nie kopiuje `secrets.yaml`
 ani bazy `.storage` Home Assistanta. Automatyczne maskowanie nie zastępuje
 kontroli — przejrzyj paczkę przed dodaniem jej do publicznego zgłoszenia.
+# Accepted lease renewal evidence (local RC2 candidate)
+
+`accepted_lease_journal` contains only validated ESP arm/renew acknowledgements
+observed by the current HA control client. Sending a request does not add a
+record. Each record correlates transaction, lease, command generation, sequence,
+snapshot generation (renewal), first-send/response monotonic times, projected HA
+UTC and the original hard deadline. The existing redactor pseudonymizes control
+IDs consistently with other diagnostic records; session IDs and nonces are absent.
+
+The journal is RAM-only, at most 8192 accepted events, exported on demand in
+256-record pages. It adds no Recorder writes, polling or persistence. Invalidation
+retains evidence; HA restart/reload creates a new journal epoch. `dropped_events`,
+`retention_complete`, `gap_before` and `request_correlated` must be examined before
+claiming coverage. Complete retention means all observed ACKs in that client,
+not proof of a whole cycle. A whole-cycle claim also needs its initial arm,
+sequence/timing coverage to its original deadline, FC03 and terminal evidence.
+Missing records, process boundaries or archive omission markers mean PARTIAL.
+UTC is derived from HA clock anchors, not a timestamp supplied by the ESP.
+This cannot reconstruct renewal evidence for any previously completed cycle.

@@ -20,6 +20,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import DOMAIN
 from .entity import HoymilesProxyEntity
 from .models import RuntimeData
+from .supervisor_sensor import async_dispatch_manual_ems_proxy_write
 
 
 def _slugify(value: str) -> str:
@@ -84,13 +85,29 @@ class HoymilesSelect(HoymilesProxyEntity, SelectEntity):
                 "This setting requires a newer Hoymiles ESPHome firmware"
             )
         raw_option = self._key_to_raw.get(option, option)
-        await self.hass.services.async_call(
-            SELECT_DOMAIN,
-            SERVICE_SELECT_OPTION,
-            {
-                ATTR_ENTITY_ID: self._source_entity_id,
-                ATTR_OPTION: raw_option,
-            },
-            blocking=True,
-            context=self._context,
-        )
+
+        async def dispatch() -> None:
+            await self.hass.services.async_call(
+                SELECT_DOMAIN,
+                SERVICE_SELECT_OPTION,
+                {
+                    ATTR_ENTITY_ID: self._source_entity_id,
+                    ATTR_OPTION: raw_option,
+                },
+                blocking=True,
+                context=self._context,
+            )
+
+        if self._catalog.get("source_id") == "ems_mode_4300":
+            if not await async_dispatch_manual_ems_proxy_write(
+                self.hass,
+                self._entry.entry_id,
+                "ems_mode_4300",
+                option,
+            ):
+                raise HomeAssistantError(
+                    "This inverter actuator is controlled by EMS Supervisor; "
+                    "set it Off and wait for confirmed idle ownership release"
+                )
+            return
+        await dispatch()

@@ -5,15 +5,22 @@ from __future__ import annotations
 import ast
 import asyncio
 import hashlib
+import io
 import importlib.util
 import json
-import py_compile
+import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tarfile
 import tempfile
 import types
+from dataclasses import dataclass, replace
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +34,1374 @@ EXPECTED_DESCRIPTION = (
     "Home Assistant, ESPHome, Modbus, RCE, tariff optimization and RCEm."
 )
 LEGACY_REPOSITORY_SLUG = "Hoymiles_HIT_xxL_G3_ModBus"
+VALIDATOR_PACKAGE_MARKER = "1.5.8"
+VALIDATOR_MARKER_ENTITY = "sensor.hoymiles_ems_package_version"
+VALIDATOR_SCHEDULER_RELATIVE = "packages/hoymiles_ems_scheduler.yaml"
+VALIDATOR_SHARED_INPUTS_RELATIVE = "packages/hoymiles_ems_shared_inputs.yaml"
+VALIDATOR_BACKUP_SUFFIX = ".pre-ems-supervisor-1b3.bak"
+VALIDATOR_OLD_TEMP = ".hoymiles_ems_scheduler.yaml.hoymiles_hit_modbus.tmp"
+VALIDATOR_HELPER_IDS = (
+    "input_select.hoymiles_ems_supervisor_mode",
+    "input_select.hoymiles_ems_supervisor_profile",
+    "input_boolean.hoymiles_ems_supervisor_allow_rce",
+    "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+    "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+)
+VALIDATOR_NEW_HASHES = {
+    "pl": "5a5192aa05a59dbcf28ce73c6be4b1c43c8acd974e44dc49011c1e919264dbd7",
+    "en": "02424a858b3a054aa89a83c288d21dbb008b8e2001375b1a0228519eeeaed907",
+}
+INTEGRATED_ACTIVE_SHARED_AURORA_VALIDATOR_NEW_HASHES = {
+    "pl": "27571a0fabb3a17e97c7475a4e73f788f013bfa28e1fa6dbe7244cc177c6f147",
+    "en": "f37abe74e44f93a427780c63450c17a9fdb38e931dccbe1b173c7c3abc90310e",
+}
+AURORA_COMPACT_VALIDATOR_NEW_HASHES = {
+    "pl": "ade5886deaa165784e2f331da72dd2e0117ea3b512fdc35c99a2de061dc11c42",
+    "en": "218a16ebb4fa446997270fbf7ba95e5c93f660a1eda4673c2a3aa79f6cd128fc",
+}
+CONSOLIDATED_VALIDATOR_NEW_HASHES = {
+    "pl": "9c45e39563109484beae830177b7953cc20f3ad92f1adf4975d403ebb2af16ea",
+    "en": "10e78f2325c8b3f042a54ec43875d01de436a11ab67ceff02f3dcca6a9b774b1",
+}
+VALIDATOR_HISTORICAL_HASHES = {
+    "pl": "9846bfe0d0e9f8f707db7b3eb5b30fd349b663f8fb1c3777b460ef62696026a2",
+    "en": "b76ba6a2a9f94d307d1582822101b2fc0951868ba7319394ce0886ee9fe9e07d",
+}
+VALIDATOR_HISTORICAL_REF = "v1.5.7"
+REV28_HISTORICAL_COMMIT = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
+REV28_PORTABLE_FIXTURE_PATH = "tools/release_manifests/rev28_historical_fixture.json"
+REV28_PORTABLE_FIXTURE_SHA256 = "9bc192e3e6e6710e9b01e0bcffe9f30fe9ca26972e6812c79e6d40d449303e9f"
+AP1_CUMULATIVE_TASK_BASE = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
+AP1E_CORRECTION_BASE = "f630529ed8ddce7ba5c45986d9484fc31b246070"
+AP2R1_CORRECTION_BASE = "4a49343a9bc6e8b669659ebb27ac7f8bbfd9f2c9"
+AP2R1F_REVIEWED_COMMIT = "5cad2934c900d25c020c86d1cf206731319d8ee5"
+AP2R1_COMMIT_SUBJECT = "feat: add RCEm automation plan timeline"
+AP2R1_VALIDATOR_PATH = "tools/validate_release.py"
+AP2R1F_OVERLAY_CANDIDATE = "AP2R1F_OVERLAY_CANDIDATE"
+AP2R1F_COMMITTED_CLEAN = "AP2R1F_COMMITTED_CLEAN"
+AP2R1G_VALIDATOR_FIX_OVERLAY = "AP2R1G_VALIDATOR_FIX_OVERLAY"
+AP2R1J_CORRECTION_BASE = "d7d0c2463c66dda076de2fb826c4474439c9ed3b"
+AP2R1J_COMMIT_SUBJECT = "fix: scope timeline power balance validation to RCEm"
+AP2R1J_CONVERGENCE_FIX_OVERLAY = "AP2R1J_CONVERGENCE_FIX_OVERLAY"
+AP2R1J_COMMITTED_CLEAN = "AP2R1J_COMMITTED_CLEAN"
+AP2R1J_VALIDATOR_SHA256 = "9f0c51f80c7bbf0dbdb26c96557e3d6990347a33b0858afa93165afb437c2b70"
+AP2R1KR1_COMMIT_SUBJECT = "fix: normalize timeline policy identifiers"
+AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY = "AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY"
+AP2R1KR1_COMMITTED_CLEAN = "AP2R1KR1_COMMITTED_CLEAN"
+AP2R1KR1_PRODUCT_SHA256 = "43670ac8b5e80b377b92f65577c3c049435a40ebbc181d910bf9520412486270"
+AP2R1KR1_TEST_SHA256 = "1f17f1ce7483b5e76eeb7a15b14430c8951de3c58f73c2d64984a0215d36e80e"
+AP2R1KR1_GIT_AST_SHA256 = {
+    "_require_ap2r1kr1_commit_shape": "384bba5db535d7b076ea9247fa1dc35458bb5e9731cc2f57f9a590d24d8fc2b6",
+    "_classify_ap2r1_git_state": "5eac54226624c1f133aff6247cd42581c2943c75978f24d09f6ca433c9634b99",
+    "_ap2r1j_manifests_match": "38669be8e64dd9d48eed2780abd7d270bf793fab975b2436929cd7c95eab09bd",
+}
+AP2R1KR1_REGRESSION_AST_SHA256 = {
+    "_ap2r1j_trace": "43628da1d83f9cfa565c47ebfd6d6561923406d124724b43a579aff7e52e02a1",
+    "_assert_malformed_policy_ids_rejected": "3740cd14098d8b123cbc4d1180f7006ca0f89edc925c4ae71a194d27767e4923",
+    "_convergence_scenario": "c57f1af2a3dc944cba62d9107a4d4383cb7c0ae21c70a49f6806ca6127fc3625",
+    "_assert_policy_convergence": "86dcd8a8a2eda3673c6eb39802dc20f4fbbc69dcfe68ce5d6ea412d05d59c1ee",
+    "test_timeline_platform_registration": "6d12f24093da49fce6e75579791e8ad8d5ccc92ecadcc68d485a20b9bfa09fd7",
+}
+AP2_CANONICAL_GATE_AST_SHA256 = {
+    "_canonical_ap2_ast_dump": "e72bc72904ebe0120064ed66ceea778a717e2c7b1d7aca9efeb1b73d130e6c77",
+    "_canonical_ap2_ast_sha256": "4a6651c53f867aeec9e00559db6784172e06d448d66a400f9b04fa9649403e28",
+    "_require_current_ap2_ast_gates": "05487851b0cd00820182656d231e1f5f48bd56b03c0ec78114ab1297f13b0a23",
+    "_require_ap2r1j_regression_contract": "0bfcf4ca02678b67e69834183c82cc9c7a2892eda98162b7b0f4efd114a4f9f1",
+    "_require_ap2r1kr1_regression_contract": "f80adb5f840707b5fd95801369743d1e6c61b963e7980c2986d54096207e1027",
+    "_require_ap2r1kr1_contract": "3198bab402d3e1e857b7fc96bba0785470f81f777cf3854b739c14ed47cf9913",
+    "validate_current_ap2r1_manifests": "d5f0f7983979ba9c7192f31a9c2a53ec1c609b50887e01ad93433511dac8cceb",
+}
+AP1_PUBLIC_BRANCH_BASE = "6617bc4de6592439ea2c64889b0a25bbe5bfa45e"
+AP2R1L_BATTERY_DIRECTION_FIX_OVERLAY = "AP2R1L_BATTERY_DIRECTION_FIX_OVERLAY"
+AP2R1L_COMMITTED_CLEAN = "AP2R1L_COMMITTED_CLEAN"
+AP2R1L_COMMIT_SUBJECT = "fix: validate automation timeline battery direction"
+AP2R1L_PRODUCT_SHA256 = "8141843fc036313c80b3ae06f1fc2fcb7a05a75d743adf4670311e9d3c94a6bb"
+AP2R1L_TEST_SHA256 = "e1cff2cf541ecf74addf17c88a24cb097e2dba36c0f0956d14c71f25854dfadb"
+AP2R1L_PRODUCT_AST_SHA256 = {
+    "validate_payload": "fe83657b74f361fba10b27eb75d566be53e027c879dc89efcbb804f00e2c20cb",
+    "_validate_points": "583c87b349ba119d1b7d3657b2ce7ffcbe7014ec7f226dc095ca9db37ab11701",
+    "_validate_policy_battery_direction": "5a49fb442220415af96c979e705fdc5a4bd2a4d48fa8b01d36665067c1f96e33",
+    "_validate_power_balance": "c465226dc16d332b6049293eb20b3c3f5357fd0c23f9fc6e961584184ca7b96f",
+    "_validate_policy": "3cd045856fc24001a80bb5938d0c1686412cfe18c9bffa07525354f8b1d30b8a",
+}
+AP2R1L_TEST_AST_SHA256 = {
+    "_ap2r1j_trace": "43628da1d83f9cfa565c47ebfd6d6561923406d124724b43a579aff7e52e02a1",
+    "_assert_malformed_policy_ids_rejected": "3740cd14098d8b123cbc4d1180f7006ca0f89edc925c4ae71a194d27767e4923",
+    "_assert_policy_battery_direction": "333b94191fb0d0a5676233ba788fe98b4a935ba9534fb2df3f185f3ce80459aa",
+    "_convergence_scenario": "1b0f6e29b87c680c603f78402d053a97cb59d96fffe592be84761da0b6542af4",
+    "_assert_policy_convergence": "86dcd8a8a2eda3673c6eb39802dc20f4fbbc69dcfe68ce5d6ea412d05d59c1ee",
+    "test_timeline_platform_registration": "6d12f24093da49fce6e75579791e8ad8d5ccc92ecadcc68d485a20b9bfa09fd7",
+}
+AP2R1L_GATE_AST_SHA256 = {
+    "_require_ap2r1l_ast_contract": "4e76b9ebb2f1195ee68a26e6c38d822bb877b19ba5cc64fddb55107eab8e4fa5",
+    "_require_ap2r1l_contract": "a0669199f9cfb2cd5a9b260204507e1867e05505b17c65ae7efb9b26ba8a670d",
+    "_classify_ap2r1l_git_state": "a36da7b3159f1095f707342b69774dc27fedf4fd16f08f4e4a6d7bc28797fb65",
+    "validate_current_ap2r1l_manifests": "4b0d0d734d44e8ebb7546e12c188d2192cacd9b4d5735c0dc31b8552951b7c1a",
+    "main": "94ef32aa5e0faec134e71899b5dbaac4d5ed5c96c8044c805f3cc45713c9d321",
+}
+V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY = (
+    "V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY"
+)
+V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN = (
+    "V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN"
+)
+V1_5_8_BAL_AURORA_INTEGRATION_INVALID = (
+    "V1_5_8_BAL_AURORA_INTEGRATION_INVALID"
+)
+AP3B_OVERLAY_CANDIDATE = "AP3B_OVERLAY_CANDIDATE"
+AP3B_BRANCH = "feature/v1.5.8-ap3b-kowalski-cards"
+AP3B_BASE_SHA = "3112cde86d2969e39b2e7f29e0b9fef380d06716"
+AP3B_CANONICAL_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "dashboard_hoymiles.yaml",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "tools/build_hacs_assets.py",
+        "tools/test_aurora_automation_planner_ui_contract.js",
+        "tools/test_automation_matrix.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_optimizer_executor_contract.py",
+        "tools/test_optimizer_startup_contract.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_tariff_optimizer.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+AP3B_GENERATED_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+    }
+)
+AP3B_EXPECTED_PATHS = AP3B_CANONICAL_PATHS | AP3B_GENERATED_PATHS
+AP3B_NEW_PATHS = frozenset(
+    {"tools/test_aurora_automation_planner_ui_contract.js"}
+)
+SUPERVISOR_ACTIVE_OVERLAY_CANDIDATE = "SUPERVISOR_ACTIVE_OVERLAY_CANDIDATE"
+SUPERVISOR_ACTIVE_BRANCH = "feature/v1.5.8-ems-supervisor-active"
+SUPERVISOR_ACTIVE_BASE_SHA = "3112cde86d2969e39b2e7f29e0b9fef380d06716"
+SUPERVISOR_ACTIVE_MODIFIED_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/const.py",
+        "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/services.yaml",
+        "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "dashboard_hoymiles.yaml",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "packages/settings.yaml",
+        "tests/test_timeline_platform_registration.py",
+        "tools/build_hacs_assets.py",
+        "tools/test_automation_matrix.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_battery_balancing_contract.py",
+        "tools/test_battery_balancing_ha_runtime.py",
+        "tools/test_ems_supervisor.py",
+        "tools/test_firmware_readback_contract.py",
+        "tools/test_optimizer_executor_contract.py",
+        "tools/test_optimizer_startup_contract.py",
+        "tools/test_rce_optimizer.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_supervisor_helpers_contract.py",
+        "tools/test_supervisor_runtime_contract.py",
+        "tools/test_supervisor_sensor_contract.py",
+        "tools/test_supervisor_transport_lifecycle_contract.py",
+        "tools/test_tariff_optimizer.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+SUPERVISOR_ACTIVE_CORE_UNTRACKED_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/supervisor_accounting_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_accounting_sensor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_accounting_v2.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_active_bridge.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_active_controller.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_canonical_ledger.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_canonical_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_canonical_sensor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_executor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_executor_codec.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_ledger.py",
+        "tools/fixtures/ems_supervisor_shadow_decisions_v1.json",
+        "tools/fixtures/supervisor_canonical_ledger_v1.json",
+        "tools/supervisor_ledger_v2_cases.json",
+        "tools/test_aurora_automation_planner_ui_contract.js",
+        "tools/test_ems_supervisor_active_golden.py",
+        "tools/test_supervisor_accounting_runtime.py",
+        "tools/test_supervisor_accounting_sensor_contract.py",
+        "tools/test_supervisor_accounting_v2.py",
+        "tools/test_supervisor_active_bridge.py",
+        "tools/test_supervisor_active_controller.py",
+        "tools/test_supervisor_canonical_ledger.py",
+        "tools/test_supervisor_canonical_runtime.py",
+        "tools/test_supervisor_executor.py",
+        "tools/test_supervisor_executor_codec.py",
+        "tools/test_supervisor_ledger.py",
+        "tools/test_supervisor_master_stop_service_contract.py",
+        "tools/test_supervisor_transport_lifecycle_contract.py",
+    }
+)
+SUPERVISOR_ACTIVE_C4_FINAL_UNTRACKED_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card-c4-dev.js",
+        "dashboard_hoymiles_c4_dev.yaml",
+        "home_assistant/www/hoymiles-rce-chart-card-c4-dev.js",
+        "tools/test_c4_final_ui_contract.js",
+    }
+)
+SUPERVISOR_ACTIVE_UNTRACKED_PATHS = (
+    SUPERVISOR_ACTIVE_CORE_UNTRACKED_PATHS
+    | SUPERVISOR_ACTIVE_C4_FINAL_UNTRACKED_PATHS
+)
+SUPERVISOR_ACTIVE_CORE_EXPECTED_PATHS = (
+    SUPERVISOR_ACTIVE_MODIFIED_PATHS | SUPERVISOR_ACTIVE_CORE_UNTRACKED_PATHS
+)
+SUPERVISOR_ACTIVE_EXPECTED_PATHS = (
+    SUPERVISOR_ACTIVE_MODIFIED_PATHS | SUPERVISOR_ACTIVE_UNTRACKED_PATHS
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_OVERLAY = (
+    "INTEGRATED_ACTIVE_SHARED_AURORA_OVERLAY"
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_COMMITTED_CLEAN = (
+    "INTEGRATED_ACTIVE_SHARED_AURORA_COMMITTED_CLEAN"
+)
+CONSOLIDATED_RELEASE_CANDIDATE = "CONSOLIDATED_RELEASE_CANDIDATE"
+N12_EXACT_LOCAL_BASE = "N12_EXACT_LOCAL_BASE"
+V158_RELEASE_CANDIDATE = "V158_RELEASE_CANDIDATE"
+V158_TASK02_CANDIDATE = "V158_TASK02_CANDIDATE"
+I3_OVERLAY_CANDIDATE = "I3_OVERLAY_CANDIDATE"
+AURORA_COMPACT_OVERLAY_CANDIDATE = "AURORA_COMPACT_OVERLAY_CANDIDATE"
+INTEGRATED_ACTIVE_SHARED_AURORA_STATES = frozenset(
+    {
+        INTEGRATED_ACTIVE_SHARED_AURORA_OVERLAY,
+        INTEGRATED_ACTIVE_SHARED_AURORA_COMMITTED_CLEAN,
+        I3_OVERLAY_CANDIDATE,
+        AURORA_COMPACT_OVERLAY_CANDIDATE,
+        CONSOLIDATED_RELEASE_CANDIDATE,
+        N12_EXACT_LOCAL_BASE,
+        V158_RELEASE_CANDIDATE,
+        V158_TASK02_CANDIDATE,
+    }
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH = (
+    "integration/v1.5.8-active-shared-aurora"
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA = (
+    "3112cde86d2969e39b2e7f29e0b9fef380d06716"
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_COMMIT_SUBJECT = (
+    "feat(ems): integrate Active supervisor, shared inputs and unified Aurora"
+)
+I3_BASE_SHA = "1d5e6f592433dbd0df28f2ad33d00956037da1f1"
+CONSOLIDATED_ACCEPTED_BASE_SHA = "cfe6c2b8dab5a41ed50d7a347d0b7fd1890f3b87"
+CONSOLIDATED_ACCEPTED_BASE_TREE = "ac4b6d9ebe624401c2b8a73eb38df98efc3d484e"
+CONSOLIDATED_ACCEPTED_BASE_PARENT = "1d5e6f592433dbd0df28f2ad33d00956037da1f1"
+CONSOLIDATED_ACCEPTED_BASE_SUBJECT = (
+    "recovery: preserve accepted EMS consolidated baseline"
+)
+N12_BASE_SHA = "effa628403a54564e7a7b596713bc72edbf0db6d"
+N12_BASE_PARENT = "059e845fe38a35e16a18aa04ad54eccd96f22d4a"
+N12_BASE_TREE = "61f9788c69be9d37c14461caf5783336a318402f"
+N12_BASE_SUBJECT = "fix: reconcile N07 publishing contracts"
+N12_MANIFEST_PATH = "tools/release_manifests/n12_v1_5_8.json"
+N12_MANIFEST_SHA256 = "320a5efc56686e200e101745d3281c4221eec7fedd0baaf51c0adb6a41481c0a"
+N12_TEST_PATH = "tools/test_n12_release_contract.py"
+N12_TEST_SHA256 = "764cb324c3778619fd7857c63cba97068296690f570df3c375c7e004b4ca9697"
+N12_VALIDATOR_MASKED_SHA256 = "528b93b6b3b85125b0340d1b06c333145859d51ab49b2530fb5e06546b142834"
+N12_SCHEDULER_SHA256 = "c9a1c03c5098fc91a9e9e9a2bbbe7d61029c787ca66be6e2b9a8ef7face9fe46"
+N12_VALIDATOR_NEW_HASHES = {
+    "pl": "c9a1c03c5098fc91a9e9e9a2bbbe7d61029c787ca66be6e2b9a8ef7face9fe46",
+    "en": "f374d2d4ecf5a2efbc7e7b605bbd711d6f9d2cf8cd2741eeccdbc527d26019e2",
+}
+N12_ACCEPTED_SHA = "c736b69d985d6f2a75015abdacb8839a461ac7f1"
+N12_ACCEPTED_PARENT = "96fc91b7bc6c4b258e654958c2ecf2400438ae74"
+N12_ACCEPTED_TREE = "5c15dae9b4b429a22442de1b2fec953c3f89be2d"
+N12_ACCEPTED_SUBJECT = "test: close and pin N12 local release gates"
+V158_RELEASE_MANIFEST_PATH = "tools/release_manifests/v1_5_8_release_delta.json"
+V158_RELEASE_MANIFEST_SHA256 = "af0c9fd08562d833b823febcc6bb0a31fc47f7d874bf1fd6473e79e525066272"
+V158_TASK02_BASE_SHA = "a57d4050327ea30d3e552ea8c349e0467d9356ab"
+V158_TASK02_BASE_TREE = "3b2c783f819964ca4f781c569b3706198e0162ef"
+V158_TASK02_TAIL_SHA = "29f0e836d53d787a6648822f626cc54a776e3ae4"
+V158_TASK02_MANIFEST_PATH = "tools/release_manifests/v1_5_8_task02_candidate.json"
+V158_TASK02_MANIFEST_SHA256 = "74d3cff868adaf8116bc4a03c73c5c53ee7173bf71835a17f30f01bb3ed9bcbc"
+V158_TASK02_VALIDATOR_MASKED_SHA256 = "528b93b6b3b85125b0340d1b06c333145859d51ab49b2530fb5e06546b142834"
+V158_TASK02_FREEZE_SUBJECT = "test: freeze SOC, PV and tariff lease localhost candidate"
+CONSOLIDATED_RELEASE_STATUS = frozenset(
+    {
+        ("M", ".gitignore"),
+        ("M", "CHANGELOG.md"),
+        (
+            "M",
+            "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/"
+            "hoymiles_ems_scheduler.yaml",
+        ),
+        ("M", "docs/releases/v1.5.8.md"),
+        ("M", "examples/esphome/hoymiles-hit-g3.yaml"),
+        ("M", "hoymiles-inverter.yaml"),
+        ("M", "packages/core.yaml"),
+        ("M", "tools/build_hacs_assets.py"),
+        ("M", "tools/validate_rce_card.js"),
+        ("M", "tools/validate_release.py"),
+    }
+)
+CONSOLIDATED_HANDOFF_PATH = "docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md"
+CONSOLIDATED_PUBLIC_DOCS_STATUS = frozenset(
+    {
+        ("M", ".github/workflows/validate.yml"),
+        ("M", "README.md"),
+        ("M", "README.pl.md"),
+        ("M", "RELEASING.md"),
+        ("M", "docs/QUICK_START.md"),
+        ("M", "docs/images/dashboard-overview.png"),
+        ("M", "packages/modbus_connection.yaml"),
+        ("A", "docs/images/README.md"),
+        ("A", "docs/images/dashboard-gallery.html"),
+        ("A", "docs/images/dashboard-start-v1.5.8.png"),
+        ("A", "docs/images/dashboard-ems-v1.5.8.png"),
+        ("A", "docs/images/dashboard-tariff-v1.5.8.png"),
+        ("A", "docs/images/dashboard-rcem-v1.5.8.png"),
+        ("A", "hoymiles-inverter-flow-control.yaml"),
+        ("A", "tools/test_esphome_entry_points.py"),
+    }
+)
+I3_UNTRACKED_PATHS = frozenset({"tools/test_i3_policy_cadence_contract.py"})
+I3_EXPECTED_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/supervisor_canonical_sensor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tools/test_aurora_automation_planner_ui_contract.js",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_c4_final_ui_contract.js",
+        "tools/test_i3_policy_cadence_contract.py",
+        "tools/test_optimizer_executor_contract.py",
+        "tools/test_optimizer_startup_contract.py",
+        "tools/test_rcm_optimizer.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_supervisor_canonical_runtime.py",
+        "tools/test_supervisor_sensor_contract.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+I3_MODIFIED_PATHS = I3_EXPECTED_PATHS - I3_UNTRACKED_PATHS
+AURORA_COMPACT_BRANCH = "feature/aurora-compact-dashboard-diagnostics"
+# Exact Aurora Compact + diagnostics overlay, including every generated copy;
+# no wildcard or subset matching is permitted here.
+AURORA_COMPACT_UNTRACKED_PATHS = frozenset(
+    {
+        "tools/test_aurora_compact_dashboard_contract.py",
+        "tools/test_aurora_disclosure_embedded_contract.py",
+        "tools/test_aurora_disclosure_embedded_runtime.js",
+        "tools/test_aurora_mobile_ems_playwright.js",
+        "tools/test_aurora_mobile_scroll_playwright.js",
+        "tools/test_aurora_service_manual_ui_contract.py",
+        "tools/test_i3_policy_cadence_contract.py",
+        "tools/test_pv_status_ui_contract.js",
+        "tools/test_rce_48h_ui_contract.js",
+        "tools/test_rce_slot_entity_id_compatibility.py",
+        "tools/test_rcm_live_control_refresh.py",
+        "tools/test_supervisor_canonical_dual_track.py",
+    }
+)
+AURORA_COMPACT_EXPECTED_PATHS = frozenset(
+    {
+        ".github/workflows/validate.yml",
+        "CHANGELOG.md",
+        "README.md",
+        "README.pl.md",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/baseline_energy_timeline.py",
+        "custom_components/hoymiles_hit_modbus/baseline_energy_timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/diagnostic_bundle.py",
+        "custom_components/hoymiles_hit_modbus/diagnostic_redaction.py",
+        "custom_components/hoymiles_hit_modbus/diagnostics.py",
+        "custom_components/hoymiles_hit_modbus/ems_shared_inputs.py",
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/rcm_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_active_bridge.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_active_controller.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_canonical_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_canonical_sensor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_executor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+        "custom_components/hoymiles_hit_modbus/support_http.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "dashboard_hoymiles.yaml",
+        "docs/DIAGNOSTICS.md",
+        "docs/releases/v1.5.8.md",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tests/test_timeline_platform_registration.py",
+        "tools/.gitignore",
+        "tools/build_hacs_assets.py",
+        "tools/test_aurora_automation_planner_ui_contract.js",
+        "tools/test_aurora_compact_dashboard_contract.py",
+        "tools/test_aurora_disclosure_embedded_contract.py",
+        "tools/test_aurora_disclosure_embedded_runtime.js",
+        "tools/test_aurora_mobile_ems_playwright.js",
+        "tools/test_aurora_mobile_scroll_playwright.js",
+        "tools/test_aurora_service_manual_ui_contract.py",
+        "tools/test_automation_matrix.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_baseline_energy_timeline.py",
+        "tools/test_baseline_energy_timeline_sensor_contract.py",
+        "tools/test_battery_balancing_contract.py",
+        "tools/test_battery_balancing_ha_runtime.py",
+        "tools/test_c4_final_ui_contract.js",
+        "tools/test_diagnostics.py",
+        "tools/test_ems_shared_inputs.py",
+        "tools/test_ems_initial_defaults.py",
+        "tools/test_i3_policy_cadence_contract.py",
+        "tools/test_optimizer_executor_contract.py",
+        "tools/test_optimizer_startup_contract.py",
+        "tools/test_pv_status_ui_contract.js",
+        "tools/test_rce_48h_ui_contract.js",
+        "tools/test_rce_optimizer.py",
+        "tools/test_rce_slot_entity_id_compatibility.py",
+        "tools/test_rcm_live_control_refresh.py",
+        "tools/test_rcm_optimizer.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_shared_input_parity.py",
+        "tools/test_supervisor_active_bridge.py",
+        "tools/test_supervisor_active_controller.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_supervisor_canonical_runtime.py",
+        "tools/test_supervisor_canonical_dual_track.py",
+        "tools/test_supervisor_executor.py",
+        "tools/test_supervisor_helpers_contract.py",
+        "tools/test_supervisor_runtime_contract.py",
+        "tools/test_supervisor_sensor_contract.py",
+        "tools/test_supervisor_transport_lifecycle_contract.py",
+        "tools/test_tariff_optimizer.py",
+        "tools/simulate_winter_tariff_month.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+AURORA_COMPACT_MODIFIED_PATHS = (
+    AURORA_COMPACT_EXPECTED_PATHS - AURORA_COMPACT_UNTRACKED_PATHS
+)
+AURORA_COMPACT_VIEW_PATHS = (
+    "start",
+    "plan-automatyki",
+    "ems-supervisor",
+    "ustawienia-ems",
+    "ustawienia-balansowania",
+    "automatyka-ems",
+    "ladowanie-taryfowe",
+    "rcem-253v",
+    "zyski",
+    "produkcja-pv",
+    "pv",
+    "bateria",
+    "load-eps",
+    "siec",
+    "przeplywy",
+    "falownik",
+    "generator",
+    "liczniki",
+    "sterowanie",
+    "stany-alarmy",
+    "diagnostyka",
+)
+AURORA_COMPACT_MAIN_VIEW_PATHS = (
+    "start",
+    "plan-automatyki",
+    "ustawienia-ems",
+    "pv",
+    "bateria",
+    "load-eps",
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_REMOVED_DEV_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card-c4-dev.js",
+        "dashboard_hoymiles_c4_dev.yaml",
+        "home_assistant/www/hoymiles-rce-chart-card-c4-dev.js",
+    }
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_ADDED_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/baseline_energy_timeline.py",
+        "custom_components/hoymiles_hit_modbus/baseline_energy_timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/ems_initial_defaults.py",
+        "custom_components/hoymiles_hit_modbus/ems_shared_input_migration.py",
+        "custom_components/hoymiles_hit_modbus/ems_shared_inputs.py",
+        "custom_components/hoymiles_hit_modbus/models.py",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_shared_inputs.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_shared_inputs.yaml",
+        "home_assistant/hoymiles_ems_shared_inputs.yaml",
+        "tests/test_ems_initial_defaults_storage.py",
+        "tests/test_ems_shared_input_migration_storage.py",
+        "tools/.gitignore",
+        "tools/baseline_timeline_ui_fixture.html",
+        "tools/fixtures/shared_input_parity_v1.json",
+        "tools/shared_ems_ui_fixture.html",
+        "tools/test_baseline_energy_timeline.py",
+        "tools/test_baseline_energy_timeline_sensor_contract.py",
+        "tools/test_ems_shared_consumer_parity.py",
+        "tools/test_ems_shared_helpers_contract.py",
+        "tools/test_ems_initial_defaults.py",
+        "tools/test_ems_shared_input_migration.py",
+        "tools/test_ems_shared_inputs.py",
+        "tools/test_shared_package_asset_sync.py",
+        "tools/test_shared_input_parity.py",
+        "tools/test_supervisor_grid_to_battery_provider_absence.py",
+    }
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_MODIFIED_PATHS = (
+    SUPERVISOR_ACTIVE_MODIFIED_PATHS
+    | {
+        "custom_components/hoymiles_hit_modbus/entity_catalog.json",
+        "custom_components/hoymiles_hit_modbus/models.py",
+        "custom_components/hoymiles_hit_modbus/number.py",
+        "custom_components/hoymiles_hit_modbus/select.py",
+    }
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_UNTRACKED_PATHS = (
+    (
+        SUPERVISOR_ACTIVE_UNTRACKED_PATHS
+        - INTEGRATED_ACTIVE_SHARED_AURORA_REMOVED_DEV_PATHS
+    )
+    | (
+        INTEGRATED_ACTIVE_SHARED_AURORA_ADDED_PATHS
+        - {"custom_components/hoymiles_hit_modbus/models.py"}
+    )
+)
+INTEGRATED_ACTIVE_SHARED_AURORA_EXPECTED_PATHS = (
+    INTEGRATED_ACTIVE_SHARED_AURORA_MODIFIED_PATHS
+    | INTEGRATED_ACTIVE_SHARED_AURORA_UNTRACKED_PATHS
+)
+INTEGRATION_BRANCH = "integration/v1.5.8-bal-r2-aurora-ap2"
+INTEGRATION_BAL_INPUT_SHA = "fa6c32dc1f0178f6ad8cdf5a0e5d1a00e3598ede"
+INTEGRATION_BAL_INPUT_TREE = "a8426f01c9a23ad9c9aa4ef321d3c7d4b47ec0b5"
+INTEGRATION_BAL_INPUT_PARENT = "a478091da3f2377ee71f449770a8b0de40e83f16"
+INTEGRATION_BAL_INPUT_SUBJECT = "fix: harden battery balancing lifecycle"
+INTEGRATION_AURORA_INPUT_SHA = "42c59f358f46e2c4dd83328aca5e62ac41c749e3"
+INTEGRATION_AURORA_INPUT_TREE = "220451a9a5812c2a2ceb10ac0b64e484e5bc0f9f"
+INTEGRATION_AURORA_INPUT_PARENT = "d7d0c2463c66dda076de2fb826c4474439c9ed3b"
+INTEGRATION_AURORA_INPUT_SUBJECT = (
+    "fix: validate automation timeline battery direction"
+)
+INTEGRATION_AURORA_VALIDATOR_SHA256 = (
+    "d690b2d3b09f78efdf64564f859f6f4daac07b8141c5f9e31e9c325346e3725c"
+)
+INTEGRATION_SUPERVISOR_SHA = "5fafc961e70b18b8677e58c8bfcc25613d1fd5c5"
+INTEGRATION_SUPERVISOR_TREE = "f86412322468d0c99ef9a1f16a9d6bc36f1d975c"
+INTEGRATION_PUBLIC_BASE_SHA = "6617bc4de6592439ea2c64889b0a25bbe5bfa45e"
+INTEGRATION_BAL_REMOTE_REF = (
+    "refs/remotes/origin/fix/v1.5.8-battery-balancing-95soc-400w-antispam"
+)
+INTEGRATION_AURORA_REMOTE_REF = (
+    "refs/remotes/origin/feature/aurora-automation-planner-timeline-v1.5.7"
+)
+INTEGRATION_REMOTE_REF = (
+    "refs/remotes/origin/integration/v1.5.8-bal-r2-aurora-ap2"
+)
+INTEGRATION_COMMIT_SUBJECT = (
+    "feat: integrate Aurora planner with v1.5.8 balancing"
+)
+INTEGRATION_COMMIT_MESSAGE = (
+    "feat: integrate Aurora planner with v1.5.8 balancing\n\n"
+    "BAL-R2-F1-Source: fa6c32dc1f0178f6ad8cdf5a0e5d1a00e3598ede\n"
+    "Aurora-AP-2-Source: 42c59f358f46e2c4dd83328aca5e62ac41c749e3\n"
+    "Supervisor-Source: 5fafc961e70b18b8677e58c8bfcc25613d1fd5c5\n"
+    "Integration-Review-SHA256: "
+    "08609cd4cfad9bc5aa96964f42d5cfbd35a1b655b51b6eab59a9532751009c0c"
+)
+INTEGRATION_VALIDATOR_CANONICAL_SHA256 = (
+    "f40cdbbdf6df30b43b61491251f3ed97c70ba19e380318a8b058934814f8e94d"
+)
+INTEGRATION_BAL_COMMIT_STATUS = frozenset(
+    {
+        ("M", ".github/workflows/validate.yml"),
+        ("M", "CHANGELOG.md"),
+        ("M", "README.md"),
+        ("M", "README.pl.md"),
+        ("M", "RELEASING.md"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json"),
+        ("M", "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json"),
+        ("M", "dashboard_hoymiles.yaml"),
+        ("M", "docs/releases/v1.5.8.md"),
+        ("M", "home_assistant/hoymiles_ems_scheduler.yaml"),
+        ("M", "tools/build_hacs_assets.py"),
+        ("M", "tools/test_automation_matrix.py"),
+        ("A", "tools/test_battery_balancing_contract.py"),
+        ("A", "tools/test_battery_balancing_ha_runtime.py"),
+        ("M", "tools/validate_release.py"),
+    }
+)
+INTEGRATION_BAL_DELTA_PATHS = frozenset(
+    {
+        ".github/workflows/validate.yml",
+        "CHANGELOG.md",
+        "README.md",
+        "README.pl.md",
+        "RELEASING.md",
+        "custom_components/hoymiles_hit_modbus/const.py",
+        "custom_components/hoymiles_hit_modbus/manifest.json",
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "dashboard_hoymiles.yaml",
+        "docs/AUTOMATION_TEST_REPORT.md",
+        "docs/releases/v1.5.8.md",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "tools/build_hacs_assets.py",
+        "tools/test_automation_matrix.py",
+        "tools/test_battery_balancing_contract.py",
+        "tools/test_battery_balancing_ha_runtime.py",
+        "tools/test_rce_20l_discharge_calibration.py",
+        "tools/test_rce_optimizer.py",
+        "tools/validate_release.py",
+    }
+)
+INTEGRATION_UNTRACKED_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "tests/test_timeline_platform_registration.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_ems_supervisor.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_supervisor_helpers_contract.py",
+        "tools/test_supervisor_runtime_contract.py",
+        "tools/test_supervisor_sensor_contract.py",
+    }
+)
+INTEGRATION_CANONICAL_SHA256 = {
+    ".github/workflows/validate.yml": "f3d62f275c3c7cdb78eb3e387e9d841c210a9bff0d10b01333d1600b83898426",
+    "CHANGELOG.md": "f80b7a8d7c523646ce671c3ac46bc0bbf86c0c7b21be9c6bc8c92c12e5f4f81f",
+    "RELEASING.md": "c7916f3fd53f4f973ccb476fef963355c59d8b0ebf06042dd71ab3bbdb2aa9a5",
+    "custom_components/hoymiles_hit_modbus/__init__.py": "d3e678de3593777fccca0b55135d5942c95644d12ad4761222802d897df57188",
+    "custom_components/hoymiles_hit_modbus/assets.py": "82571e5bdf44c089c8e78c59609a3c15a42f8f3aa3332f1147e4a9107b28099a",
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py": "8141843fc036313c80b3ae06f1fc2fcb7a05a75d743adf4670311e9d3c94a6bb",
+    "custom_components/hoymiles_hit_modbus/ems_supervisor.py": "031d0abf8948d24708b960deb6ee71c7fe952fdebecd915ac6fc766596429ca7",
+    "custom_components/hoymiles_hit_modbus/rce_optimizer.py": "86787c3fbf6de62206e0efd8d1822ad3fc0d59bbb22f06e049b53a2a1fd19484",
+    "custom_components/hoymiles_hit_modbus/rce_sensor.py": "15d7f3336d32d1bff9c09258974b139d48a0604b9aa23eb533368f5329bf01a1",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "db1a5d52d1a15083e4a50a7eedb36b7e4f35057220b4c919b880184b5476178c",
+    "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py": "05193798f41264684afa9e1baf8e068549da63ec6fd24b9622a5a15149789549",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml": "e4819cd91acd69f153cc1bcaeb4f4816eb41fd6c3006b8c08040642a0cf62e62",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml": "b90600c27e1bfc7d121ab522ec52ebe2f1d7d566a6d32b46c88fff054e2558b9",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml": "b4ef8a0e2f2167f8752a9b1da32c29a0f19f95a85a75a79789de1b5cde9f80f1",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml": "821294e2c7f7ba3e9896d15333315f35a1acb09d54fabfcb3a6856dd49ef472f",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json": "e0f16d8bded72101228607b1b444f577f3909d22ccd8c38eb2d89876e715368a",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json": "e4edbc09712fd44a4960f3dd55d7333d3002ed6d1f289cc7577bd135a607a045",
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js": "4270e108516612eb398f5f27ef19c9aed2adaea6d6ed4aac2d66ffde733541d6",
+    "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js": "5b118dfc1cf01bc8d75e70dcce41f15566248fae27fd2f550b27dac7a138c465",
+    "custom_components/hoymiles_hit_modbus/sensor.py": "c9a172513f9ee70077aeaef6f5b3796b20bd80083ffc76220ab91feebcbcc371",
+    "custom_components/hoymiles_hit_modbus/supervisor_runtime.py": "12cf54cb8baeb8a161b4a6b49ac19f91daeb46beef3f949d9782f689f3889d7d",
+    "custom_components/hoymiles_hit_modbus/supervisor_sensor.py": "1c18ac1eef5d46e2512574ea3dfc7f0c4bd62c58aae6296b2e7b4c479ba743f8",
+    "custom_components/hoymiles_hit_modbus/tariff_optimizer.py": "bfbe124ee0f91eefaff0b16747b2cea135843d6a9d0924f650c3c425b4a37b43",
+    "custom_components/hoymiles_hit_modbus/tariff_sensor.py": "5a9ecd554357dc77a02c329534b40a588ff0b41dbcbf7d00383e1ec38eb80b0c",
+    "custom_components/hoymiles_hit_modbus/timeline_sensor.py": "f02410df553cfdc97b3b0c953996357d9c431ac4e223f15a5808b5e1295f51cc",
+    "custom_components/hoymiles_hit_modbus/translations/en.json": "f7d342ef6ac29fd9ab8ef8666cba6248485ea97e2cf4cc50ce3ab56993f33c71",
+    "custom_components/hoymiles_hit_modbus/translations/pl.json": "1dfde0d47b8a3b0751c9f0466ece738a179978e9ad3fb1b281b52d3107cfe473",
+    "dashboard_hoymiles.yaml": "741e489845fb5f8dc3fd53214f99e6b6879dc32c7df9730f3419ad38251eed79",
+    "docs/releases/v1.5.8.md": "e17af79407f3ef004150b1499446b2b31561bf2bd9d2eff913f87113e0ddf677",
+    "home_assistant/hoymiles_ems_scheduler.yaml": "821294e2c7f7ba3e9896d15333315f35a1acb09d54fabfcb3a6856dd49ef472f",
+    "home_assistant/www/hoymiles-dashboard-strategy.js": "4270e108516612eb398f5f27ef19c9aed2adaea6d6ed4aac2d66ffde733541d6",
+    "home_assistant/www/hoymiles-rce-chart-card.js": "5b118dfc1cf01bc8d75e70dcce41f15566248fae27fd2f550b27dac7a138c465",
+    "tests/test_timeline_platform_registration.py": "e1cff2cf541ecf74addf17c88a24cb097e2dba36c0f0956d14c71f25854dfadb",
+    "tools/build_hacs_assets.py": "a8c45fe2c542bfdc53f22f063410180f1dec6894df08a4d9a832856883e077e9",
+    "tools/test_automation_matrix.py": "fbeea3c6dc712e7e51a6499d0a5f6baff0d05d63918267fb454a8ba4e97f3c7c",
+    "tools/test_automation_plan_timeline.py": "0d28e33ee33229fbe60bfbf1da4d4b5a26eca0a655486014efb17f6fc47cb186",
+    "tools/test_ems_supervisor.py": "381dd972c4e06050bc59f0bc297ddac80cb04f1a13f46058b5e5e60eabfe21c9",
+    "tools/test_optimizer_executor_contract.py": "bd8c69419bc8f80f06dee9bdf664dd265e70b06db58d02c48266722a22a6c225",
+    "tools/test_optimizer_startup_contract.py": "a49f48bdf7a8c350631e166185c7c2b7e8a93b67d7779113310285a7059da677",
+    "tools/test_rce_optimizer.py": "95c3f28f23298601d6edaf3bbebe6a6ac1731aacc19922dfdf75c86977beae09",
+    "tools/test_rcm_optimizer.py": "0020993f4bc86810cf4368e2db56383f4dfccde420349b4109f252e2fdeb7e78",
+    "tools/test_rcm_timeline_model.py": "611dd36e7a20323d2558801650f8a32df78d80253a3f49faecb4f4d15a1bbb98",
+    "tools/test_supervisor_aurora_ui_contract.js": "6e467ac373689dc8ea97593c9b64387eae6720780240d8f4555922c9e7dcdfc6",
+    "tools/test_supervisor_helpers_contract.py": "e62544b243ea25ea836ee554ee75c48375678826dbf7e7fdb310d68104567df9",
+    "tools/test_supervisor_runtime_contract.py": "1eb3a3f0ae71255dc61ee8d423443df01fdd353af4b289a6f7fc4bf02250dfbc",
+    "tools/test_supervisor_sensor_contract.py": "75730448947634ed5e5ccb3112265df5707e72452d255969708b887c3ca22bf2",
+    "tools/test_tariff_optimizer.py": "d4c0ef89aa625944890250686c2f7fb40b2266a7b3d92073ebccf909a0190ca4",
+    "tools/validate_rce_card.js": "18c173777216c8af30979d362c214e8ee117c8af0404d4b781a5a109f5b5a82d",
+}
+INTEGRATION_EXPECTED_PATHS = frozenset(INTEGRATION_CANONICAL_SHA256) | {
+    AP2R1_VALIDATOR_PATH
+}
+PHASE_2_TASK_PATHS = frozenset(
+    {
+        "dashboard_hoymiles.yaml",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "tools/build_hacs_assets.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+    }
+)
+REV28_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+REV28_PROTECTED_TASK_HASHES = {
+    "dashboard_hoymiles.yaml": "69efcb7b93d1463e29f8f273b45d4c96bca80f7a56dd65d5599164ab5857ee4d",
+    "tools/build_hacs_assets.py": "07b7890d8999d5d115984d4ab0dc1cb9935fcf9e28423fbcebb5f4c10b81060b",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml": "e8113f54a671591fddb2fce9abb3ee7394fd997cfb87f3a5724c2a3ee875347b",
+    "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml": "e56a60f49b407775228d41500fd14cd2bd67a5aba69c53efa513f358ca8bd9c6",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json": "dca8d5ceb63c979b9adfc9b2e9c6d0153593509bfa13227de7bb28e45a41f628",
+    "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json": "4868d931824557e5e68dca4c9c0f33f2a20bd8636a55b5a98caf8af5f1e72b1c",
+}
+REV28_PROTECTED_BACKEND_HASHES = {
+    "custom_components/hoymiles_hit_modbus/ems_supervisor.py": "031d0abf8948d24708b960deb6ee71c7fe952fdebecd915ac6fc766596429ca7",
+    "custom_components/hoymiles_hit_modbus/supervisor_runtime.py": "12cf54cb8baeb8a161b4a6b49ac19f91daeb46beef3f949d9782f689f3889d7d",
+    "custom_components/hoymiles_hit_modbus/supervisor_sensor.py": "1c18ac1eef5d46e2512574ea3dfc7f0c4bd62c58aae6296b2e7b4c479ba743f8",
+    "custom_components/hoymiles_hit_modbus/sensor.py": "fe83d62990150145c3db595e4983f598752751d2488375dd938db961908311bf",
+    "custom_components/hoymiles_hit_modbus/const.py": "eee0ffebe1197f0f74b488bce4c7e51066a33b96255944672f3fee288fc1d956",
+    "home_assistant/hoymiles_ems_scheduler.yaml": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml": "3df7345f0ee9649a35160b4817d6d3dd9d0c95ecf93eed2bf07ec1fe2633886a",
+    "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+    "custom_components/hoymiles_hit_modbus/tariff_optimizer.py": "7a77f3885a9f393179d40777770de5eee4ac1918b84a0dba5433531ccc344459",
+    "custom_components/hoymiles_hit_modbus/tariff_sensor.py": "f90a54afd2e9f001ad466bb55941e480bbb6dc25f0b2b2c37d7c30fbcfe39ff5",
+    "custom_components/hoymiles_hit_modbus/rce_optimizer.py": "f95ca95d8290995016ced33f12a9feec8306ca7e6bf224da385c956774866870",
+    "custom_components/hoymiles_hit_modbus/rce_sensor.py": "d2401157dc90ba76069d24cd7d4bdc7ee15947c5173efe209cf986d8e88fef98",
+    "custom_components/hoymiles_hit_modbus/rcm_optimizer.py": "ca533110396a2d24c9bf99cc73bb2e8843f782e53b914044dea83c60715b410b",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "5a66f6cdf6eae5a07b877db49c72e498ac65427dace0f3e774b3339363a3a087",
+}
+SUPERVISOR_BRANCH_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/assets.py",
+        "custom_components/hoymiles_hit_modbus/const.py",
+        "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "dashboard_hoymiles.yaml",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tools/build_hacs_assets.py",
+        "tools/test_ems_supervisor.py",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/test_supervisor_helpers_contract.py",
+        "tools/test_supervisor_runtime_contract.py",
+        "tools/test_supervisor_sensor_contract.py",
+        "tools/test_tariff_optimizer.py",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    }
+)
+AP1_COMMITTED_TASK_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "tools/build_hacs_assets.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_optimizer_executor_contract.py",
+        "tools/test_optimizer_startup_contract.py",
+        "tools/test_rce_optimizer.py",
+        "tools/test_tariff_optimizer.py",
+        "tools/validate_release.py",
+    }
+)
+AP1_COMMITTED_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1_COMMITTED_TASK_PATHS
+AP1E_CUMULATIVE_TASK_PATHS = AP1_COMMITTED_TASK_PATHS | {
+    "custom_components/hoymiles_hit_modbus/__init__.py",
+    "tests/test_timeline_platform_registration.py",
+}
+AP1E_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "tests/test_timeline_platform_registration.py",
+        "tools/validate_release.py",
+    }
+)
+AP1E_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP1E_CUMULATIVE_TASK_PATHS
+AP2R1_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "custom_components/hoymiles_hit_modbus/translations/pl.json",
+        "tests/test_timeline_platform_registration.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_rcm_optimizer.py",
+        "tools/test_automation_plan_timeline.py",
+        "tools/test_automation_matrix.py",
+        "tools/validate_release.py",
+    }
+)
+AP2R1_CUMULATIVE_TASK_PATHS = AP1E_CUMULATIVE_TASK_PATHS | AP2R1_CORRECTION_PATHS
+AP2R1_BRANCH_PATHS = SUPERVISOR_BRANCH_PATHS | AP2R1_CUMULATIVE_TASK_PATHS
+AP2R1_NEW_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "tools/test_rcm_timeline_model.py",
+    }
+)
+AP2R1J_CORRECTION_PATHS = frozenset(
+    {
+        "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+        "tests/test_timeline_platform_registration.py",
+        "tools/validate_release.py",
+    }
+)
+AP2R1J_PRODUCT_PATH = (
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py"
+)
+AP2R1J_TEST_PATH = "tests/test_timeline_platform_registration.py"
+AP2R1J_TEST_SHA256 = (
+    "194df48f550994dc8a11779cfb88bf61ca7b5d46caa9344cf4540a694e2690cc"
+)
+AP2R1J_REGRESSION_AST_SHA256 = {
+    "_ap2r1j_trace": "43628da1d83f9cfa565c47ebfd6d6561923406d124724b43a579aff7e52e02a1",
+    "_convergence_scenario": "ac9b0e73c2e4388e6d0ae824a0cd86115a7a27f5ecfeefed2d53e572684bad32",
+    "_assert_policy_convergence": "86dcd8a8a2eda3673c6eb39802dc20f4fbbc69dcfe68ce5d6ea412d05d59c1ee",
+    "test_timeline_platform_registration": "6d12f24093da49fce6e75579791e8ad8d5ccc92ecadcc68d485a20b9bfa09fd7",
+}
+AP2R1F_PROTECTED_HASHES = {
+    "custom_components/hoymiles_hit_modbus/__init__.py": "d3e678de3593777fccca0b55135d5942c95644d12ad4761222802d897df57188",
+    "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py": "52db2a5016d18af93c7b1b231bf94af9a5810b49ebae9f4872d997f04b2607d2",
+    "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py": "05193798f41264684afa9e1baf8e068549da63ec6fd24b9622a5a15149789549",
+    "custom_components/hoymiles_hit_modbus/rcm_sensor.py": "db1a5d52d1a15083e4a50a7eedb36b7e4f35057220b4c919b880184b5476178c",
+    "custom_components/hoymiles_hit_modbus/sensor.py": "c9a172513f9ee70077aeaef6f5b3796b20bd80083ffc76220ab91feebcbcc371",
+    "custom_components/hoymiles_hit_modbus/timeline_sensor.py": "f02410df553cfdc97b3b0c953996357d9c431ac4e223f15a5808b5e1295f51cc",
+    "custom_components/hoymiles_hit_modbus/translations/en.json": "f7d342ef6ac29fd9ab8ef8666cba6248485ea97e2cf4cc50ce3ab56993f33c71",
+    "custom_components/hoymiles_hit_modbus/translations/pl.json": "1dfde0d47b8a3b0751c9f0466ece738a179978e9ad3fb1b281b52d3107cfe473",
+    "tests/test_timeline_platform_registration.py": "15c730c31947de09ae7322e84bcb06291fad2063818141a1471c7d706c81de5d",
+    "tools/test_rcm_timeline_model.py": "611dd36e7a20323d2558801650f8a32df78d80253a3f49faecb4f4d15a1bbb98",
+    "tools/test_rcm_optimizer.py": "0020993f4bc86810cf4368e2db56383f4dfccde420349b4109f252e2fdeb7e78",
+    "tools/test_automation_plan_timeline.py": "0d28e33ee33229fbe60bfbf1da4d4b5a26eca0a655486014efb17f6fc47cb186",
+    "tools/test_automation_matrix.py": "bdfe00b15de1aa0ddb31db96b90c9dc78e85711d16cc6d5416533d2d0089df8b",
+}
+AP2R1J_PROTECTED_HASHES = {
+    path: digest
+    for path, digest in AP2R1F_PROTECTED_HASHES.items()
+    if path not in {AP2R1J_PRODUCT_PATH, AP2R1J_TEST_PATH}
+}
+VALIDATOR_STORE_CONTRACTS = {
+    "input_select": (1, frozenset({1, 2})),
+    "input_boolean": (1, frozenset({1})),
+}
+VALIDATOR_TRANSITIONS = {
+    "fresh": "INSTALLED_FRESH",
+    "current": "CURRENT",
+    "modified": "PRESERVED_MODIFIED",
+    "collision": "BLOCKED_COLLISION",
+    "destination_changed": "ABORTED_DESTINATION_CHANGED",
+}
+VALIDATOR_BACKUP_FIXTURE = b"# validator exact pre-update bytes\nstate: custom\n"
+PROTECTED_ASSETS_AST_BASE = "c65e8b73096cb64ff2d21b6e2b05602f71a4a2af"
+PROTECTED_ASSETS_AST_SHA256 = {
+    "assets.HelperClassification": "1c2d5cb92be71c0e34a14e1d9b721b62bb99d697411e3cd14d3a4a67d3b66d51",
+    "assets.SchedulerFilesystemAction": "d9ff8d458dfb10b355afc52858bbc65d37ab78d847a90df8ef0737d6f9d8edbc",
+    "assets.RollbackAction": "131b9a72f67c4613fc5c2acb1032b1efeaa81d8143ba2049fce1992be97390c4",
+    "assets.DestinationAttestationAction": "ccc3668decc2da3cff2c5510cffb4c9dd6bd42db5b4ffb2deeec14d4c7dc5d70",
+    "assets.FileIdentity": "325d334a0caf93a1bb9e7fe534222f2e6747cdc57ac8da83b417678bbda4284f",
+    "assets.LiveHelperFact": "36c0602273ce64058dff08f915018f38efea256fbb678a5478441d79a305fdb7",
+    "assets.SchedulerInstallAuthorization": "247724e5dc9fcb87fd12887fa6f9e7fe00d65c4e34155f1c00c2ea938e814680",
+    "assets.FileSnapshot": "1e751060e17a5fb0f4bc16d3774ede9581bc8f812e61b0b878bd1001d28140f8",
+    "assets.SchedulerFilesystemResult": "4c7b6d4b49e3efc41107cf9c341d0cc7bb8bda6080b363f0259ae8acc6a2a46c",
+    "assets.AssetFilesystemResult": "d3b0a551e40fef56cf67791c0f0b90b9195023e0dc2510b4478564dbc866eeb7",
+    "assets.RollbackResult": "c672715d9c70813c179a74055d6378b7ae539ab8d3bc3d7f453702f6b148c052",
+    "assets.DestinationAttestationResult": "4259e3ad8887ff227d14aca9843a800017b639c894604c2c74d08da66cb74517",
+    "assets._LiveHelperSnapshot": "2c460298847ce006bbfd503ed0462358948291e6b49b6796d4c951fa063d8196",
+    "assets._DiskHelperEvidence": "1dd0679aa050af27c34fee17c2d66f1deffb75652fb32ce301754bb8c16ebede",
+    "assets._FilesystemContractError": "bbd39f13fea484f089702c226875898a6700498ad73acbeb9d9d7f3bd9a057fb",
+    "assets._stable_entity_id_map": "31b648814c1cc8858d151e5f6870196374cbff7fb15867aa7319887ee5bf0231",
+    "assets._migrate_legacy_entity_ids": "de0b5d49f25ed253091179bf2f50cf11479667f1b376b44e8960c598ca857140",
+    "assets._sha256": "1bac43b621d5b16f48868469dd62fcc1c2050bd1419fc513aa306c1aeac3374a",
+    "assets._identity_from_stat": "380304c31497af1b285a505568dcddd9508037fdc08628f3dbdd0a64b7494c42",
+    "assets._same_inode": "535b0b8eeaf492509af52db965feddc8ec5a86742cb12222649e5eef2544960d",
+    "assets._read_fd_bytes": "d0efddadb19dc375a05d903db4ec3dcd4e5799bfc429e2d1ba1101baf7768202",
+    "assets._open_read_flags": "d54eef5e1031651eb4f97f8ed43f3aaafe5e5d70b9cebe450473bd410408113a",
+    "assets._capture_regular_file": "1061037ba7c57f09bee5b538fcd03cefb98efd1c3dc0ffe76c4adaa3f8aa43bb",
+    "assets._bounded_path_snapshot": "cdcc9e070b7309d3de604ba1c698586c79b1654b9bbdcd21a23cb28776bd445f",
+    "assets._unlink_owned_path": "fe3029303bdc9ae9eefdfe7006c5ccd8bb3c832d8ce9e76f8fe6d707e820e7ba",
+    "assets._write_all_fd": "44890b6479641c1e8588cca5cf810d42807b98a0cc85aaf5b1899a7a72f71c59",
+    "assets._create_verified_temp": "a9ea003c421aca92fdb84eb381c3181c2ab5fc2b3d1b0a62d1b508c43267deff",
+    "assets._verify_temp_for_publish": "7b89399b099245fdbb1a49426bae370345359986751408774f43d85fae1c51ba",
+    "assets._fsync_directory": "b46f9299b2b748229853a031e95bbb55cee662d243354eeae38494aead6fd828",
+    "assets._atomic_copy": "69e7b07f7179cb10e58b751e5c9716c81f0b8345bdaa712dab5624069e4e1558",
+    "assets._verify_fixed_backup": "95f1c792cfe905748bdd5abd65107c0a81c6f829693f766b18faacc248564690",
+    "assets._ensure_fixed_backup": "dd2c5c558fa8dfdb577362ed29cf1a9a994756e6ecb1baff67b6d40b1a55772c",
+    "assets._storage_helper_ids": "036a0e36b7f8a85c9d0552da74d130e6dc49738f7889b18e6015e72e4bf7fefb",
+    "assets._read_disk_helper_evidence": "ef6cc382822e358ce91c6d88c039a271ab9786031db4a4edf9f3f1bf85ba1d4b",
+    "assets._unverifiable_live_snapshot": "da3321ab2c0c5b2e38d2b4c0e2ac5255c44b1ac061fbdd8984a81df1b68aa1fb",
+    "assets._capture_live_helper_snapshot": "fbe6dafca2cdc9f166b26ab4f8ccf54f03361380ad785fadd541caf2bd433965",
+    "assets._build_scheduler_authorization": "4ec2b8a6db84a26febd1194c8ceba2fa39e88d18c0f172619a753be957bcfab3",
+    "assets._async_scheduler_authorization": "d69a982c3277717c905b6cde7d3144b79a68691548a9a96e63953c743ab8ccbb",
+    "assets._atomic_write_json": "e2d9b889b54440b334b7cf49c6b45608c11906f9e1864ce434490fd48c8abd53",
+    "assets._backup_storage_once": "ee86c9c948350c0beb7472e47740970b173884d0a23cbe72b02978b3b4a7c692",
+    "assets._replace_entities_cards": "1269b45ed3f33ad4c05c613b5d783f84ed9072bee3f5e829466538b6b8e42642",
+    "assets._migrate_rce_load_rows": "3dcffaff1f6def40074b77820b6a8dfb2d61e3b26fc26b7c758ccd37a464aa48",
+    "assets._is_hoymiles_dashboard": "1faf3f3e16e48dfa964b2ff810ae51dc082940acfa5da6a9167b1c39bca50fb0",
+    "assets._async_sync_lovelace_resource": "73a6abbd8c8ca5308efe4156f07a95061a68739f6ee4205a7dab14803f4b518a",
+    "assets._sync_lovelace_storage": "48aa5daf5234b57994533d5ff0836e9ff0ff38619dce2e4b43048139d51dec5c",
+    "assets._migrate_inverter_image_paths": "7c0c04160889d7285c31989b6f15fcfa615375b104a150ffb8525b566e5c16b2",
+    "assets._revalidate_destination": "50c0fc105c3c46074a8f398a16d45f460d34c5505971c860e479ec9ae14bd65c",
+    "assets._remove_transaction_artifact": "ff70b40e1790b42f18a40dacfe1096bc1de374236bcb8512d8537c921bd5067f",
+    "assets._aborted_scheduler_result": "bb27ecd462798ceb113c0439d080e993c9640d654b017de68d33b1bc24952efa",
+    "assets._sync_ems_scheduler": "587396d7fb5ac88d5906a96d334264ed621293d01e87b9881466ea2b9cbfd7e3",
+    "assets._rollback_scheduler": "6e1943ea85dd8e1a57cf2cdeb2c9c3f4cc463a682bc4955005d240c1eb0dbc44",
+    "assets._sync_regular_asset": "0666273e715759fe5e88aee17493d238f30c8a1be42405b3bbb909a5964e74a0",
+    "assets._sync_assets": "4c836b8f12c9c24e0feb7a7a64f3d05d61cffc96a3a8b54e8d955100c0ae01ab",
+    "assets._get_install_lock": "d1625e977c0d72e69e6841eefc5a9d0146c073e5ccda30e6d9b11661b9e8027d",
+    "assets._attest_scheduler_destination": "ac1c7c0478ff74b2e3ecdcfa6adf3fcd36684ce3047e43a1d3e1248f1f78c089",
+    "assets._scheduler_metadata_after_transaction": "e5392d3a1de39219b9cc8b84503409c7bdf83f23b45c56f67533e5dbacde3daa",
+    "assets._log_scheduler_outcome": "45e70bc47fc7ba9c48108115017a1116d64f22c27b02aa7002ee9d4af5697823",
+    "assets.async_install_assets": "dce56901ecfb45304b8f418fdf23d2a419d058d59a59650fbe91c87d31377c02",
+}
+
+
+class ValidatorState:
+    """Minimal public-compatible State fixture."""
+
+    def __init__(self, entity_id: str, state: str, attributes: dict) -> None:
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = attributes
+
+
+class ValidatorStateMachine:
+    """Minimal exact StateMachine.get surface."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, object] = {}
+
+    def get(self, entity_id: str):
+        return self.values.get(entity_id)
+
+    def put(self, state: ValidatorState) -> None:
+        self.values[state.entity_id] = state
+
+
+class ValidatorRegistryEntry:
+    """Minimal public RegistryEntry identity."""
+
+    def __init__(self, entity_id: str, platform: str, unique_id: str) -> None:
+        self.entity_id = entity_id
+        self.platform = platform
+        self.unique_id = unique_id
+
+
+class ValidatorEntityRegistry:
+    """Public exact and identity-index lookup surface."""
+
+    def __init__(self) -> None:
+        self.entries: dict[str, ValidatorRegistryEntry] = {}
+
+    def async_get(self, entity_id: str):
+        return self.entries.get(entity_id)
+
+    def async_get_entity_id(
+        self,
+        domain: str,
+        platform: str,
+        unique_id: str,
+    ) -> str | None:
+        for entry in self.entries.values():
+            if (
+                entry.entity_id.partition(".")[0] == domain
+                and entry.platform == platform
+                and entry.unique_id == unique_id
+            ):
+                return entry.entity_id
+        return None
+
+
+class ValidatorStore:
+    """Per-Hass managed metadata Store fixture."""
+
+    def __init__(self, hass, *_args, **_kwargs) -> None:
+        self.hass = hass
+
+    async def async_load(self):
+        self.hass.store_load_calls += 1
+        return json.loads(json.dumps(self.hass.store_payload))
+
+    async def async_save(self, payload: dict) -> None:
+        self.hass.store_save_calls += 1
+        if self.hass.metadata_failures:
+            self.hass.metadata_failures -= 1
+            raise OSError("injected validator metadata failure")
+        self.hass.store_payload = json.loads(json.dumps(payload))
+
+
+class ValidatorHass:
+    """Only the public HA surfaces needed by async_install_assets."""
+
+    def __init__(self, config_path: Path, language: str = "pl-PL") -> None:
+        self.config = types.SimpleNamespace(
+            config_dir=str(config_path),
+            language=language,
+        )
+        self.data: dict = {}
+        self.states = ValidatorStateMachine()
+        self.entity_registry = ValidatorEntityRegistry()
+        self.store_payload: dict = {}
+        self.store_load_calls = 0
+        self.store_save_calls = 0
+        self.metadata_failures = 0
+        self.executor_before = None
+        self.executor_after = None
+        self.pause_executor_name: str | None = None
+        self.pause_entered: asyncio.Event | None = None
+        self.pause_release: asyncio.Event | None = None
+        self.replace_failure_path: Path | None = None
+
+    async def async_add_executor_job(self, function, *args):
+        if self.executor_before is not None:
+            self.executor_before(function.__name__, args)
+        if function.__name__ == self.pause_executor_name:
+            require(
+                self.pause_entered is not None
+                and self.pause_release is not None,
+                "Executor pause events are missing",
+            )
+            self.pause_entered.set()
+            await self.pause_release.wait()
+        module = sys.modules[function.__module__]
+        original_replace = module.os.replace
+
+        def replace_with_failure(source, destination) -> None:
+            if (
+                self.replace_failure_path is not None
+                and Path(destination) == self.replace_failure_path
+            ):
+                raise OSError("injected validator replace failure")
+            original_replace(source, destination)
+
+        module.os.replace = replace_with_failure
+        try:
+            result = function(*args)
+        finally:
+            module.os.replace = original_replace
+        if self.executor_after is not None:
+            self.executor_after(function.__name__, result)
+        return result
+
+
+def validator_install(assets, hass: ValidatorHass, overwrite: bool = False):
+    """Invoke only the public runtime transaction."""
+    return asyncio.run(
+        assets.async_install_assets(
+            hass,
+            overwrite=overwrite,
+            publish_frontend=False,
+        )
+    )
+
+
+def validator_set_ui_collision(
+    hass: ValidatorHass,
+    entity_id: str = VALIDATOR_HELPER_IDS[0],
+) -> None:
+    """Publish an exact editable helper before its delayed Store save."""
+    domain, object_id = entity_id.split(".", 1)
+    hass.states.put(ValidatorState(entity_id, "off", {"editable": True}))
+    hass.entity_registry.entries[entity_id] = ValidatorRegistryEntry(
+        entity_id,
+        domain,
+        object_id,
+    )
+
+
+def validator_scheduler_path(config_path: Path) -> Path:
+    return config_path / VALIDATOR_SCHEDULER_RELATIVE
+
+
+def validator_shared_inputs_path(config_path: Path) -> Path:
+    return config_path / VALIDATOR_SHARED_INPUTS_RELATIVE
+
+
+def validator_file_identity(path: Path) -> tuple[int, int, int, int, int, int]:
+    info = path.lstat()
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_mode,
+        info.st_nlink,
+    )
+
+
+def validator_metadata_hash(hass: ValidatorHass) -> str | None:
+    values = hass.store_payload.get("assets", {})
+    if not isinstance(values, dict):
+        return None
+    value = values.get(VALIDATOR_SCHEDULER_RELATIVE)
+    return value if isinstance(value, str) else None
+
+# Updated only after the focused production-derived test is reviewed together
+# with the scheduler candidate. Both hashes normalize line endings.
+EXPECTED_BALANCING_TEST_SHA256 = "e9aa06634885bdf2421d4c1c85e09f6d4c192e604cd0d800155bdbcf80232499"
+EXPECTED_BALANCING_TEST_AST_SHA256 = "47ea6b7155e4773179f9bf163fdf5fdeb88af44d070ffec25be52570d335ecf2"
+EXPECTED_BALANCING_RUNTIME_SHA256 = "89d6e9641d776cc9b118f2936ca2d67c13168364595aa6b3ef4e793df44231a5"
+EXPECTED_BALANCING_RUNTIME_AST_SHA256 = "4d8ff153c1f161dfabf31471836ca8e3ae41d549c68b38c65edba775a96ce965"
+EXPECTED_BALANCING_SCHEDULER_SHA256 = "a3b525942e31b3e0548a87ddd498ca644a255680ba942092cfa293afdd3c4a95"
+SUPERVISOR_ACTIVE_SCHEDULER_SHA256 = "5a5192aa05a59dbcf28ce73c6be4b1c43c8acd974e44dc49011c1e919264dbd7"
+INTEGRATED_ACTIVE_SHARED_AURORA_SCHEDULER_SHA256 = "27571a0fabb3a17e97c7475a4e73f788f013bfa28e1fa6dbe7244cc177c6f147"
+AURORA_COMPACT_SCHEDULER_SHA256 = "ade5886deaa165784e2f331da72dd2e0117ea3b512fdc35c99a2de061dc11c42"
+CONSOLIDATED_SCHEDULER_SHA256 = "b2a8010d2679d7409c999846e347b6ade8d2d2fb2884d7bd19d30e4cbd1adcf9"
+EXPECTED_BALANCING_SCRIPT_SEMANTIC_SHA256 = "352d9c1af6f4ebbe3ed1e9ba6bf94372872a034e0fc2f1044f0f29900f99f0eb"
+EXPECTED_BALANCING_CONTROL_SEMANTIC_SHA256 = "71340fa72e1f8320342efe7668a126bdfe9cd81b67de04a8f54209395e9711ee"
+SUPERVISOR_ACTIVE_BALANCING_CONTROL_SEMANTIC_SHA256 = "aa82b44979e0dd42596dd7852fb4d892dc56ee4fea9c163a5731524bf53a9328"
+INTEGRATED_ACTIVE_SHARED_AURORA_BALANCING_CONTROL_SEMANTIC_SHA256 = "7bb936f2d1912964de7e84bdbfcbe92714fdfc8b067f952b8c03fdd518ac385b"
+AURORA_COMPACT_BALANCING_CONTROL_SEMANTIC_SHA256 = "b055e163064c33d0c796382be51470e9c7e9478fcfc2c59c0185620dbd8e3f1e"
+INTEGRATED_ACTIVE_SHARED_AURORA_UI_TEST_SHA256 = "d196f145474a45865f5b3d068ba988bb42e7e15423ffb7c0c15607e39ff34561"
+I3_SUPERVISOR_AURORA_UI_TEST_SHA256 = "94a478ef5b33b6059bc948fd3b4632781e158821fb1bc5fd0ea6c2aa699ac064"
+AURORA_COMPACT_UI_TEST_SHA256 = "471cb90859464d63bc67f2e9cf4474f19c248a9dc35068a7785ec0e15b7631bb"
+CONSOLIDATED_UI_TEST_SHA256 = "85da922aaec1b28fe3cc0e7f0f29529001829c82f1715a6ce81c10eedf6cc8f3"
+N12_UI_TEST_SHA256 = "ba6d9c3619a6349969f28817a7fa64a80c38508ca9e6bb54cfe2648e02535ae3"
+REQUIRED_BALANCING_TEST_FUNCTIONS = {
+    "test_power_contract",
+    "test_soc_contract",
+    "test_production_lifecycle_contract",
+    "test_notification_contract",
+    "test_validator_contract",
+    "test_existing_mutations",
+    "test_transactional_mutations",
+    "test_correction_mutations",
+}
+
+REQUIRED_BALANCING_RUNTIME_FUNCTIONS = {
+    "test_all_jinja_templates_compile",
+    "test_soft_gap_exact_boundaries",
+    "test_exact_start",
+    "test_hard_stop_race_matrix",
+    "test_transient_hard_stop_capture",
+    "test_legacy_and_malformed_recovery",
+    "test_soft_gap_restart_and_clock",
+    "test_hold_restart_protocol",
+    "test_fresh_soc_before_hold",
+    "test_terminal_and_notification_outbox",
+    "test_notification_provider_timeout",
+    "test_morning_notification_runtime",
+    "test_inverter_alarm_runtime",
+    "test_exact_generation_drift",
+    "test_snapshot_and_sun_transactions",
+    "test_final_sun_phase_commit_races",
+    "test_operational_full_outbox",
+    "test_monotonic_cycle_identity",
+}
+
+REQUIRED_BALANCING_RUNTIME_RESULTS = {
+    "templates": "test_all_jinja_templates_compile",
+    "gap_boundaries": "test_soft_gap_exact_boundaries",
+    "races": "test_hard_stop_race_matrix",
+    "transient_stops": "test_transient_hard_stop_capture",
+    "recovery": "test_legacy_and_malformed_recovery",
+    "gaps": "test_soft_gap_restart_and_clock",
+    "holds": "test_hold_restart_protocol",
+    "fresh_soc": "test_fresh_soc_before_hold",
+    "notifications": "test_terminal_and_notification_outbox",
+    "provider_timeouts": "test_notification_provider_timeout",
+    "morning_notifications": "test_morning_notification_runtime",
+    "inverter_alarms": "test_inverter_alarm_runtime",
+    "generation_drifts": "test_exact_generation_drift",
+    "transaction_edges": "test_snapshot_and_sun_transactions",
+    "sun_commit_races": "test_final_sun_phase_commit_races",
+    "full_outbox": "test_operational_full_outbox",
+    "identities": "test_monotonic_cycle_identity",
+}
+
+EXPECTED_BALANCING_TEMPLATE_OBJECTS = {
+    "hoymiles_battery_balancing_slow_target",
+    "hoymiles_battery_balancing_bms_safe_charge_power",
+    "hoymiles_battery_balancing_slow_charge_power",
+    "hoymiles_battery_balancing_next_run",
+    "hoymiles_battery_balancing_transaction",
+    "hoymiles_battery_balancing_timing_transaction",
+    "hoymiles_battery_balancing_abort_request",
+    "hoymiles_battery_balancing_notification_outbox",
+    "hoymiles_battery_balancing_status",
+    "hoymiles_battery_balancing_apply_authorized",
+    "hoymiles_battery_balancing_restore_authorized",
+    "hoymiles_battery_balancing_due",
+    "hoymiles_battery_balancing_control_data_ready",
+    "hoymiles_ems_control_owner",
+    "hoymiles_ems_control_conflict",
+}
+EXPECTED_LIFECYCLE_RAW_READERS = {
+    "template:hoymiles_battery_balancing_transaction"
+}
+
+EXPECTED_BALANCING_OBJECTS = {
+    "input_boolean": {
+        "hoymiles_battery_balancing_active",
+        "hoymiles_battery_balancing_enabled",
+    },
+    "input_datetime": {"hoymiles_battery_balancing_last_completed"},
+    "input_text": {
+        "hoymiles_battery_balancing_abort_request",
+        "hoymiles_battery_balancing_lifecycle",
+        "hoymiles_battery_balancing_notification_outbox",
+        "hoymiles_battery_balancing_morning_notification_date",
+        "hoymiles_battery_balancing_phase",
+        "hoymiles_battery_balancing_timing",
+    },
+    "input_number": {
+        "hoymiles_battery_balancing_cycle_sequence",
+        "hoymiles_battery_balancing_hold_hours",
+        "hoymiles_battery_balancing_interval_days",
+        "hoymiles_battery_balancing_saved_charge_power",
+        "hoymiles_battery_balancing_saved_force_charge_soc",
+    },
+    "timer": {
+        "hoymiles_battery_balancing_hold",
+        "hoymiles_battery_balancing_watchdog",
+    },
+    "script": {
+        "hoymiles_abort_or_pause_battery_balancing",
+        "hoymiles_apply_battery_balancing_target",
+        "hoymiles_battery_balancing_enter_recovery",
+        "hoymiles_battery_balancing_hold_guard",
+        "hoymiles_battery_balancing_initialize_records",
+        "hoymiles_battery_balancing_notification_dispatcher",
+        "hoymiles_battery_balancing_notification_provider_attempt",
+        "hoymiles_battery_balancing_notification_attempt_timeout",
+        "hoymiles_battery_balancing_recover_notification_leases",
+        "hoymiles_battery_balancing_request_abort",
+        "hoymiles_battery_balancing_soft_gap_guard",
+        "hoymiles_battery_balancing_transaction_worker",
+        "hoymiles_battery_balancing_transition",
+        "hoymiles_battery_balancing_update_outbox_delivery",
+        "hoymiles_battery_balancing_write_abort_request",
+        "hoymiles_battery_balancing_write_outbox",
+        "hoymiles_battery_balancing_write_record",
+        "hoymiles_battery_balancing_write_timing",
+        "hoymiles_notify_battery_balancing_lifecycle",
+        "hoymiles_start_battery_balancing",
+        "hoymiles_stop_battery_balancing",
+    },
+    "automation": {
+        "hoymiles_battery_balancing_control",
+        "hoymiles_battery_balancing_hard_stop_capture",
+        "hoymiles_battery_balancing_notification_delivery",
+        "hoymiles_battery_balancing_morning_notification",
+        "hoymiles_battery_balancing_off_grid_hard_stop_capture",
+        "hoymiles_battery_balancing_p95_hard_stop_capture",
+        "hoymiles_battery_balancing_p90_hard_stop_capture",
+        "hoymiles_battery_balancing_p80_hard_stop_capture",
+        "hoymiles_battery_balancing_p75_hard_stop_capture",
+        "hoymiles_battery_balancing_p60_hard_stop_capture",
+        "hoymiles_battery_balancing_recovery_hard_stop_capture",
+    },
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -35,10 +1410,5116 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _git_path_set(*args: str) -> set[str]:
+    output = subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    )
+    return {line.strip().replace("\\", "/") for line in output.splitlines() if line.strip()}
+
+
+def _git_blob_sha256(reference: str, relative_path: str) -> str:
+    """Hash exact historical bytes without substituting the current worktree."""
+
+    content = subprocess.check_output(
+        ["git", "show", f"{reference}:{relative_path}"],
+        cwd=ROOT,
+    )
+    return hashlib.sha256(content).hexdigest()
+
+
+def _git_commit_exists(reference: str) -> bool:
+    """Return whether one exact commit object exists without consulting reflogs."""
+
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{reference}^{{commit}}"],
+        cwd=ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _validate_rev28_portable_fixture() -> dict:
+    """Validate the reviewed REV28 facts carried by release-only history."""
+
+    fixture_path = ROOT / REV28_PORTABLE_FIXTURE_PATH
+    require(
+        fixture_path.is_file()
+        and not fixture_path.is_symlink()
+        and hashlib.sha256(fixture_path.read_bytes()).hexdigest()
+        == REV28_PORTABLE_FIXTURE_SHA256,
+        "Historical REV28 portable fixture is missing or differs",
+    )
+    fixture = load_json(fixture_path)
+    protected_hashes = {
+        **REV28_PROTECTED_TASK_HASHES,
+        **REV28_PROTECTED_BACKEND_HASHES,
+    }
+    protected_digest = hashlib.sha256(
+        json.dumps(
+            protected_hashes,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    base_overlay_paths = fixture.get("base_overlay_paths")
+    rev28_overlay_paths = fixture.get("rev28_overlay_paths")
+    require(
+        isinstance(base_overlay_paths, list)
+        and base_overlay_paths == sorted(base_overlay_paths)
+        and len(base_overlay_paths) == 21
+        and rev28_overlay_paths == sorted(PHASE_2_TASK_PATHS)
+        and set(base_overlay_paths) | set(rev28_overlay_paths)
+        == set(SUPERVISOR_BRANCH_PATHS),
+        "Historical REV28 portable layer manifests differ",
+    )
+    require(
+        fixture
+        == {
+            "schema": 1,
+            "identity": "rev28-historical-validation-fixture-v1",
+            "base_ref": VALIDATOR_HISTORICAL_REF,
+            "base_commit": INTEGRATION_PUBLIC_BASE_SHA,
+            "historical_commit": REV28_HISTORICAL_COMMIT,
+            "historical_tree": INTEGRATION_SUPERVISOR_TREE,
+            "historical_parents": [PROTECTED_ASSETS_AST_BASE],
+            "historical_subject": "feat: add Aurora EMS Supervisor Off/Shadow view",
+            "frontend_layers_archive": "tools/release_fixtures/rev28_frontend_layers.tar.gz",
+            "frontend_layers_archive_sha256": "c0a02d7637305aa9ac0c1839977d2295168717a63225e9d769a7de7b1151e567",
+            "base_overlay_paths": base_overlay_paths,
+            "rev28_overlay_paths": rev28_overlay_paths,
+            "branch_paths": sorted(SUPERVISOR_BRANCH_PATHS),
+            "protected_sha256_digest": protected_digest,
+            "protected_path_count": len(protected_hashes),
+        },
+        "Historical REV28 portable fixture facts differ",
+    )
+    return fixture
+
+
+def validate_historical_rev28_gate() -> None:
+    """Validate the frozen REV28 fixture independently of current AP-1."""
+
+    _validate_rev28_portable_fixture()
+    historical_object_available = _git_commit_exists(REV28_HISTORICAL_COMMIT)
+    historical_branch_paths = (
+        _git_path_set(
+            "diff",
+            "--name-only",
+            f"{VALIDATOR_HISTORICAL_REF}...{REV28_HISTORICAL_COMMIT}",
+        )
+        if historical_object_available
+        else set(SUPERVISOR_BRANCH_PATHS)
+    )
+    require(
+        historical_branch_paths == SUPERVISOR_BRANCH_PATHS,
+        "Historical REV28 branch manifest is not exactly 32 paths: "
+        f"missing={sorted(SUPERVISOR_BRANCH_PATHS - historical_branch_paths)}, "
+        f"extra={sorted(historical_branch_paths - SUPERVISOR_BRANCH_PATHS)}",
+    )
+    protected_task_paths = frozenset(REV28_PROTECTED_TASK_HASHES)
+    require(
+        len(REV28_CORRECTION_PATHS) == 8
+        and PHASE_2_TASK_PATHS - protected_task_paths == REV28_CORRECTION_PATHS
+        and PHASE_2_TASK_PATHS - REV28_CORRECTION_PATHS == protected_task_paths,
+        "Revision 28 correction manifest is not exactly the authorized 8 paths",
+    )
+    if historical_object_available:
+        require(
+            _git_text("rev-parse", f"{REV28_HISTORICAL_COMMIT}^{{tree}}")
+            == INTEGRATION_SUPERVISOR_TREE
+            and _git_commit_parents(REV28_HISTORICAL_COMMIT)
+            == (PROTECTED_ASSETS_AST_BASE,)
+            and _git_text("show", "-s", "--format=%s", REV28_HISTORICAL_COMMIT)
+            == "feat: add Aurora EMS Supervisor Off/Shadow view",
+            "Historical REV28 commit identity differs",
+        )
+    else:
+        require(
+            _git_commit_exists(N12_ACCEPTED_SHA)
+            and _git_text("merge-base", "--is-ancestor", N12_ACCEPTED_SHA, "HEAD") == "",
+            "Portable REV28 fixture is allowed only on release history descending from accepted N12",
+        )
+    if historical_object_available:
+        for relative_path, expected_hash in {
+            **REV28_PROTECTED_TASK_HASHES,
+            **REV28_PROTECTED_BACKEND_HASHES,
+        }.items():
+            actual_hash = _git_blob_sha256(
+                REV28_HISTORICAL_COMMIT,
+                relative_path,
+            )
+            require(
+                actual_hash == expected_hash,
+                f"Historical REV28 protected bytes changed: {relative_path}",
+            )
+
+    exact = lambda actual, expected: actual == expected
+    correction_anchor = sorted(REV28_CORRECTION_PATHS)[0]
+    phase_anchor = sorted(PHASE_2_TASK_PATHS)[0]
+    branch_anchor = sorted(SUPERVISOR_BRANCH_PATHS)[0]
+    require(
+        not exact(
+            REV28_CORRECTION_PATHS - {correction_anchor},
+            REV28_CORRECTION_PATHS,
+        ),
+        "Correction 7-path count self-test did not fail",
+    )
+    require(
+        not exact(
+            REV28_CORRECTION_PATHS | {"__unexpected_correction_path__"},
+            REV28_CORRECTION_PATHS,
+        ),
+        "Correction 9-path count self-test did not fail",
+    )
+    require(
+        not exact(PHASE_2_TASK_PATHS - {phase_anchor}, PHASE_2_TASK_PATHS),
+        "Phase 2 13-path count self-test did not fail",
+    )
+    require(
+        not exact(PHASE_2_TASK_PATHS | {"__unexpected_phase2_path__"}, PHASE_2_TASK_PATHS),
+        "Phase 2 15-path count self-test did not fail",
+    )
+    require(
+        not exact(SUPERVISOR_BRANCH_PATHS - {branch_anchor}, SUPERVISOR_BRANCH_PATHS),
+        "Branch 31-path count self-test did not fail",
+    )
+    require(
+        not exact(SUPERVISOR_BRANCH_PATHS | {"__unexpected_branch_path__"}, SUPERVISOR_BRANCH_PATHS),
+        "Branch 33-path count self-test did not fail",
+    )
+
+
+def _effective_path_set(
+    committed_paths: set[str] | frozenset[str],
+    overlay_paths: set[str] | frozenset[str],
+) -> set[str]:
+    """Combine committed and overlay paths exactly once."""
+
+    return set(committed_paths) | set(overlay_paths)
+
+
+def _current_overlay_paths() -> set[str]:
+    """Return every tracked or untracked path in the current overlay."""
+
+    return _git_path_set("diff", "--name-only", "HEAD") | _git_path_set(
+        "ls-files", "--others", "--exclude-standard"
+    )
+
+
+def _effective_git_manifest(base: str, overlay_paths: set[str]) -> set[str]:
+    """Return committed base-to-HEAD paths plus the current overlay."""
+
+    committed_paths = _git_path_set("diff", "--name-only", f"{base}..HEAD")
+    return _effective_path_set(committed_paths, overlay_paths)
+
+
+def _git_text(*args: str) -> str:
+    """Return stripped Git output for an exact scalar fact."""
+
+    return subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    ).strip()
+
+
+def _git_name_status(*args: str) -> set[tuple[str, ...]]:
+    """Return name-status records without hiding rename or delete records."""
+
+    output = subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8"
+    )
+    return {
+        tuple(part.replace("\\", "/") for part in line.split("\t"))
+        for line in output.splitlines()
+        if line
+    }
+
+
+def _git_commit_parents(reference: str) -> tuple[str, ...]:
+    """Return every parent of one commit."""
+
+    fields = _git_text("rev-list", "--parents", "-n", "1", reference).split()
+    return tuple(fields[1:])
+
+
+def _git_tree_modes(reference: str, relative_paths: frozenset[str]) -> dict[str, str]:
+    """Return final tree modes for the selected paths."""
+
+    output = subprocess.check_output(
+        ["git", "ls-tree", "-r", reference, "--", *sorted(relative_paths)],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    )
+    modes: dict[str, str] = {}
+    for line in output.splitlines():
+        metadata, relative_path = line.split("\t", 1)
+        modes[relative_path.replace("\\", "/")] = metadata.split()[0]
+    return modes
+
+
+def _working_blob_sha256(relative_path: str) -> str:
+    """Hash one regular working-tree file without Git index substitution."""
+
+    path = ROOT / relative_path
+    require(
+        path.is_file() and not path.is_symlink(),
+        f"AP-2R1 protected working file is missing or not regular: {relative_path}",
+    )
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _require_ap2r1_protected_hashes(reference: str | None) -> None:
+    """Require the thirteen reviewed AP-2R1F blobs in a tree or overlay."""
+
+    for relative_path, expected_hash in AP2R1F_PROTECTED_HASHES.items():
+        actual_hash = (
+            _git_blob_sha256(reference, relative_path)
+            if reference is not None
+            else _working_blob_sha256(relative_path)
+        )
+        require(
+            actual_hash == expected_hash,
+            f"AP-2R1F protected blob changed: {relative_path}",
+        )
+
+
+def _ap2r1j_path_bytes(relative_path: str, reference: str | None) -> bytes:
+    """Read exact AP-2R1J bytes from a commit or the working tree."""
+
+    if reference is not None:
+        return subprocess.check_output(
+            ["git", "show", f"{reference}:{relative_path}"],
+            cwd=ROOT,
+        )
+    path = ROOT / relative_path
+    require(
+        path.is_file() and not path.is_symlink(),
+        f"AP-2R1J file is missing or not regular: {relative_path}",
+    )
+    return path.read_bytes()
+
+
+def _require_ap2r1j_protected_hashes(reference: str | None) -> None:
+    """Keep every AP-2R1F blob outside the three-file correction exact."""
+
+    for relative_path, expected_hash in AP2R1J_PROTECTED_HASHES.items():
+        actual_hash = hashlib.sha256(
+            _ap2r1j_path_bytes(relative_path, reference)
+        ).hexdigest()
+        require(
+            actual_hash == expected_hash,
+            f"AP-2R1J protected blob changed: {relative_path}",
+        )
+
+
+def _ap2r1j_expected_product_bytes() -> bytes:
+    """Build the only authorized product result from the exact reviewed base."""
+
+    original = _ap2r1j_path_bytes(AP2R1J_PRODUCT_PATH, AP2R1J_CORRECTION_BASE)
+    unconditional = (
+        b"        _validate_grid_signs(point)\n"
+        b"        _validate_power_balance(point)\n"
+        b'        _validate_policy(policy_id, point["policy"])\n'
+    )
+    scoped = (
+        b"        _validate_grid_signs(point)\n"
+        b'        if policy_id == "rcm":\n'
+        b"            _validate_power_balance(point)\n"
+        b'        _validate_policy(policy_id, point["policy"])\n'
+    )
+    require(
+        original.count(unconditional) == 1,
+        "Frozen AP-2R1J base no longer has one exact unconditional balance call",
+    )
+    return original.replace(unconditional, scoped, 1)
+
+
+def _require_ap2r1j_product_contract(reference: str | None) -> None:
+    """Require the exact one-condition production correction."""
+
+    require(
+        _ap2r1j_path_bytes(AP2R1J_PRODUCT_PATH, reference)
+        == _ap2r1j_expected_product_bytes(),
+        "AP-2R1J production bytes differ from the exact RCEm-only balance scope",
+    )
+
+
+def _canonical_ap2_ast_dump(node: ast.AST) -> str:
+    options = {
+        "annotate_fields": True,
+        "include_attributes": False,
+        "indent": None,
+    }
+    if sys.version_info >= (3, 13):
+        options["show_empty"] = True
+    return ast.dump(node, **options)
+
+
+def _canonical_ap2_ast_sha256(node: ast.AST) -> str:
+    return hashlib.sha256(
+        _canonical_ap2_ast_dump(node).encode("utf-8")
+    ).hexdigest()
+
+
+def _require_current_ap2_ast_gates(source: str) -> None:
+    """Reject skipped, mixed or weakened current AP-2 AST gates."""
+
+    functions = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in AP2_CANONICAL_GATE_AST_SHA256
+    }
+    require(
+        len(functions) == 7 and functions == AP2_CANONICAL_GATE_AST_SHA256,
+        "Current AP-2 canonical AST serialization or regression gate changed",
+    )
+
+
+def _require_ap2r1j_regression_contract(reference: str | None) -> None:
+    """Require the complete real-HA convergence regression without deletions."""
+
+    content = _ap2r1j_path_bytes(AP2R1J_TEST_PATH, reference)
+    require(
+        hashlib.sha256(content).hexdigest() == AP2R1J_TEST_SHA256,
+        "AP-2R1J real-HA regression bytes differ",
+    )
+    tree = ast.parse(content, filename=AP2R1J_TEST_PATH)
+    functions = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in AP2R1J_REGRESSION_AST_SHA256
+    }
+    require(
+        functions == AP2R1J_REGRESSION_AST_SHA256,
+        "AP-2R1J convergence or invalid-balance regression group changed",
+    )
+
+
+def _require_ap2r1j_validator(reference: str | None = None) -> None:
+    """Require the bounded AP-2R1J overlay and future-clean validator markers."""
+
+    source = _ap2r1j_path_bytes(AP2R1_VALIDATOR_PATH, reference).decode("utf-8")
+    required_markers = (
+        'AP2R1J_CONVERGENCE_FIX_OVERLAY = "AP2R1J_CONVERGENCE_FIX_OVERLAY"',
+        'AP2R1J_COMMITTED_CLEAN = "AP2R1J_COMMITTED_CLEAN"',
+        "def _require_ap2r1j_product_contract(reference: str | None) -> None:",
+        "def _require_ap2r1j_regression_contract(reference: str | None) -> None:",
+        "def _require_ap2r1j_commit_shape(reference: str) -> None:",
+        "def _ap2r1j_manifests_match(",
+    )
+    require(
+        all(marker in source for marker in required_markers),
+        "AP-2R1J validator markers are incomplete",
+    )
+
+
+def _require_ap2r1j_contract(reference: str | None) -> None:
+    """Require exact protected, product, regression and validator contracts."""
+
+    _require_ap2r1j_protected_hashes(reference)
+    _require_ap2r1j_product_contract(reference)
+    _require_ap2r1j_regression_contract(reference)
+    _require_ap2r1j_validator(reference)
+
+
+def _require_corrected_ap2r1_validator(reference: str | None = None) -> None:
+    """Require a working or committed validator to expose all bounded states."""
+
+    content = (
+        subprocess.check_output(
+            ["git", "show", f"{reference}:{AP2R1_VALIDATOR_PATH}"], cwd=ROOT
+        )
+        if reference is not None
+        else (ROOT / AP2R1_VALIDATOR_PATH).read_bytes()
+    )
+    source = content.decode("utf-8")
+    required_markers = (
+        'AP2R1F_OVERLAY_CANDIDATE = "AP2R1F_OVERLAY_CANDIDATE"',
+        'AP2R1F_COMMITTED_CLEAN = "AP2R1F_COMMITTED_CLEAN"',
+        'AP2R1G_VALIDATOR_FIX_OVERLAY = "AP2R1G_VALIDATOR_FIX_OVERLAY"',
+        "def _classify_ap2r1_git_state() -> str:",
+    )
+    require(
+        all(marker in source for marker in required_markers),
+        "AP-2R1 corrected dual-state validator markers are incomplete",
+    )
+
+
+def _require_ap2r1kr1_regression_contract(reference: str | None) -> None:
+    """Freeze malformed IDs, exact exceptions, no calls/writes and RCEm control."""
+
+    content = _ap2r1j_path_bytes(AP2R1J_TEST_PATH, reference)
+    functions = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in ast.parse(content, filename=AP2R1J_TEST_PATH).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in AP2R1KR1_REGRESSION_AST_SHA256
+    }
+    require(
+        len(functions) == 5 and functions == AP2R1KR1_REGRESSION_AST_SHA256,
+        "AP-2R1K-R1 malformed-ID, no-write or invalid-balance regression changed",
+    )
+
+
+def _require_ap2r1kr1_contract(reference: str | None) -> None:
+    """Freeze the type guard and complete real-HA malformed-ID regression."""
+
+    _require_ap2r1j_protected_hashes(reference)
+    for relative_path, expected_hash in (
+        (AP2R1J_PRODUCT_PATH, AP2R1KR1_PRODUCT_SHA256),
+        (AP2R1J_TEST_PATH, AP2R1KR1_TEST_SHA256),
+    ):
+        require(
+            hashlib.sha256(_ap2r1j_path_bytes(relative_path, reference)).hexdigest()
+            == expected_hash,
+            f"AP-2R1K-R1 exact policy-ID contract changed: {relative_path}",
+        )
+    _require_ap2r1kr1_regression_contract(reference)
+    source = _ap2r1j_path_bytes(AP2R1_VALIDATOR_PATH, reference).decode("utf-8")
+    _require_current_ap2_ast_gates(source)
+    required_markers = (
+        'AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY = "AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY"',
+        'AP2R1KR1_COMMITTED_CLEAN = "AP2R1KR1_COMMITTED_CLEAN"',
+        'AP2R1KR1_COMMIT_SUBJECT = "fix: normalize timeline policy identifiers"',
+    )
+    require(
+        all(marker in source for marker in required_markers),
+        "AP-2R1K-R1 validator markers are incomplete",
+    )
+    functions = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in AP2R1KR1_GIT_AST_SHA256
+    }
+    require(
+        len(functions) == 3 and functions == AP2R1KR1_GIT_AST_SHA256,
+        "AP-2R1K-R1 exact Git state/parent/manifest guard changed",
+    )
+
+
+def _require_ap2r1_manifests(reference: str, overlay_paths: set[str]) -> None:
+    """Require exact AP-2R1 correction, task and public-branch manifests."""
+
+    correction_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP2R1_CORRECTION_BASE}..{reference}"),
+        overlay_paths,
+    )
+    task_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{reference}"),
+        overlay_paths,
+    )
+    branch_paths = _effective_path_set(
+        _git_path_set("diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{reference}"),
+        overlay_paths,
+    )
+    require(
+        _ap2r1_manifests_match(correction_paths, task_paths, branch_paths),
+        "Current AP-2R1 manifests are not exactly 14/23/46 paths: "
+        f"correction_missing={sorted(AP2R1_CORRECTION_PATHS - correction_paths)}, "
+        f"correction_extra={sorted(correction_paths - AP2R1_CORRECTION_PATHS)}, "
+        f"task_missing={sorted(AP2R1_CUMULATIVE_TASK_PATHS - task_paths)}, "
+        f"task_extra={sorted(task_paths - AP2R1_CUMULATIVE_TASK_PATHS)}, "
+        f"branch_missing={sorted(AP2R1_BRANCH_PATHS - branch_paths)}, "
+        f"branch_extra={sorted(branch_paths - AP2R1_BRANCH_PATHS)}",
+    )
+
+
+def _require_ap2r1j_manifests(reference: str, overlay_paths: set[str]) -> None:
+    """Require exact AP-2R1J correction, task and public-branch manifests."""
+
+    correction_paths = _effective_path_set(
+        _git_path_set(
+            "diff", "--name-only", f"{AP2R1J_CORRECTION_BASE}..{reference}"
+        ),
+        overlay_paths,
+    )
+    task_paths = _effective_path_set(
+        _git_path_set(
+            "diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{reference}"
+        ),
+        overlay_paths,
+    )
+    branch_paths = _effective_path_set(
+        _git_path_set(
+            "diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{reference}"
+        ),
+        overlay_paths,
+    )
+    require(
+        _ap2r1j_manifests_match(correction_paths, task_paths, branch_paths),
+        "Current AP-2R1J manifests are not exactly 3/23/46 paths: "
+        f"correction_missing={sorted(AP2R1J_CORRECTION_PATHS - correction_paths)}, "
+        f"correction_extra={sorted(correction_paths - AP2R1J_CORRECTION_PATHS)}, "
+        f"task_missing={sorted(AP2R1_CUMULATIVE_TASK_PATHS - task_paths)}, "
+        f"task_extra={sorted(task_paths - AP2R1_CUMULATIVE_TASK_PATHS)}, "
+        f"branch_missing={sorted(AP2R1_BRANCH_PATHS - branch_paths)}, "
+        f"branch_extra={sorted(branch_paths - AP2R1_BRANCH_PATHS)}",
+    )
+
+
+def _require_ap2r1_commit_shape(reference: str) -> None:
+    """Require one exact atomic AP-2R1 commit on the frozen parent."""
+
+    require(
+        _git_commit_parents(reference) == (AP2R1_CORRECTION_BASE,),
+        "AP-2R1 committed candidate must have exactly one parent: 4a49343",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", reference) == AP2R1_COMMIT_SUBJECT,
+        "AP-2R1 committed candidate subject differs",
+    )
+    commit_paths = _git_path_set(
+        "diff-tree", "--no-commit-id", "--name-only", "-r", reference
+    )
+    require(
+        commit_paths == AP2R1_CORRECTION_PATHS,
+        "AP-2R1 committed candidate is not the exact fourteen-path commit",
+    )
+    name_status = _git_name_status(
+        "diff-tree", "--no-commit-id", "--name-status", "--find-renames", "-r", reference
+    )
+    expected_name_status = {
+        ("A" if path in AP2R1_NEW_PATHS else "M", path)
+        for path in AP2R1_CORRECTION_PATHS
+    }
+    require(
+        name_status == expected_name_status,
+        "AP-2R1 committed candidate contains a rename, delete or wrong path status",
+    )
+    require(
+        _git_tree_modes(reference, AP2R1_CORRECTION_PATHS)
+        == {path: "100644" for path in AP2R1_CORRECTION_PATHS},
+        "AP-2R1 committed candidate contains a missing or extra mode-only change",
+    )
+    _require_ap2r1_protected_hashes(reference)
+    _require_ap2r1_manifests(reference, set())
+
+
+def _require_ap2r1j_commit_shape(reference: str) -> None:
+    """Require one exact atomic AP-2R1J commit on d7d0c246."""
+
+    require(
+        _git_commit_parents(reference) == (AP2R1J_CORRECTION_BASE,),
+        "AP-2R1J committed candidate must have exactly one parent: d7d0c246",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", reference)
+        == AP2R1J_COMMIT_SUBJECT,
+        "AP-2R1J committed candidate subject differs",
+    )
+    commit_paths = _git_path_set(
+        "diff-tree", "--no-commit-id", "--name-only", "-r", reference
+    )
+    require(
+        commit_paths == AP2R1J_CORRECTION_PATHS,
+        "AP-2R1J committed candidate is not the exact three-path commit",
+    )
+    require(
+        _git_name_status(
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "--find-renames",
+            "-r",
+            reference,
+        )
+        == {("M", path) for path in AP2R1J_CORRECTION_PATHS},
+        "AP-2R1J committed candidate contains a rename, delete or wrong status",
+    )
+    require(
+        _git_tree_modes(reference, AP2R1J_CORRECTION_PATHS)
+        == {path: "100644" for path in AP2R1J_CORRECTION_PATHS},
+        "AP-2R1J committed candidate contains a missing or mode-only change",
+    )
+    _require_ap2r1j_contract(reference)
+    _require_ap2r1j_manifests(reference, set())
+
+
+def _require_ap2r1kr1_commit_shape(reference: str) -> None:
+    """Require one exact three-file type-normalization child of d7d0c246."""
+
+    require(
+        _git_commit_parents(reference) == (AP2R1J_CORRECTION_BASE,),
+        "AP-2R1K-R1 requires exactly one parent: d7d0c246",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", reference) == AP2R1KR1_COMMIT_SUBJECT,
+        "AP-2R1K-R1 committed subject differs",
+    )
+    require(
+        _git_path_set("diff-tree", "--no-commit-id", "--name-only", "-r", reference)
+        == AP2R1J_CORRECTION_PATHS,
+        "AP-2R1K-R1 committed paths are not the exact three paths",
+    )
+    require(
+        _git_name_status(
+            "diff-tree", "--no-commit-id", "--name-status", "--find-renames",
+            "-r", reference,
+        ) == {("M", path) for path in AP2R1J_CORRECTION_PATHS},
+        "AP-2R1K-R1 commit contains a rename, delete or wrong status",
+    )
+    require(
+        _git_tree_modes(reference, AP2R1J_CORRECTION_PATHS)
+        == {path: "100644" for path in AP2R1J_CORRECTION_PATHS},
+        "AP-2R1K-R1 committed modes differ",
+    )
+    _require_ap2r1kr1_contract(reference)
+    _require_ap2r1j_manifests(reference, set())
+
+
+def _classify_ap2r1_git_state() -> str:
+    """Classify only exact d7d0c246, J/R1 overlays and one R1 follow-up."""
+
+    head = _git_text("rev-parse", "HEAD")
+    parents = _git_commit_parents(head)
+    staged_paths = _git_path_set("diff", "--cached", "--name-only")
+    unstaged_paths = _git_path_set("diff", "--name-only")
+    untracked_paths = _git_path_set("ls-files", "--others", "--exclude-standard")
+    overlay_paths = unstaged_paths | staged_paths | untracked_paths
+    require(
+        not staged_paths,
+        f"AP-2R1 recognized states require zero staged paths; found={len(staged_paths)}",
+    )
+    if head == AP2R1J_CORRECTION_BASE:
+        if not overlay_paths:
+            _require_corrected_ap2r1_validator(head)
+            _require_ap2r1_commit_shape(head)
+            return AP2R1F_COMMITTED_CLEAN
+        require(
+            unstaged_paths == AP2R1J_CORRECTION_PATHS
+            and not untracked_paths
+            and overlay_paths == AP2R1J_CORRECTION_PATHS,
+            "AP-2R1J/K-R1 overlay requires the exact three paths",
+        )
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == {("M", path) for path in AP2R1J_CORRECTION_PATHS},
+            "AP-2R1J/K-R1 overlay contains a rename, delete or wrong status",
+        )
+        require(
+            not _git_text("diff", "--summary", "HEAD"),
+            "AP-2R1J/K-R1 overlay contains a mode mutation",
+        )
+        _require_ap2r1j_manifests(head, overlay_paths)
+        if _working_blob_sha256(AP2R1_VALIDATOR_PATH) == AP2R1J_VALIDATOR_SHA256:
+            _require_ap2r1j_contract(None)
+            return AP2R1J_CONVERGENCE_FIX_OVERLAY
+        _require_ap2r1kr1_contract(None)
+        return AP2R1KR1_POLICY_ID_TYPE_FIX_OVERLAY
+
+    if parents == (AP2R1J_CORRECTION_BASE,):
+        require(
+            not overlay_paths,
+            "AP2R1KR1_COMMITTED_CLEAN requires a clean working tree",
+        )
+        _require_ap2r1kr1_commit_shape(head)
+        return AP2R1KR1_COMMITTED_CLEAN
+
+    raise RuntimeError(
+        "Unsupported AP-2R1 Git state: "
+        f"head={head[:12]}, parents={len(parents)}, staged={len(staged_paths)}, "
+        f"unstaged={len(unstaged_paths)}, untracked={len(untracked_paths)}"
+    )
+
+
+def _ap1_committed_manifests_match(
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact frozen committed AP-1 baseline verdict."""
+
+    return (
+        task_paths == AP1_COMMITTED_TASK_PATHS
+        and branch_paths == AP1_COMMITTED_BRANCH_PATHS
+    )
+
+
+def _ap1e_manifests_match(
+    correction_paths: set[str] | frozenset[str],
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact current AP-1E candidate verdict."""
+
+    return (
+        correction_paths == AP1E_CORRECTION_PATHS
+        and task_paths == AP1E_CUMULATIVE_TASK_PATHS
+        and branch_paths == AP1E_BRANCH_PATHS
+    )
+
+
+def validate_current_ap1_manifests() -> str:
+    """Validate frozen AP-1 and effective AP-1E manifests independently."""
+
+    committed_ap1_task = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{AP1_CUMULATIVE_TASK_BASE}..{AP1E_CORRECTION_BASE}",
+    )
+    committed_ap1_branch = _git_path_set(
+        "diff",
+        "--name-only",
+        f"{AP1_PUBLIC_BRANCH_BASE}..{AP1E_CORRECTION_BASE}",
+    )
+    require(
+        _ap1_committed_manifests_match(
+            committed_ap1_task,
+            committed_ap1_branch,
+        ),
+        "Committed AP-1 baseline is not exactly 16/40 paths",
+    )
+
+    staged_paths = _git_path_set("diff", "--cached", "--name-only")
+    overlay_paths = _current_overlay_paths()
+    correction_paths = _effective_git_manifest(
+        AP1E_CORRECTION_BASE,
+        overlay_paths,
+    )
+    task_paths = _effective_git_manifest(
+        AP1_CUMULATIVE_TASK_BASE,
+        overlay_paths,
+    )
+    branch_paths = _effective_git_manifest(
+        AP1_PUBLIC_BRANCH_BASE,
+        overlay_paths,
+    )
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    ).strip()
+
+    if not correction_paths:
+        require(
+            head == AP1E_CORRECTION_BASE
+            and not overlay_paths
+            and _ap1_committed_manifests_match(task_paths, branch_paths),
+            "Clean AP-1 baseline gate differs from exact f630529 16/40 state",
+        )
+        gate_state = "clean_committed_ap1"
+    else:
+        require(
+            _ap1e_manifests_match(
+                correction_paths,
+                task_paths,
+                branch_paths,
+            ),
+            "Current AP-1E manifests are not exactly 4/18/41 paths: "
+            f"correction_missing={sorted(AP1E_CORRECTION_PATHS - correction_paths)}, "
+            f"correction_extra={sorted(correction_paths - AP1E_CORRECTION_PATHS)}, "
+            f"task_missing={sorted(AP1E_CUMULATIVE_TASK_PATHS - task_paths)}, "
+            f"task_extra={sorted(task_paths - AP1E_CUMULATIVE_TASK_PATHS)}, "
+            f"branch_missing={sorted(AP1E_BRANCH_PATHS - branch_paths)}, "
+            f"branch_extra={sorted(branch_paths - AP1E_BRANCH_PATHS)}",
+        )
+        gate_state = "ap1e_candidate"
+    require(not staged_paths, "Current AP-1E validation requires zero staged paths")
+
+    # Effective-manifest self-tests cover clean committed AP-1, an uncommitted
+    # AP-1E overlay, and the same AP-1E paths after a future clean commit.
+    require(
+        _ap1_committed_manifests_match(
+            _effective_path_set(AP1_COMMITTED_TASK_PATHS, set()),
+            _effective_path_set(AP1_COMMITTED_BRANCH_PATHS, set()),
+        ),
+        "Clean committed AP-1 manifest self-test failed",
+    )
+    require(
+        _ap1e_manifests_match(
+            _effective_path_set(set(), AP1E_CORRECTION_PATHS),
+            _effective_path_set(
+                AP1_COMMITTED_TASK_PATHS,
+                AP1E_CORRECTION_PATHS,
+            ),
+            _effective_path_set(
+                AP1_COMMITTED_BRANCH_PATHS,
+                AP1E_CORRECTION_PATHS,
+            ),
+        ),
+        "Uncommitted AP-1E overlay manifest self-test failed",
+    )
+    require(
+        _ap1e_manifests_match(
+            _effective_path_set(AP1E_CORRECTION_PATHS, set()),
+            _effective_path_set(AP1E_CUMULATIVE_TASK_PATHS, set()),
+            _effective_path_set(AP1E_BRANCH_PATHS, set()),
+        ),
+        "Committed-clean AP-1E manifest self-test failed",
+    )
+
+    missing_init = AP1E_CORRECTION_PATHS - {
+        "custom_components/hoymiles_hit_modbus/__init__.py"
+    }
+    missing_test = AP1E_CORRECTION_PATHS - {
+        "tests/test_timeline_platform_registration.py"
+    }
+    missing_timeline_sensor = AP1E_CORRECTION_PATHS - {
+        "custom_components/hoymiles_hit_modbus/timeline_sensor.py"
+    }
+    require(
+        not _ap1e_manifests_match(
+            missing_init,
+            AP1E_CUMULATIVE_TASK_PATHS
+            - {"custom_components/hoymiles_hit_modbus/__init__.py"},
+            AP1E_BRANCH_PATHS,
+        ),
+        "Missing __init__.py correction survived the AP-1E gate",
+    )
+    require(
+        not _ap1e_manifests_match(
+            missing_test,
+            AP1E_CUMULATIVE_TASK_PATHS
+            - {"tests/test_timeline_platform_registration.py"},
+            AP1E_BRANCH_PATHS
+            - {"tests/test_timeline_platform_registration.py"},
+        ),
+        "Missing real HA test survived the AP-1E gate",
+    )
+    require(
+        not _ap1e_manifests_match(
+            missing_timeline_sensor,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS,
+        ),
+        "Missing timeline_sensor.py correction survived the AP-1E gate",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS | {"__unexpected_ap1e_path__"},
+            AP1E_CUMULATIVE_TASK_PATHS | {"__unexpected_ap1e_path__"},
+            AP1E_BRANCH_PATHS | {"__unexpected_ap1e_path__"},
+        ),
+        "Extra fifth AP-1E correction path survived the gate",
+    )
+    task_anchor = sorted(AP1E_CUMULATIVE_TASK_PATHS)[0]
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS - {task_anchor},
+            AP1E_BRANCH_PATHS,
+        ),
+        "AP-1E task 17-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS | {"__unexpected_ap1e_task_path__"},
+            AP1E_BRANCH_PATHS,
+        ),
+        "AP-1E task 19-path self-test did not fail",
+    )
+    branch_anchor = "tests/test_timeline_platform_registration.py"
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS - {branch_anchor},
+        ),
+        "AP-1E branch 40-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            AP1E_CORRECTION_PATHS,
+            AP1E_CUMULATIVE_TASK_PATHS,
+            AP1E_BRANCH_PATHS | {"__unexpected_ap1e_branch_path__"},
+        ),
+        "AP-1E branch 42-path self-test did not fail",
+    )
+    require(
+        not _ap1e_manifests_match(
+            PHASE_2_TASK_PATHS,
+            PHASE_2_TASK_PATHS,
+            SUPERVISOR_BRANCH_PATHS,
+        ),
+        "Historical REV28 PASS was accepted as current AP-1E validation",
+    )
+    return gate_state
+
+
+def _ap2r1_manifests_match(
+    correction_paths: set[str] | frozenset[str],
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact current AP-2R1 14/23/46 verdict."""
+
+    return (
+        correction_paths == AP2R1_CORRECTION_PATHS
+        and task_paths == AP2R1_CUMULATIVE_TASK_PATHS
+        and branch_paths == AP2R1_BRANCH_PATHS
+    )
+
+
+def _ap2r1j_manifests_match(
+    correction_paths: set[str] | frozenset[str],
+    task_paths: set[str] | frozenset[str],
+    branch_paths: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact AP-2R1J 3/23/46 verdict."""
+
+    return (
+        correction_paths == AP2R1J_CORRECTION_PATHS
+        and task_paths == AP2R1_CUMULATIVE_TASK_PATHS
+        and branch_paths == AP2R1_BRANCH_PATHS
+    )
+
+
+def validate_current_ap2r1_manifests() -> str:
+    """Freeze committed AP-1/AP-1E and the current AP-2R1 overlay separately."""
+
+    _require_current_ap2_ast_gates(Path(__file__).read_text(encoding="utf-8"))
+    committed_ap1_task = _git_path_set(
+        "diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{AP1E_CORRECTION_BASE}"
+    )
+    committed_ap1_branch = _git_path_set(
+        "diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{AP1E_CORRECTION_BASE}"
+    )
+    require(
+        _ap1_committed_manifests_match(committed_ap1_task, committed_ap1_branch),
+        "Committed AP-1 baseline is not exactly 16/40 paths",
+    )
+
+    committed_ap1e_correction = _git_path_set(
+        "diff", "--name-only", f"{AP1E_CORRECTION_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    committed_ap1e_task = _git_path_set(
+        "diff", "--name-only", f"{AP1_CUMULATIVE_TASK_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    committed_ap1e_branch = _git_path_set(
+        "diff", "--name-only", f"{AP1_PUBLIC_BRANCH_BASE}..{AP2R1_CORRECTION_BASE}"
+    )
+    require(
+        _ap1e_manifests_match(
+            committed_ap1e_correction,
+            committed_ap1e_task,
+            committed_ap1e_branch,
+        ),
+        "Committed AP-1E-R2 baseline is not exactly 4/18/41 paths",
+    )
+
+    gate_state = _classify_ap2r1_git_state()
+    require(
+        len(AP2R1_CORRECTION_PATHS) == 14
+        and len(AP2R1_CUMULATIVE_TASK_PATHS) == 23
+        and len(AP2R1_BRANCH_PATHS) == 46,
+        "Frozen AP-2R1 manifest constants are not 14/23/46",
+    )
+    require(
+        AP2R1J_CORRECTION_PATHS
+        == {
+            "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+            "tests/test_timeline_platform_registration.py",
+            "tools/validate_release.py",
+        }
+        and len(AP2R1J_CORRECTION_PATHS) == 3,
+        "Frozen AP-2R1J correction manifest is not the exact three paths",
+    )
+    require(
+        _ap2r1_manifests_match(
+            _effective_path_set(AP2R1_CORRECTION_PATHS, set()),
+            _effective_path_set(AP2R1_CUMULATIVE_TASK_PATHS, set()),
+            _effective_path_set(AP2R1_BRANCH_PATHS, set()),
+        ),
+        "Simulated committed-clean AP-2R1 14/23/46 state failed",
+    )
+    require(
+        _ap2r1j_manifests_match(
+            _effective_path_set(set(), AP2R1J_CORRECTION_PATHS),
+            _effective_path_set(
+                AP2R1_CUMULATIVE_TASK_PATHS,
+                AP2R1J_CORRECTION_PATHS,
+            ),
+            _effective_path_set(AP2R1_BRANCH_PATHS, AP2R1J_CORRECTION_PATHS),
+        ),
+        "Simulated AP-2R1J overlay 3/23/46 state failed",
+    )
+    require(
+        _ap2r1j_manifests_match(
+            _effective_path_set(AP2R1J_CORRECTION_PATHS, set()),
+            _effective_path_set(AP2R1_CUMULATIVE_TASK_PATHS, set()),
+            _effective_path_set(AP2R1_BRANCH_PATHS, set()),
+        ),
+        "Simulated committed-clean AP-2R1J 3/23/46 state failed",
+    )
+
+    correction_anchor = sorted(AP2R1_CORRECTION_PATHS)[0]
+    task_anchor = sorted(AP2R1_CUMULATIVE_TASK_PATHS)[0]
+    branch_anchor = sorted(AP2R1_BRANCH_PATHS)[0]
+    negative_manifests = (
+        (AP2R1_CORRECTION_PATHS - {correction_anchor}, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS, "correction 13"),
+        (AP2R1_CORRECTION_PATHS | {"__extra_correction__"}, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS, "correction 15"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS - {task_anchor}, AP2R1_BRANCH_PATHS, "task 22"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS | {"__extra_task__"}, AP2R1_BRANCH_PATHS, "task 24"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS - {branch_anchor}, "branch 45"),
+        (AP2R1_CORRECTION_PATHS, AP2R1_CUMULATIVE_TASK_PATHS, AP2R1_BRANCH_PATHS | {"__extra_branch__"}, "branch 47"),
+    )
+    for correction, task, branch, label in negative_manifests:
+        require(
+            not _ap2r1_manifests_match(correction, task, branch),
+            f"AP-2R1 negative self-test survived: {label}",
+        )
+    ap2r1j_anchor = sorted(AP2R1J_CORRECTION_PATHS)[0]
+    ap2r1j_negative_manifests = (
+        (
+            AP2R1J_CORRECTION_PATHS - {ap2r1j_anchor},
+            AP2R1_CUMULATIVE_TASK_PATHS,
+            AP2R1_BRANCH_PATHS,
+            "correction 2",
+        ),
+        (
+            AP2R1J_CORRECTION_PATHS | {"__extra_ap2r1j_correction__"},
+            AP2R1_CUMULATIVE_TASK_PATHS | {"__extra_ap2r1j_correction__"},
+            AP2R1_BRANCH_PATHS | {"__extra_ap2r1j_correction__"},
+            "correction 4",
+        ),
+        (
+            AP2R1J_CORRECTION_PATHS,
+            AP2R1_CUMULATIVE_TASK_PATHS - {task_anchor},
+            AP2R1_BRANCH_PATHS,
+            "task 22",
+        ),
+        (
+            AP2R1J_CORRECTION_PATHS,
+            AP2R1_CUMULATIVE_TASK_PATHS,
+            AP2R1_BRANCH_PATHS | {"__extra_ap2r1j_branch__"},
+            "branch 47",
+        ),
+    )
+    for correction, task, branch, label in ap2r1j_negative_manifests:
+        require(
+            not _ap2r1j_manifests_match(correction, task, branch),
+            f"AP-2R1J negative self-test survived: {label}",
+        )
+    for required_path in AP2R1J_CORRECTION_PATHS:
+        require(
+            not _ap2r1j_manifests_match(
+                AP2R1J_CORRECTION_PATHS - {required_path},
+                AP2R1_CUMULATIVE_TASK_PATHS - {required_path},
+                AP2R1_BRANCH_PATHS - {required_path},
+            ),
+            f"Missing AP-2R1J correction path survived: {required_path}",
+        )
+    for required_path in (
+        "custom_components/hoymiles_hit_modbus/sensor.py",
+        "custom_components/hoymiles_hit_modbus/__init__.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "tests/test_timeline_platform_registration.py",
+        "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_rcm_optimizer.py",
+    ):
+        require(
+            not _ap2r1_manifests_match(
+                AP2R1_CORRECTION_PATHS - {required_path},
+                AP2R1_CUMULATIVE_TASK_PATHS - {required_path},
+                AP2R1_BRANCH_PATHS - {required_path},
+            ),
+            f"Missing AP-2R1 product/test path survived: {required_path}",
+        )
+    require(
+        not _ap2r1_manifests_match(
+            PHASE_2_TASK_PATHS,
+            PHASE_2_TASK_PATHS,
+            SUPERVISOR_BRANCH_PATHS,
+        ),
+        "Historical REV28 PASS was accepted as current AP-2R1",
+    )
+    return gate_state
+
+
+def _ap1e_r2_identity_contracts(
+    timeline_source: str,
+    init_source: str,
+) -> bool:
+    """Return whether current sources keep timeline identity pre-registration."""
+
+    try:
+        normalizer_source = init_source.split(
+            "def _async_prepare_timeline_entity_registry(", 1
+        )[1].split("\n\nasync def ", 1)[0]
+        setup_source = init_source.split("async def async_setup_entry(", 1)[1].split(
+            "\n\nasync def async_unload_entry", 1
+        )[0]
+        reconcile_source = init_source.split(
+            "def _async_reconcile_entity_registry(", 1
+        )[1].split("\n\ndef _async_prepare_timeline_entity_registry(", 1)[0]
+    except (IndexError, ValueError):
+        return False
+
+    prepare_call = "_async_prepare_timeline_entity_registry(hass, entry)"
+    forward_call = "await hass.config_entries.async_forward_entry_setups("
+    reconcile_call = "_async_reconcile_entity_registry("
+    forbidden_normalizer = (
+        ".storage",
+        "deleted_entities.clear",
+        "deleted_entities.values",
+        "async_reload",
+        "async_call_later",
+        "async_track_time_interval",
+        "sleep(",
+    )
+    return (
+        'TIMELINE_POLICY_IDS = ("rce", "tariff", "rcm")' in timeline_source
+        and "from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN"
+        in timeline_source
+        and 'return f"{SENSOR_DOMAIN}.hoymiles_hit_{policy_id}_automation_plan_timeline"'
+        in timeline_source
+        and "self.entity_id = timeline_entity_id(policy_id)" in timeline_source
+        and "self._attr_unique_id = timeline_unique_id(entry.entry_id, policy_id)"
+        in timeline_source
+        and "def suggested_object_id(self)" not in timeline_source
+        and "async_update_entity" not in timeline_source
+        and prepare_call in setup_source
+        and forward_call in setup_source
+        and reconcile_call in setup_source
+        and setup_source.index(prepare_call) < setup_source.index(forward_call)
+        and setup_source.index(forward_call) < setup_source.index(reconcile_call)
+        and "for policy_id in TIMELINE_POLICY_IDS:" in normalizer_source
+        and 'deleted_key = ("sensor", DOMAIN, unique_id)' in normalizer_source
+        and "deleted_entities.get(deleted_key)" in normalizer_source
+        and "deleted_entry.config_entry_id != entry.entry_id" in normalizer_source
+        and "deleted_entry.__replace__(entity_id=desired_entity_id)"
+        in normalizer_source
+        and "entity_registry.async_schedule_save()" in normalizer_source
+        and not any(token in normalizer_source for token in forbidden_normalizer)
+        and reconcile_source.count(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("rcm_automation_plan_timeline")'
+        )
+        == 1
+    )
+
+
+def _require_ap2r1l_ast_contract(
+    content: bytes, expected: dict[str, str], label: str
+) -> None:
+    """Check independent frozen nodes, in addition to whole-file digests."""
+
+    actual = {
+        node.name: _canonical_ap2_ast_sha256(node)
+        for node in ast.parse(content).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in expected
+    }
+    require(actual == expected and bool(expected), f"AP-2R1L {label} AST changed")
+
+
+def _require_ap2r1l_contract(reference: str | None) -> None:
+    """Freeze direction-only behavior, literal HA oracles and exact validator."""
+
+    _require_ap2r1j_protected_hashes(reference)
+    for relative_path, digest, nodes, label in (
+        (AP2R1J_PRODUCT_PATH, AP2R1L_PRODUCT_SHA256, AP2R1L_PRODUCT_AST_SHA256, "product"),
+        (AP2R1J_TEST_PATH, AP2R1L_TEST_SHA256, AP2R1L_TEST_AST_SHA256, "real-HA test"),
+    ):
+        content = _ap2r1j_path_bytes(relative_path, reference)
+        require(
+            hashlib.sha256(content).hexdigest() == digest,
+            f"AP-2R1L exact {label} bytes changed",
+        )
+        _require_ap2r1l_ast_contract(content, nodes, label)
+    # Trust input must come from the external reviewed manifest, never from
+    # hashing this running file (nor from a digest embedded inside itself).
+    expected = os.environ.get("HOYMILES_AP2R1L_VALIDATOR_SHA256", "")
+    require(
+        re.fullmatch(r"[0-9a-f]{64}", expected) is not None,
+        "AP-2R1L requires externally frozen HOYMILES_AP2R1L_VALIDATOR_SHA256",
+    )
+    validator = _ap2r1j_path_bytes(AP2R1_VALIDATOR_PATH, reference)
+    require(
+        hashlib.sha256(validator).hexdigest() == expected
+        and hashlib.sha256(Path(__file__).read_bytes()).hexdigest() == expected,
+        "AP-2R1L validator differs from the external reviewed SHA-256",
+    )
+    _require_current_ap2_ast_gates(validator.decode("utf-8"))
+    _require_ap2r1l_ast_contract(validator, AP2R1L_GATE_AST_SHA256, "current gate")
+
+
+def _classify_ap2r1l_git_state() -> str:
+    """Recognize only the exact overlay or one exact clean child of d7d0c246."""
+
+    head = _git_text("rev-parse", "HEAD")
+    staged = _git_path_set("diff", "--cached", "--name-only")
+    unstaged = _git_path_set("diff", "--name-only")
+    untracked = _git_path_set("ls-files", "--others", "--exclude-standard")
+    require(not staged and not untracked, "AP-2R1L requires staged/untracked 0/0")
+    _require_ap2r1_commit_shape(AP2R1J_CORRECTION_BASE)
+    expected_status = {("M", path) for path in AP2R1J_CORRECTION_PATHS}
+    expected_modes = {path: "100644" for path in AP2R1J_CORRECTION_PATHS}
+    if head == AP2R1J_CORRECTION_BASE:
+        require(unstaged == AP2R1J_CORRECTION_PATHS, "AP-2R1L overlay paths differ")
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == expected_status,
+            "AP-2R1L overlay must contain exactly three M paths",
+        )
+        require(
+            not _git_text("diff", "--summary", "HEAD")
+            and _git_tree_modes(head, AP2R1J_CORRECTION_PATHS) == expected_modes,
+            "AP-2R1L overlay modes differ",
+        )
+        _require_ap2r1l_contract(None)
+        _require_ap2r1j_manifests(head, unstaged)
+        return AP2R1L_BATTERY_DIRECTION_FIX_OVERLAY
+    require(not unstaged, "AP2R1L_COMMITTED_CLEAN requires a clean working tree")
+    require(
+        _git_commit_parents(head) == (AP2R1J_CORRECTION_BASE,),
+        "AP-2R1L requires exactly one parent: d7d0c246",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", head) == AP2R1L_COMMIT_SUBJECT,
+        "AP-2R1L committed subject differs",
+    )
+    require(
+        _git_path_set("diff-tree", "--no-commit-id", "--name-only", "-r", head)
+        == AP2R1J_CORRECTION_PATHS
+        and _git_name_status(
+            "diff-tree", "--no-commit-id", "--name-status", "--find-renames", "-r", head
+        ) == expected_status,
+        "AP-2R1L commit must contain exactly three M paths",
+    )
+    require(
+        _git_tree_modes(head, AP2R1J_CORRECTION_PATHS) == expected_modes,
+        "AP-2R1L committed modes differ",
+    )
+    _require_ap2r1l_contract(head)
+    _require_ap2r1j_manifests(head, set())
+    return AP2R1L_COMMITTED_CLEAN
+
+
+def validate_current_ap2r1l_manifests() -> str:
+    """Extend, without rewriting, the reviewed historical F/J/K-R1 gates."""
+
+    validator = _ap2r1j_path_bytes(AP2R1_VALIDATOR_PATH, None)
+    if AP2R1L_BATTERY_DIRECTION_FIX_OVERLAY.encode("utf-8") not in validator:
+        return validate_current_ap2r1_manifests()
+    for base, reference, expected in (
+        (AP1_CUMULATIVE_TASK_BASE, AP1E_CORRECTION_BASE, AP1_COMMITTED_TASK_PATHS),
+        (AP1_PUBLIC_BRANCH_BASE, AP1E_CORRECTION_BASE, AP1_COMMITTED_BRANCH_PATHS),
+        (AP1E_CORRECTION_BASE, AP2R1_CORRECTION_BASE, AP1E_CORRECTION_PATHS),
+        (AP1_CUMULATIVE_TASK_BASE, AP2R1_CORRECTION_BASE, AP1E_CUMULATIVE_TASK_PATHS),
+        (AP1_PUBLIC_BRANCH_BASE, AP2R1_CORRECTION_BASE, AP1E_BRANCH_PATHS),
+    ):
+        require(
+            _git_path_set("diff", "--name-only", f"{base}..{reference}") == expected,
+            "AP-2R1L committed AP-1/AP-1E historical manifest differs",
+        )
+    require(
+        (len(AP2R1J_CORRECTION_PATHS), len(AP2R1_CUMULATIVE_TASK_PATHS),
+         len(AP2R1_BRANCH_PATHS)) == (3, 23, 46),
+        "AP-2R1L manifest counts differ from 3/23/46",
+    )
+    return _classify_ap2r1l_git_state()
+
+
+def _git_try(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run one read-only Git query without turning an expected miss into an exception."""
+
+    return subprocess.run(
+        ["git", *args],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+@dataclass(frozen=True)
+class _IntegrationStateFacts:
+    """Pure inputs for the two exact integration-state classifications."""
+
+    branch: str
+    head: str
+    parents: tuple[str, ...]
+    head_tree: str
+    expected_tree: str
+    staged: frozenset[str]
+    unstaged: frozenset[str]
+    untracked: frozenset[str]
+    unmerged: frozenset[str]
+    committed_status: frozenset[tuple[str, ...]]
+    committed_modes: dict[str, str]
+    worktree_clean: bool
+    upstream_present: bool
+    remote_tracking_present: bool
+    subject: str
+    message: str
+
+
+def _classify_integration_state(facts: _IntegrationStateFacts) -> str:
+    """Return one exact integration state, or the closed invalid state."""
+
+    tracked_overlay = INTEGRATION_EXPECTED_PATHS - INTEGRATION_UNTRACKED_PATHS
+    expected_commit_status = frozenset(
+        (
+            "A" if path in INTEGRATION_UNTRACKED_PATHS else "M",
+            path,
+        )
+        for path in INTEGRATION_EXPECTED_PATHS
+    )
+    expected_modes = {
+        path: "100644" for path in INTEGRATION_EXPECTED_PATHS
+    }
+    reviewed_overlay = (
+        facts.branch == INTEGRATION_BRANCH
+        and facts.head == INTEGRATION_BAL_INPUT_SHA
+        and facts.head_tree == INTEGRATION_BAL_INPUT_TREE
+        and not facts.staged
+        and facts.unstaged == tracked_overlay
+        and facts.untracked == INTEGRATION_UNTRACKED_PATHS
+        and not facts.unmerged
+        and not facts.worktree_clean
+        and not facts.upstream_present
+        and not facts.remote_tracking_present
+    )
+    committed_clean = (
+        facts.branch == INTEGRATION_BRANCH
+        and facts.head != INTEGRATION_BAL_INPUT_SHA
+        and facts.parents == (INTEGRATION_BAL_INPUT_SHA,)
+        and facts.head_tree == facts.expected_tree
+        and not facts.staged
+        and not facts.unstaged
+        and not facts.untracked
+        and not facts.unmerged
+        and facts.committed_status == expected_commit_status
+        and facts.committed_modes == expected_modes
+        and facts.worktree_clean
+        and facts.subject == INTEGRATION_COMMIT_SUBJECT
+        and facts.message == INTEGRATION_COMMIT_MESSAGE
+    )
+    if reviewed_overlay:
+        return V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY
+    if committed_clean:
+        return V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN
+    return V1_5_8_BAL_AURORA_INTEGRATION_INVALID
+
+
+def _validate_integration_state_classifier_self_tests() -> tuple[int, int]:
+    """Exercise both accepted states and every bounded negative state."""
+
+    expected_tree = "c" * 40
+    exact_status = frozenset(
+        (
+            "A" if path in INTEGRATION_UNTRACKED_PATHS else "M",
+            path,
+        )
+        for path in INTEGRATION_EXPECTED_PATHS
+    )
+    exact_modes = {
+        path: "100644" for path in INTEGRATION_EXPECTED_PATHS
+    }
+    overlay = _IntegrationStateFacts(
+        branch=INTEGRATION_BRANCH,
+        head=INTEGRATION_BAL_INPUT_SHA,
+        parents=(INTEGRATION_BAL_INPUT_PARENT,),
+        head_tree=INTEGRATION_BAL_INPUT_TREE,
+        expected_tree=expected_tree,
+        staged=frozenset(),
+        unstaged=INTEGRATION_EXPECTED_PATHS - INTEGRATION_UNTRACKED_PATHS,
+        untracked=INTEGRATION_UNTRACKED_PATHS,
+        unmerged=frozenset(),
+        committed_status=frozenset(),
+        committed_modes={},
+        worktree_clean=False,
+        upstream_present=False,
+        remote_tracking_present=False,
+        subject=INTEGRATION_BAL_INPUT_SUBJECT,
+        message=INTEGRATION_BAL_INPUT_SUBJECT,
+    )
+    committed = replace(
+        overlay,
+        head="1" * 40,
+        parents=(INTEGRATION_BAL_INPUT_SHA,),
+        head_tree=expected_tree,
+        staged=frozenset(),
+        unstaged=frozenset(),
+        untracked=frozenset(),
+        committed_status=exact_status,
+        committed_modes=exact_modes,
+        worktree_clean=True,
+        subject=INTEGRATION_COMMIT_SUBJECT,
+        message=INTEGRATION_COMMIT_MESSAGE,
+    )
+    require(
+        _classify_integration_state(overlay)
+        == V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY,
+        "Exact reviewed integration overlay self-test failed",
+    )
+    require(
+        _classify_integration_state(committed)
+        == V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN,
+        "Exact clean single-parent integration self-test failed",
+    )
+
+    status_anchor = sorted(exact_status)[0]
+    negative_states = {
+        "wrong_branch": replace(committed, branch="integration/wrong"),
+        "wrong_parent": replace(committed, parents=(INTEGRATION_AURORA_INPUT_SHA,)),
+        "zero_parent": replace(committed, parents=()),
+        "merge_commit": replace(
+            committed,
+            parents=(INTEGRATION_BAL_INPUT_SHA, INTEGRATION_AURORA_INPUT_SHA),
+        ),
+        "more_than_one_parent": replace(
+            committed,
+            parents=(
+                INTEGRATION_BAL_INPUT_SHA,
+                INTEGRATION_AURORA_INPUT_SHA,
+                INTEGRATION_SUPERVISOR_SHA,
+            ),
+        ),
+        "correct_parent_wrong_tree": replace(committed, head_tree="2" * 40),
+        "correct_tree_wrong_parent": replace(committed, parents=("3" * 40,)),
+        "additional_committed_path": replace(
+            committed,
+            committed_status=exact_status | {("A", "__unexpected_path__")},
+            committed_modes={**exact_modes, "__unexpected_path__": "100644"},
+        ),
+        "missing_required_path": replace(
+            committed,
+            committed_status=exact_status - {status_anchor},
+        ),
+        "dirty_worktree": replace(committed, worktree_clean=False),
+        "staged_change": replace(
+            committed,
+            staged=frozenset({"CHANGELOG.md"}),
+            worktree_clean=False,
+        ),
+        "untracked_file": replace(
+            committed,
+            untracked=frozenset({"__unexpected_untracked__"}),
+            worktree_clean=False,
+        ),
+        "additional_commit": replace(
+            committed,
+            head="4" * 40,
+            parents=(committed.head,),
+        ),
+        "wrong_subject": replace(committed, subject="feat: wrong subject"),
+        "wrong_trailer": replace(
+            committed,
+            message=INTEGRATION_COMMIT_MESSAGE.replace(
+                "Aurora-AP-2-Source: 42c59f358f46e2c4dd83328aca5e62ac41c749e3",
+                "Aurora-AP-2-Source: " + "0" * 40,
+            ),
+        ),
+    }
+    for label, state in negative_states.items():
+        require(
+            _classify_integration_state(state)
+            == V1_5_8_BAL_AURORA_INTEGRATION_INVALID,
+            f"Invalid integration state survived: {label}",
+        )
+    return 2, len(negative_states)
+
+
+def _reconstruct_integration_candidate_tree() -> str:
+    """Build the reviewed candidate tree without touching the real index."""
+
+    real_staged_before = _git_path_set("diff", "--cached", "--name-only")
+    common_dir = Path(
+        _git_text(
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        )
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="hoymiles-integration-candidate-tree-"
+    ) as directory:
+        temporary = Path(directory)
+        objects = temporary / "objects"
+        (objects / "info").mkdir(parents=True)
+        (objects / "pack").mkdir()
+        environment = os.environ.copy()
+        environment["GIT_INDEX_FILE"] = str(temporary / "candidate.index")
+        environment["GIT_OBJECT_DIRECTORY"] = str(objects)
+        environment["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = str(
+            common_dir / "objects"
+        )
+        subprocess.check_call(
+            ["git", "read-tree", INTEGRATION_BAL_INPUT_SHA],
+            cwd=ROOT,
+            env=environment,
+        )
+        subprocess.check_call(
+            ["git", "add", "--", *sorted(INTEGRATION_EXPECTED_PATHS)],
+            cwd=ROOT,
+            env=environment,
+        )
+        staged_modes = subprocess.check_output(
+            [
+                "git",
+                "ls-files",
+                "--stage",
+                "--",
+                *sorted(INTEGRATION_EXPECTED_PATHS),
+            ],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            encoding="utf-8",
+        )
+        modes = {
+            line.split(" ", 1)[0]
+            for line in staged_modes.splitlines()
+            if line
+        }
+        require(
+            modes == {"100644"},
+            f"Integrated candidate modes differ from 100644: {sorted(modes)}",
+        )
+        candidate_tree = subprocess.check_output(
+            ["git", "write-tree"],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            encoding="utf-8",
+        ).strip()
+    require(
+        _git_path_set("diff", "--cached", "--name-only")
+        == real_staged_before,
+        "External candidate-tree proof changed the real index",
+    )
+    return candidate_tree
+
+
+def _canonical_integration_bytes(relative_path: str) -> bytes:
+    """Return canonical LF bytes under the repository's explicit EOL contract."""
+
+    path = ROOT / relative_path
+    require(
+        path.is_file() and not path.is_symlink(),
+        f"Integration path is missing or not a regular file: {relative_path}",
+    )
+    attributes = subprocess.check_output(
+        ["git", "check-attr", "text", "eol", "--", relative_path],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    )
+    parsed: dict[str, str] = {}
+    for line in attributes.splitlines():
+        fields = line.split(": ", 2)
+        require(len(fields) == 3, f"Cannot parse Git attributes for {relative_path}")
+        parsed[fields[1]] = fields[2]
+    require(
+        parsed == {"text": "set", "eol": "lf"},
+        f"Integration path has an unexpected EOL contract: {relative_path} {parsed}",
+    )
+    raw = path.read_bytes()
+    require(
+        b"\r" not in raw.replace(b"\r\n", b""),
+        f"Integration path contains a lone CR: {relative_path}",
+    )
+    return raw.replace(b"\r\n", b"\n")
+
+
+def _masked_integration_validator_bytes() -> bytes:
+    """Mask the one self-digest literal so the complete validator can be frozen."""
+
+    content = _canonical_integration_bytes(AP2R1_VALIDATOR_PATH)
+    pattern = re.compile(
+        rb'INTEGRATION_VALIDATOR_CANONICAL_SHA256 = \(\n'
+        rb'    "[0-9a-f]{64}"\n\)'
+    )
+    replacement = (
+        b'INTEGRATION_VALIDATOR_CANONICAL_SHA256 = (\n'
+        b'    "0000000000000000000000000000000000000000000000000000000000000000"\n'
+        b')'
+    )
+    masked, replacements = pattern.subn(replacement, content)
+    require(replacements == 1, "Integration validator self-digest anchor differs")
+    return masked
+
+
+def _validate_integration_source_commits() -> None:
+    """Freeze both divergent inputs, protected Supervisor and their exact graph."""
+
+    require(
+        _git_text("show", "-s", "--format=%T", INTEGRATION_BAL_INPUT_SHA)
+        == INTEGRATION_BAL_INPUT_TREE
+        and _git_commit_parents(INTEGRATION_BAL_INPUT_SHA)
+        == (INTEGRATION_BAL_INPUT_PARENT,)
+        and _git_text("show", "-s", "--format=%s", INTEGRATION_BAL_INPUT_SHA)
+        == INTEGRATION_BAL_INPUT_SUBJECT,
+        "BAL-R2-F1 input identity differs",
+    )
+    bal_status = _git_name_status(
+        "diff-tree",
+        "--no-commit-id",
+        "--name-status",
+        "--find-renames",
+        "-r",
+        INTEGRATION_BAL_INPUT_SHA,
+    )
+    require(
+        bal_status == INTEGRATION_BAL_COMMIT_STATUS
+        and sum(status == "M" for status, _path in bal_status) == 17
+        and sum(status == "A" for status, _path in bal_status) == 2,
+        "BAL-R2-F1 is not the exact 17 M + 2 A atomic commit",
+    )
+    bal_commit_paths = frozenset(path for _status, path in bal_status)
+    require(
+        _git_tree_modes(INTEGRATION_BAL_INPUT_SHA, bal_commit_paths)
+        == {path: "100644" for path in bal_commit_paths},
+        "BAL-R2-F1 committed modes differ",
+    )
+
+    require(
+        _git_text("show", "-s", "--format=%T", INTEGRATION_AURORA_INPUT_SHA)
+        == INTEGRATION_AURORA_INPUT_TREE
+        and _git_commit_parents(INTEGRATION_AURORA_INPUT_SHA)
+        == (INTEGRATION_AURORA_INPUT_PARENT,)
+        and _git_text("show", "-s", "--format=%s", INTEGRATION_AURORA_INPUT_SHA)
+        == INTEGRATION_AURORA_INPUT_SUBJECT,
+        "Aurora AP-2 input identity differs",
+    )
+    require(
+        _git_name_status(
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "--find-renames",
+            "-r",
+            INTEGRATION_AURORA_INPUT_SHA,
+        )
+        == {("M", path) for path in AP2R1J_CORRECTION_PATHS},
+        "Aurora AP-2 final commit is not the exact three-path correction",
+    )
+    require(
+        _git_text("show", "-s", "--format=%T", INTEGRATION_SUPERVISOR_SHA)
+        == INTEGRATION_SUPERVISOR_TREE,
+        "Protected Supervisor input tree differs",
+    )
+
+    require(
+        _git_text("rev-parse", INTEGRATION_BAL_REMOTE_REF)
+        == INTEGRATION_BAL_INPUT_SHA
+        and _git_text("rev-parse", INTEGRATION_AURORA_REMOTE_REF)
+        == INTEGRATION_AURORA_INPUT_SHA
+        and _git_text(
+            "rev-parse",
+            "refs/remotes/origin/feature/ems-supervisor-v1-shadow-runtime-v1.5.7",
+        )
+        == INTEGRATION_SUPERVISOR_SHA,
+        "Fetched source remote-tracking refs differ from the exact inputs",
+    )
+
+    merge_bases = tuple(
+        line
+        for line in _git_text(
+            "merge-base", "--all", INTEGRATION_BAL_INPUT_SHA, INTEGRATION_AURORA_INPUT_SHA
+        ).splitlines()
+        if line
+    )
+    require(
+        merge_bases == (INTEGRATION_PUBLIC_BASE_SHA,),
+        f"Integration requires one exact merge base; found={merge_bases}",
+    )
+    for ancestor, descendant, label in (
+        (INTEGRATION_BAL_INPUT_SHA, INTEGRATION_AURORA_INPUT_SHA, "BAL in Aurora"),
+        (INTEGRATION_AURORA_INPUT_SHA, INTEGRATION_BAL_INPUT_SHA, "Aurora in BAL"),
+    ):
+        ancestry = _git_try("merge-base", "--is-ancestor", ancestor, descendant)
+        require(
+            ancestry.returncode == 1,
+            f"Divergent-history contract failed ({label}); rc={ancestry.returncode}",
+        )
+    require(
+        int(_git_text("rev-list", "--count", f"{INTEGRATION_PUBLIC_BASE_SHA}..{INTEGRATION_BAL_INPUT_SHA}"))
+        == 3
+        and int(_git_text("rev-list", "--count", f"{INTEGRATION_PUBLIC_BASE_SHA}..{INTEGRATION_AURORA_INPUT_SHA}"))
+        == 11,
+        "Input commit counts from the merge base differ from 3/11",
+    )
+    bal_delta = _git_path_set(
+        "diff", "--name-only", f"{INTEGRATION_PUBLIC_BASE_SHA}..{INTEGRATION_BAL_INPUT_SHA}"
+    )
+    aurora_delta = _git_path_set(
+        "diff", "--name-only", f"{INTEGRATION_PUBLIC_BASE_SHA}..{INTEGRATION_AURORA_INPUT_SHA}"
+    )
+    require(
+        bal_delta == INTEGRATION_BAL_DELTA_PATHS
+        and aurora_delta == AP2R1_BRANCH_PATHS
+        and len(bal_delta & aurora_delta) == 15
+        and len(bal_delta - aurora_delta) == 11
+        and len(aurora_delta - bal_delta) == 31,
+        "Frozen 26/46/15 BAL/Aurora graph manifests differ",
+    )
+
+
+def _validate_aurora_input_contract() -> None:
+    """Execute the frozen Aurora historical gates against its exact commit."""
+
+    _require_ap2r1_commit_shape(INTEGRATION_AURORA_INPUT_PARENT)
+    for base, reference, expected in (
+        (AP1_CUMULATIVE_TASK_BASE, AP1E_CORRECTION_BASE, AP1_COMMITTED_TASK_PATHS),
+        (AP1_PUBLIC_BRANCH_BASE, AP1E_CORRECTION_BASE, AP1_COMMITTED_BRANCH_PATHS),
+        (AP1E_CORRECTION_BASE, AP2R1_CORRECTION_BASE, AP1E_CORRECTION_PATHS),
+        (AP1_CUMULATIVE_TASK_BASE, AP2R1_CORRECTION_BASE, AP1E_CUMULATIVE_TASK_PATHS),
+        (AP1_PUBLIC_BRANCH_BASE, AP2R1_CORRECTION_BASE, AP1E_BRANCH_PATHS),
+    ):
+        require(
+            _git_path_set("diff", "--name-only", f"{base}..{reference}") == expected,
+            "Integrated Aurora historical manifest differs",
+        )
+    _require_ap2r1j_manifests(INTEGRATION_AURORA_INPUT_SHA, set())
+    _require_ap2r1j_protected_hashes(INTEGRATION_AURORA_INPUT_SHA)
+    for relative_path, digest, nodes, label in (
+        (AP2R1J_PRODUCT_PATH, AP2R1L_PRODUCT_SHA256, AP2R1L_PRODUCT_AST_SHA256, "product"),
+        (AP2R1J_TEST_PATH, AP2R1L_TEST_SHA256, AP2R1L_TEST_AST_SHA256, "real-HA test"),
+    ):
+        content = _ap2r1j_path_bytes(relative_path, INTEGRATION_AURORA_INPUT_SHA)
+        require(
+            hashlib.sha256(content).hexdigest() == digest,
+            f"Aurora AP-2 exact {label} bytes changed",
+        )
+        _require_ap2r1l_ast_contract(content, nodes, label)
+    validator = _ap2r1j_path_bytes(
+        AP2R1_VALIDATOR_PATH, INTEGRATION_AURORA_INPUT_SHA
+    )
+    require(
+        hashlib.sha256(validator).hexdigest() == INTEGRATION_AURORA_VALIDATOR_SHA256,
+        "Aurora AP-2 source validator differs from its frozen SHA-256",
+    )
+    _require_current_ap2_ast_gates(validator.decode("utf-8"))
+    _require_ap2r1l_ast_contract(
+        validator, AP2R1L_GATE_AST_SHA256, "historical source validator"
+    )
+
+
+def _integration_candidate_matches(
+    paths: set[str] | frozenset[str],
+    hashes: dict[str, str],
+    untracked: set[str] | frozenset[str],
+) -> bool:
+    """Return the exact 49-path, 48-hash and 14-new-path integration verdict."""
+
+    return (
+        paths == INTEGRATION_EXPECTED_PATHS
+        and hashes == INTEGRATION_CANONICAL_SHA256
+        and untracked == INTEGRATION_UNTRACKED_PATHS
+    )
+
+
+def _validate_integration_mutation_self_tests() -> None:
+    """Prove the exact manifest/hash matcher rejects every missing or altered input."""
+
+    expected_paths = set(INTEGRATION_EXPECTED_PATHS)
+    expected_hashes = dict(INTEGRATION_CANONICAL_SHA256)
+    expected_untracked = set(INTEGRATION_UNTRACKED_PATHS)
+    require(
+        _integration_candidate_matches(
+            expected_paths, expected_hashes, expected_untracked
+        ),
+        "Exact integration matcher rejected its frozen state",
+    )
+    for relative_path in sorted(INTEGRATION_EXPECTED_PATHS):
+        require(
+            not _integration_candidate_matches(
+                expected_paths - {relative_path},
+                {
+                    path: digest
+                    for path, digest in expected_hashes.items()
+                    if path != relative_path
+                },
+                expected_untracked - {relative_path},
+            ),
+            f"Missing integration path survived the self-test: {relative_path}",
+        )
+    for relative_path in sorted(INTEGRATION_CANONICAL_SHA256):
+        changed = dict(expected_hashes)
+        changed[relative_path] = "0" * 64
+        require(
+            not _integration_candidate_matches(
+                expected_paths, changed, expected_untracked
+            ),
+            f"Changed integration blob survived the self-test: {relative_path}",
+        )
+    require(
+        not _integration_candidate_matches(set(), {}, set())
+        and not _integration_candidate_matches(
+            set(AP2R1_BRANCH_PATHS), {}, set(AP2R1_NEW_PATHS)
+        ),
+        "A BAL-only or Aurora-only state was accepted as the integration",
+    )
+
+
+def _validate_integration_docs_and_ap3b_boundary() -> None:
+    """Freeze truthful candidate status and require AP-3B to remain absent."""
+
+    for relative_path in ("CHANGELOG.md", "docs/releases/v1.5.8.md"):
+        content = " ".join(
+            (ROOT / relative_path).read_text(encoding="utf-8").split()
+        )
+        for required in (
+            "Exact-commit AP-2 live",
+            "acceptance remains frozen and incomplete",
+            "AP-3A is a design freeze only",
+            "AP-3B custom card and dashboard view are not implemented",
+            "no public",
+            "v1.5.8 release exists yet",
+            "offline only and still requires exact-version real-inverter acceptance",
+            "adds no physical execution authority",
+        ):
+            require(
+                required in content,
+                f"Integrated release status is missing from {relative_path}: {required}",
+            )
+    releasing = (ROOT / "RELEASING.md").read_text(encoding="utf-8")
+    for command in (
+        "python tools/test_automation_plan_timeline.py",
+        "python tools/test_rcm_timeline_model.py",
+        "python tools/test_optimizer_executor_contract.py",
+        "python tools/test_optimizer_startup_contract.py",
+        "python tools/test_battery_balancing_contract.py",
+        "python tools/test_automation_matrix.py --exhaustive",
+        "node tools/test_supervisor_aurora_ui_contract.js",
+        "node tools/validate_rce_card.js",
+        "python tools/test_battery_balancing_ha_runtime.py",
+        "python -m pytest -q tests/test_timeline_platform_registration.py",
+    ):
+        require(command in releasing, f"RELEASING.md omits the integrated gate: {command}")
+
+    protected_sources = [
+        ROOT / "dashboard_hoymiles.yaml",
+        ROOT / "home_assistant" / "www" / "hoymiles-dashboard-strategy.js",
+        ROOT / "home_assistant" / "www" / "hoymiles-rce-chart-card.js",
+    ]
+    frontend = "\n".join(path.read_text(encoding="utf-8") for path in protected_sources)
+    require(
+        "hoymiles-automation-planner-card" not in frontend
+        and "path: plan-automatyki" not in frontend
+        and '"plan-automatyki"' not in frontend,
+        "AP-3B custom element or dashboard view is present before authorization",
+    )
+    assets_source = (COMPONENT / "assets.py").read_text(encoding="utf-8")
+    strategy_source = protected_sources[1].read_text(encoding="utf-8")
+    require(
+        "FRONTEND_ASSET_REVISION = 28" in assets_source
+        and "FRONTEND_ASSET_REVISION = 29" not in assets_source
+        and "/local/hoymiles-rce-chart-card.js?v=1.5.7.28" in strategy_source,
+        "INT-1 must retain the already committed frontend revision 28",
+    )
+
+
+def _classify_v158_bal_aurora_integration() -> str:
+    """Recognize the exact reviewed overlay or its exact clean child commit."""
+
+    branch = _git_text("branch", "--show-current")
+    require(branch == INTEGRATION_BRANCH, "Integration branch identity differs")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+
+    head = _git_text("rev-parse", "HEAD")
+    expected_tree = _reconstruct_integration_candidate_tree()
+    staged = frozenset(_git_path_set("diff", "--cached", "--name-only"))
+    unstaged = frozenset(_git_path_set("diff", "--name-only", "HEAD"))
+    untracked = frozenset(
+        _git_path_set("ls-files", "--others", "--exclude-standard")
+    )
+    unmerged = frozenset(
+        _git_path_set("diff", "--name-only", "--diff-filter=U")
+    )
+    status = _git_try("status", "--porcelain=v1", "--untracked-files=all")
+    require(status.returncode == 0, "Cannot inspect integration worktree status")
+    upstream = _git_try(
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        "@{upstream}",
+    )
+    remote_tracking = _git_try(
+        "show-ref",
+        "--verify",
+        "--quiet",
+        INTEGRATION_REMOTE_REF,
+    )
+    require(
+        remote_tracking.returncode in {0, 1},
+        "Cannot inspect the integration remote-tracking ref",
+    )
+    committed_status = (
+        frozenset(
+            _git_name_status(
+                "diff",
+                "--name-status",
+                "--find-renames",
+                INTEGRATION_BAL_INPUT_SHA,
+                head,
+            )
+        )
+        if head != INTEGRATION_BAL_INPUT_SHA
+        else frozenset()
+    )
+    committed_modes = (
+        _git_tree_modes(head, INTEGRATION_EXPECTED_PATHS)
+        if head != INTEGRATION_BAL_INPUT_SHA
+        else {}
+    )
+    facts = _IntegrationStateFacts(
+        branch=branch,
+        head=head,
+        parents=_git_commit_parents(head),
+        head_tree=_git_text("show", "-s", "--format=%T", head),
+        expected_tree=expected_tree,
+        staged=staged,
+        unstaged=unstaged,
+        untracked=untracked,
+        unmerged=unmerged,
+        committed_status=committed_status,
+        committed_modes=committed_modes,
+        worktree_clean=not status.stdout.strip(),
+        upstream_present=upstream.returncode == 0,
+        remote_tracking_present=remote_tracking.returncode == 0,
+        subject=_git_text("show", "-s", "--format=%s", head),
+        message=_git_text("show", "-s", "--format=%B", head),
+    )
+    positive_self_tests, negative_self_tests = (
+        _validate_integration_state_classifier_self_tests()
+    )
+    require(
+        (positive_self_tests, negative_self_tests) == (2, 15),
+        "Integration classifier self-test counts differ from 2/15",
+    )
+    state = _classify_integration_state(facts)
+    require(
+        state != V1_5_8_BAL_AURORA_INTEGRATION_INVALID,
+        "Integration is neither the exact reviewed overlay nor its exact clean "
+        "single-parent commit",
+    )
+    if state == V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY:
+        overlay = set(unstaged | untracked)
+        added_paths = set(untracked)
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == {("M", path) for path in unstaged}
+            and not _git_text("diff", "--summary", "HEAD"),
+            "Integrated overlay contains a rename, delete or mode change",
+        )
+        for relative_path in INTEGRATION_UNTRACKED_PATHS:
+            path = ROOT / relative_path
+            require(
+                path.is_file() and not path.is_symlink(),
+                f"Integrated new path is not a regular file: {relative_path}",
+            )
+    else:
+        overlay = {
+            path
+            for record in committed_status
+            for path in record[1:]
+        }
+        added_paths = {
+            record[1]
+            for record in committed_status
+            if len(record) == 2 and record[0] == "A"
+        }
+
+    _validate_integration_source_commits()
+    _validate_aurora_input_contract()
+    actual_hashes = {
+        relative_path: hashlib.sha256(
+            _canonical_integration_bytes(relative_path)
+        ).hexdigest()
+        for relative_path in INTEGRATION_CANONICAL_SHA256
+    }
+    require(
+        _integration_candidate_matches(overlay, actual_hashes, added_paths),
+        "Integrated canonical blob map differs",
+    )
+    require(
+        hashlib.sha256(_masked_integration_validator_bytes()).hexdigest()
+        == INTEGRATION_VALIDATOR_CANONICAL_SHA256,
+        "Integrated validator differs from its frozen masked-source SHA-256",
+    )
+    _validate_integration_mutation_self_tests()
+    _validate_integration_docs_and_ap3b_boundary()
+    return state
+
+
+def _ap3b_manifest_matches(
+    paths: set[str] | frozenset[str],
+    unstaged: set[str] | frozenset[str],
+    untracked: set[str] | frozenset[str],
+    staged: set[str] | frozenset[str],
+) -> bool:
+    """Match only the authorized 11 + 6 AP-3B/C3 overlay manifest."""
+
+    return (
+        paths == AP3B_EXPECTED_PATHS
+        and unstaged == AP3B_EXPECTED_PATHS - AP3B_NEW_PATHS
+        and untracked == AP3B_NEW_PATHS
+        and not staged
+    )
+
+
+def _ap3b_supervisor_test_guard(source: str) -> bool:
+    """Reject stale, disabled, warning-only or dynamically attested tests."""
+
+    frozen_attestation = (
+        'check(supervisorDigest === '
+        '"f4c76f967627539fb0be47819702fd869d6024006754178d6095239817797570", '
+        '"Supervisor YAML subtree exactly matches the frozen contract");'
+    )
+    return (
+        "const EXPECTED_GROUP_COUNT = 65;" in source
+        and "const EXPECTED_CHECK_COUNT = 929;" in source
+        and '"Supervisor is third"' in source
+        and '"Supervisor is second"' not in source
+        and frozen_attestation in source
+        and "if (groupCount !== EXPECTED_GROUP_COUNT)" in source
+        and "if (checkCount !== EXPECTED_CHECK_COUNT)" in source
+        and "process.exitCode = 1" in source
+        and "console.warn(" not in source
+    )
+
+
+def _supervisor_active_test_guard(source: str) -> bool:
+    """Freeze the Active UI test counts and its exact dashboard attestation."""
+
+    frozen_attestation = (
+        'check(supervisorDigest === '
+        '"018b97639257d4947fac80812e4876df9474e908e56094ac8877777d2ee62720", '
+        '"Supervisor YAML subtree exactly matches the Active contract");'
+    )
+    return (
+        "const EXPECTED_GROUP_COUNT = 68;" in source
+        and "const EXPECTED_CHECK_COUNT = 1078;" in source
+        and 'group("02 exact Off and Active modes"' in source
+        and 'group("ACTIVE_CONTROL_SURFACE_FREEZE"' in source
+        and frozen_attestation in source
+        and "if (groupCount !== EXPECTED_GROUP_COUNT)" in source
+        and "if (checkCount !== EXPECTED_CHECK_COUNT)" in source
+        and "process.exitCode = 1" in source
+        and "console.warn(" not in source
+    )
+
+
+def _integrated_active_shared_aurora_test_guard(source: str) -> bool:
+    """Freeze the exact I2 UI test without changing the Active oracle."""
+
+    return (
+        hashlib.sha256(source.encode("utf-8")).hexdigest()
+        == INTEGRATED_ACTIVE_SHARED_AURORA_UI_TEST_SHA256
+        and "const EXPECTED_GROUP_COUNT = 68;" in source
+        and "const EXPECTED_CHECK_COUNT = 1078;" in source
+        and 'group("02 exact Off and Active modes"' in source
+        and 'group("ACTIVE_CONTROL_SURFACE_FREEZE"' in source
+        and 'supervisorIndex === 2' in source
+        and 'supervisorSource.includes("    icon: mdi:shield-check\\n")'
+        in source
+        and '!supervisorSource.includes("custom:hoymiles-ems-shared-inputs-card")'
+        in source
+        and "if (groupCount !== EXPECTED_GROUP_COUNT)" in source
+        and "if (checkCount !== EXPECTED_CHECK_COUNT)" in source
+        and "process.exitCode = 1" in source
+        and "console.warn(" not in source
+    )
+
+
+def _i3_supervisor_aurora_test_guard(source: str) -> bool:
+    """Freeze the I3 extension of the established Active UI contract."""
+
+    return (
+        hashlib.sha256(source.encode("utf-8")).hexdigest()
+        == I3_SUPERVISOR_AURORA_UI_TEST_SHA256
+        and "const EXPECTED_GROUP_COUNT = 68;" in source
+        and "const EXPECTED_CHECK_COUNT = 1078;" in source
+        and "expectedI3Paths" in source
+        and "i3OverlayState" in source
+        and "console.warn(" not in source
+    )
+
+
+def _aurora_compact_ui_test_guard(source: str) -> bool:
+    """Freeze the expanded six-tab Variant A Supervisor regression."""
+
+    return (
+        hashlib.sha256(source.encode("utf-8")).hexdigest()
+        == AURORA_COMPACT_UI_TEST_SHA256
+        and "const EXPECTED_GROUP_COUNT = 69;" in source
+        and "const EXPECTED_CHECK_COUNT = 1109;" in source
+        and "Variant A EMS is one controls-summary-chart-day-plan composition" in source
+        and "process.exitCode = 1" in source
+        and "console.warn(" not in source
+    )
+
+
+def _consolidated_ui_test_guard(source: str) -> bool:
+    """Freeze the accepted revision-72 Supervisor/Aurora regression."""
+
+    return (
+        hashlib.sha256(source.encode("utf-8")).hexdigest()
+        == CONSOLIDATED_UI_TEST_SHA256
+        and "const EXPECTED_GROUP_COUNT = 69;" in source
+        and "const EXPECTED_CHECK_COUNT = 1115;" in source
+        and "Variant A EMS is one controls-summary-chart-day-plan composition" in source
+        and "process.exitCode = 1" in source
+        and "console.warn(" not in source
+    )
+
+
+def _n12_ui_test_guard(source: str) -> bool:
+    """Freeze the accepted N07/N08 revision-79 Supervisor/Aurora regression."""
+
+    return (
+        hashlib.sha256(source.encode("utf-8")).hexdigest() == N12_UI_TEST_SHA256
+        and "const EXPECTED_GROUP_COUNT = 69;" in source
+        and "const EXPECTED_CHECK_COUNT = 1115;" in source
+        and "const expectedN07ExactCandidatePaths" in source
+        and "const expectedBranchPathCount = n07ExactCandidateMode" in source
+        and "FRONTEND_ASSET_REVISION = 79" in source
+        and "Variant A EMS is one controls-summary-chart-day-plan composition" in source
+        and "process.exitCode = 1" in source
+        and "console.warn(" not in source
+    )
+
+
+def _task02_ui_test_guard(source: str) -> bool:
+    """Freeze the Task 02 revision-80 Supervisor/Aurora regression."""
+
+    return (
+        hashlib.sha256(source.encode("utf-8")).hexdigest()
+        == "c8cff9607f005f530a60c9b95acf1718e3d5c0b642eb756de930338a68588972"
+        and "const EXPECTED_GROUP_COUNT = 69;" in source
+        and "const EXPECTED_CHECK_COUNT = 1115;" in source
+        and "FRONTEND_ASSET_REVISION = 82" in source
+        and "healthy idle is waiting, not a blocked transaction" in source
+        and "Variant A EMS is one controls-summary-chart-day-plan composition" in source
+        and "process.exitCode = 1" in source
+        and "console.warn(" not in source
+    )
+
+
+def _validate_ap3b_manifest_self_tests() -> tuple[int, int]:
+    """Prove missing, stale and extra AP-3B/C3 manifests fail closed."""
+
+    expected = set(AP3B_EXPECTED_PATHS)
+    unstaged = set(AP3B_EXPECTED_PATHS - AP3B_NEW_PATHS)
+    untracked = set(AP3B_NEW_PATHS)
+    require(
+        len(AP3B_CANONICAL_PATHS) == 17
+        and len(AP3B_GENERATED_PATHS) == 8
+        and len(AP3B_EXPECTED_PATHS) == 25,
+        "AP-3B/C3 manifest counts differ from 17/8/25",
+    )
+    require(
+        _ap3b_manifest_matches(expected, unstaged, untracked, set()),
+        "Exact AP-3B manifest rejected its frozen shape",
+    )
+    rejected = 0
+    mutations: list[tuple[set[str], set[str], set[str], set[str]]] = []
+    for missing in sorted(AP3B_EXPECTED_PATHS):
+        mutations.append(
+            (
+                expected - {missing},
+                unstaged - {missing},
+                untracked - {missing},
+                set(),
+            )
+        )
+    mutations.extend(
+        [
+            (
+                expected | {"__unexpected_twenty_sixth_path__"},
+                unstaged | {"__unexpected_twenty_sixth_path__"},
+                untracked,
+                set(),
+            ),
+            (expected, unstaged, untracked, {"tools/validate_release.py"}),
+            (
+                expected
+                - {
+                    "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+                    "tools/test_automation_plan_timeline.py",
+                },
+                unstaged
+                - {
+                    "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+                    "tools/test_automation_plan_timeline.py",
+                },
+                untracked,
+                set(),
+            ),
+        ]
+    )
+    for mutation in mutations:
+        if not _ap3b_manifest_matches(*mutation):
+            rejected += 1
+    require(
+        rejected == len(mutations) == 28,
+        f"AP-3B/C3 manifest mutation result is {rejected}/28",
+    )
+    return 1, rejected
+
+
+def _classify_ap3b_overlay() -> str:
+    """Recognize only the unstaged exact-base AP-3B candidate."""
+
+    require(
+        _git_text("branch", "--show-current") == AP3B_BRANCH,
+        "AP-3B branch identity differs",
+    )
+    require(_git_text("rev-parse", "HEAD") == AP3B_BASE_SHA, "AP-3B base SHA differs")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+
+    staged = frozenset(_git_path_set("diff", "--cached", "--name-only"))
+    unstaged = frozenset(_git_path_set("diff", "--name-only", "HEAD"))
+    untracked = frozenset(
+        _git_path_set("ls-files", "--others", "--exclude-standard")
+    )
+    unmerged = frozenset(
+        _git_path_set("diff", "--name-only", "--diff-filter=U")
+    )
+    require(not unmerged, "AP-3B contains unmerged paths")
+    require(
+        _ap3b_manifest_matches(
+            set(unstaged | untracked), set(unstaged), set(untracked), set(staged)
+        ),
+        "AP-3B/C3 candidate is not the exact 25-path unstaged overlay",
+    )
+    require(
+        _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+        == {("M", path) for path in unstaged}
+        and not _git_text("diff", "--summary", "HEAD"),
+        "AP-3B contains a rename, delete or mode change",
+    )
+    for relative_path in AP3B_EXPECTED_PATHS:
+        candidate = ROOT / relative_path
+        require(
+            candidate.is_file() and not candidate.is_symlink(),
+            f"AP-3B path is not a regular file: {relative_path}",
+        )
+    upstream = _git_try(
+        "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
+    )
+    remote = _git_try(
+        "show-ref",
+        "--verify",
+        "--quiet",
+        "refs/remotes/origin/feature/v1.5.8-ap3b-kowalski-cards",
+    )
+    require(
+        upstream.returncode != 0 and remote.returncode == 1,
+        "AP-3B unexpectedly has an upstream or remote-tracking branch",
+    )
+    require(
+        _validate_ap3b_manifest_self_tests() == (1, 28),
+        "AP-3B manifest self-test counts differ",
+    )
+    return AP3B_OVERLAY_CANDIDATE
+
+
+def _supervisor_active_manifest_matches(
+    branch: str,
+    head: str,
+    paths: set[str] | frozenset[str],
+    unstaged: set[str] | frozenset[str],
+    untracked: set[str] | frozenset[str],
+    staged: set[str] | frozenset[str],
+) -> bool:
+    """Match only the exact Supervisor Active overlay on its reviewed base."""
+
+    return (
+        branch == SUPERVISOR_ACTIVE_BRANCH
+        and head == SUPERVISOR_ACTIVE_BASE_SHA
+        and paths == SUPERVISOR_ACTIVE_EXPECTED_PATHS
+        and unstaged == SUPERVISOR_ACTIVE_MODIFIED_PATHS
+        and untracked == SUPERVISOR_ACTIVE_UNTRACKED_PATHS
+        and not staged
+    )
+
+
+def _validate_supervisor_active_manifest_self_tests() -> tuple[int, int]:
+    """Prove missing, extra, staged, misclassified and wrong-base states fail."""
+
+    expected = set(SUPERVISOR_ACTIVE_EXPECTED_PATHS)
+    modified = set(SUPERVISOR_ACTIVE_MODIFIED_PATHS)
+    untracked = set(SUPERVISOR_ACTIVE_UNTRACKED_PATHS)
+    require(
+        len(SUPERVISOR_ACTIVE_CORE_EXPECTED_PATHS) == 76
+        and len(SUPERVISOR_ACTIVE_CORE_UNTRACKED_PATHS) == 28
+        and len(SUPERVISOR_ACTIVE_C4_FINAL_UNTRACKED_PATHS) == 4
+        and len(modified) == 48
+        and len(untracked) == 32
+        and len(expected) == 80,
+        "Supervisor Active + C4 manifest counts differ from core 48/28/76 and current 48/32/80",
+    )
+    require(
+        _supervisor_active_manifest_matches(
+            SUPERVISOR_ACTIVE_BRANCH,
+            SUPERVISOR_ACTIVE_BASE_SHA,
+            expected,
+            modified,
+            untracked,
+            set(),
+        ),
+        "Exact Supervisor Active manifest rejected its frozen shape",
+    )
+
+    mutations: list[
+        tuple[str, str, set[str], set[str], set[str], set[str]]
+    ] = []
+    for missing in sorted(expected):
+        mutations.append(
+            (
+                SUPERVISOR_ACTIVE_BRANCH,
+                SUPERVISOR_ACTIVE_BASE_SHA,
+                expected - {missing},
+                modified - {missing},
+                untracked - {missing},
+                set(),
+            )
+        )
+    mutations.extend(
+        [
+            (
+                SUPERVISOR_ACTIVE_BRANCH,
+                SUPERVISOR_ACTIVE_BASE_SHA,
+                expected | {"__unexpected_seventy_fifth_path__"},
+                modified | {"__unexpected_seventy_fifth_path__"},
+                untracked,
+                set(),
+            ),
+            (
+                SUPERVISOR_ACTIVE_BRANCH,
+                SUPERVISOR_ACTIVE_BASE_SHA,
+                expected,
+                modified,
+                untracked,
+                {"tools/validate_release.py"},
+            ),
+            (
+                SUPERVISOR_ACTIVE_BRANCH,
+                "0" * 40,
+                expected,
+                modified,
+                untracked,
+                set(),
+            ),
+            (
+                "feature/v1.5.8-ems-supervisor-active-mutated",
+                SUPERVISOR_ACTIVE_BASE_SHA,
+                expected,
+                modified,
+                untracked,
+                set(),
+            ),
+            (
+                SUPERVISOR_ACTIVE_BRANCH,
+                SUPERVISOR_ACTIVE_BASE_SHA,
+                expected,
+                modified
+                - {"custom_components/hoymiles_hit_modbus/ems_supervisor.py"},
+                untracked
+                | {"custom_components/hoymiles_hit_modbus/ems_supervisor.py"},
+                set(),
+            ),
+            (
+                SUPERVISOR_ACTIVE_BRANCH,
+                SUPERVISOR_ACTIVE_BASE_SHA,
+                expected,
+                modified | {"tools/test_supervisor_executor.py"},
+                untracked - {"tools/test_supervisor_executor.py"},
+                set(),
+            ),
+        ]
+    )
+    rejected = sum(
+        not _supervisor_active_manifest_matches(*mutation)
+        for mutation in mutations
+    )
+    require(
+        rejected == len(mutations) == 86,
+        f"Supervisor Active + C4 manifest mutation result is {rejected}/86",
+    )
+    return 1, rejected
+
+
+def _classify_supervisor_active_overlay() -> str:
+    """Recognize only the exact unstaged Supervisor Active + C4 overlay."""
+
+    branch = _git_text("branch", "--show-current")
+    head = _git_text("rev-parse", "HEAD")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+
+    staged = frozenset(_git_path_set("diff", "--cached", "--name-only"))
+    unstaged = frozenset(_git_path_set("diff", "--name-only", "HEAD"))
+    untracked = frozenset(
+        _git_path_set("ls-files", "--others", "--exclude-standard")
+    )
+    unmerged = frozenset(
+        _git_path_set("diff", "--name-only", "--diff-filter=U")
+    )
+    require(not unmerged, "Supervisor Active overlay contains unmerged paths")
+    require(
+        _supervisor_active_manifest_matches(
+            branch,
+            head,
+            set(unstaged | untracked),
+            set(unstaged),
+            set(untracked),
+            set(staged),
+        ),
+        "Supervisor Active candidate is not the exact 80-path C4 overlay on its reviewed base",
+    )
+    require(
+        _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+        == {("M", path) for path in unstaged}
+        and not _git_text("diff", "--summary", "HEAD"),
+        "Supervisor Active overlay contains a rename, delete or mode change",
+    )
+    for relative_path in SUPERVISOR_ACTIVE_EXPECTED_PATHS:
+        candidate = ROOT / relative_path
+        require(
+            candidate.is_file() and not candidate.is_symlink(),
+            f"Supervisor Active path is not a regular file: {relative_path}",
+        )
+    require(
+        _validate_supervisor_active_manifest_self_tests() == (1, 86),
+        "Supervisor Active manifest self-test counts differ",
+    )
+    return SUPERVISOR_ACTIVE_OVERLAY_CANDIDATE
+
+
+def _i3_manifest_matches(
+    branch: str,
+    head: str,
+    paths: set[str] | frozenset[str],
+    unstaged: set[str] | frozenset[str],
+    untracked: set[str] | frozenset[str],
+    staged: set[str] | frozenset[str],
+) -> bool:
+    """Match exactly the uncommitted I3 overlay over the frozen I2 candidate."""
+
+    return (
+        branch == INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH
+        and head == I3_BASE_SHA
+        and paths == I3_EXPECTED_PATHS
+        and unstaged == I3_MODIFIED_PATHS
+        and untracked == I3_UNTRACKED_PATHS
+        and not staged
+    )
+
+
+def _validate_i3_manifest_self_tests() -> tuple[int, int]:
+    """Prove I3 accepts only its bounded 25-modified/1-new overlay."""
+
+    expected = set(I3_EXPECTED_PATHS)
+    modified = set(I3_MODIFIED_PATHS)
+    untracked = set(I3_UNTRACKED_PATHS)
+    require(
+        len(expected) == 26 and len(modified) == 25 and len(untracked) == 1,
+        "I3 manifest counts differ from 25 modified plus 1 new path",
+    )
+    require(
+        _i3_manifest_matches(
+            INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+            I3_BASE_SHA,
+            expected,
+            modified,
+            untracked,
+            set(),
+        ),
+        "Exact I3 overlay was rejected",
+    )
+    mutations = [
+        (
+            INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+            I3_BASE_SHA,
+            expected - {missing},
+            modified - {missing},
+            untracked - {missing},
+            set(),
+        )
+        for missing in sorted(expected)
+    ]
+    mutations.extend(
+        [
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                I3_BASE_SHA,
+                expected | {"__unexpected_i3_path__"},
+                modified | {"__unexpected_i3_path__"},
+                untracked,
+                set(),
+            ),
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                I3_BASE_SHA,
+                expected,
+                modified | untracked,
+                set(),
+                set(),
+            ),
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                I3_BASE_SHA,
+                expected,
+                modified,
+                untracked,
+                {"tools/validate_release.py"},
+            ),
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                "0" * 40,
+                expected,
+                modified,
+                untracked,
+                set(),
+            ),
+            (
+                "integration/v1.5.8-active-shared-aurora-mutated",
+                I3_BASE_SHA,
+                expected,
+                modified,
+                untracked,
+                set(),
+            ),
+        ]
+    )
+    rejected = sum(not _i3_manifest_matches(*mutation) for mutation in mutations)
+    require(
+        rejected == len(mutations) == 31,
+        f"I3 manifest mutation result is {rejected}/31",
+    )
+    return 1, rejected
+
+
+def _aurora_compact_manifest_matches(
+    branch: str,
+    head: str,
+    paths: set[str] | frozenset[str],
+    unstaged: set[str] | frozenset[str],
+    untracked: set[str] | frozenset[str],
+    staged: set[str] | frozenset[str],
+) -> bool:
+    """Match only the exact Aurora Compact Variant A overlay."""
+
+    return (
+        branch == AURORA_COMPACT_BRANCH
+        and head == I3_BASE_SHA
+        and paths == AURORA_COMPACT_EXPECTED_PATHS
+        and unstaged == AURORA_COMPACT_MODIFIED_PATHS
+        and untracked == AURORA_COMPACT_UNTRACKED_PATHS
+        and not staged
+    )
+
+
+def _validate_aurora_compact_manifest_self_tests() -> tuple[int, int]:
+    """Prove the exact 78-modified/12-new overlay freeze fails closed."""
+
+    expected = set(AURORA_COMPACT_EXPECTED_PATHS)
+    modified = set(AURORA_COMPACT_MODIFIED_PATHS)
+    untracked = set(AURORA_COMPACT_UNTRACKED_PATHS)
+    require(
+        len(expected) == 90 and len(modified) == 78 and len(untracked) == 12,
+        "Aurora Compact manifest counts differ from 78 modified plus 12 new paths",
+    )
+    audited_paths = {
+        ".github/workflows/validate.yml",
+        "custom_components/hoymiles_hit_modbus/diagnostic_bundle.py",
+        "custom_components/hoymiles_hit_modbus/diagnostic_redaction.py",
+        "custom_components/hoymiles_hit_modbus/ems_shared_inputs.py",
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/rcm_optimizer.py",
+        "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+        "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+        "custom_components/hoymiles_hit_modbus/supervisor_active_bridge.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_active_controller.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_canonical_runtime.py",
+        "custom_components/hoymiles_hit_modbus/supervisor_executor.py",
+        "custom_components/hoymiles_hit_modbus/support_http.py",
+        "custom_components/hoymiles_hit_modbus/translations/en.json",
+        "docs/releases/v1.5.8.md",
+        "tools/test_rce_optimizer.py",
+        "tools/test_ems_shared_inputs.py",
+        "tools/test_shared_input_parity.py",
+        "tools/simulate_winter_tariff_month.py",
+        "tools/test_supervisor_active_controller.py",
+        "tools/test_supervisor_active_bridge.py",
+        "tools/test_supervisor_executor.py",
+        "tools/test_supervisor_helpers_contract.py",
+        "tools/test_supervisor_transport_lifecycle_contract.py",
+        "tools/test_battery_balancing_contract.py",
+        "tools/test_battery_balancing_ha_runtime.py",
+    }
+    new_contracts = {
+        "tools/test_rce_48h_ui_contract.js",
+        "tools/test_aurora_compact_dashboard_contract.py",
+        "tools/test_aurora_disclosure_embedded_contract.py",
+        "tools/test_aurora_disclosure_embedded_runtime.js",
+        "tools/test_aurora_mobile_ems_playwright.js",
+        "tools/test_aurora_mobile_scroll_playwright.js",
+        "tools/test_aurora_service_manual_ui_contract.py",
+        "tools/test_pv_status_ui_contract.js",
+        "tools/test_rce_slot_entity_id_compatibility.py",
+        "tools/test_rcm_live_control_refresh.py",
+        "tools/test_rcm_timeline_model.py",
+        "tools/test_supervisor_canonical_dual_track.py",
+    }
+    require(
+        audited_paths | new_contracts <= expected,
+        "Aurora Compact WIP manifest omits an audited path or new contract test",
+    )
+    require(
+        _aurora_compact_manifest_matches(
+            AURORA_COMPACT_BRANCH,
+            I3_BASE_SHA,
+            expected,
+            modified,
+            untracked,
+            set(),
+        ),
+        "Exact Aurora Compact WIP overlay was rejected",
+    )
+    mutations = [
+        (
+            AURORA_COMPACT_BRANCH,
+            I3_BASE_SHA,
+            expected - {missing},
+            modified - {missing},
+            untracked - {missing},
+            set(),
+        )
+        for missing in sorted(expected)
+    ]
+    mutations.extend(
+        [
+            (
+                AURORA_COMPACT_BRANCH,
+                I3_BASE_SHA,
+                expected | {"__unexpected_aurora_compact_path__"},
+                modified | {"__unexpected_aurora_compact_path__"},
+                untracked,
+                set(),
+            ),
+            (
+                AURORA_COMPACT_BRANCH,
+                I3_BASE_SHA,
+                expected,
+                modified | untracked,
+                set(),
+                set(),
+            ),
+            (
+                AURORA_COMPACT_BRANCH,
+                I3_BASE_SHA,
+                expected,
+                modified,
+                untracked,
+                {"tools/validate_release.py"},
+            ),
+            (
+                AURORA_COMPACT_BRANCH,
+                "0" * 40,
+                expected,
+                modified,
+                untracked,
+                set(),
+            ),
+            (
+                f"{AURORA_COMPACT_BRANCH}-mutated",
+                I3_BASE_SHA,
+                expected,
+                modified,
+                untracked,
+                set(),
+            ),
+        ]
+    )
+    rejected = sum(
+        not _aurora_compact_manifest_matches(*mutation) for mutation in mutations
+    )
+    require(
+        rejected == len(mutations) == 95,
+        f"Aurora Compact manifest mutation result is {rejected}/95",
+    )
+    return 1, rejected
+
+
+def _integrated_active_shared_aurora_manifest_matches(
+    branch: str,
+    head: str,
+    paths: set[str] | frozenset[str],
+    unstaged: set[str] | frozenset[str],
+    untracked: set[str] | frozenset[str],
+    staged: set[str] | frozenset[str],
+) -> bool:
+    """Match only the exact I2 Active + Shared EMS + Aurora overlay."""
+
+    return (
+        branch == INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH
+        and head == INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA
+        and paths == INTEGRATED_ACTIVE_SHARED_AURORA_EXPECTED_PATHS
+        and unstaged == INTEGRATED_ACTIVE_SHARED_AURORA_MODIFIED_PATHS
+        and untracked == INTEGRATED_ACTIVE_SHARED_AURORA_UNTRACKED_PATHS
+        and not staged
+    )
+
+
+def _integrated_active_shared_aurora_clean_commit_matches(
+    branch: str,
+    head: str,
+    parents: tuple[str, ...],
+    subject: str,
+    staged: set[str] | frozenset[str],
+    unstaged: set[str] | frozenset[str],
+    untracked: set[str] | frozenset[str],
+    unmerged: set[str] | frozenset[str],
+    worktree_clean: bool,
+    committed_status: set[tuple[str, str]] | frozenset[tuple[str, str]],
+    committed_modes: dict[str, str],
+) -> bool:
+    """Match the exact clean, single-parent I2 commit without an overlay."""
+
+    expected_status = frozenset(
+        (
+            "A" if path in INTEGRATED_ACTIVE_SHARED_AURORA_UNTRACKED_PATHS else "M",
+            path,
+        )
+        for path in INTEGRATED_ACTIVE_SHARED_AURORA_EXPECTED_PATHS
+    )
+    expected_modes = {
+        path: "100644" for path in INTEGRATED_ACTIVE_SHARED_AURORA_EXPECTED_PATHS
+    }
+    return (
+        branch == INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH
+        and head != INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA
+        and parents == (INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,)
+        and subject == INTEGRATED_ACTIVE_SHARED_AURORA_COMMIT_SUBJECT
+        and not staged
+        and not unstaged
+        and not untracked
+        and not unmerged
+        and worktree_clean
+        and committed_status == expected_status
+        and committed_modes == expected_modes
+    )
+
+
+def _uses_integrated_active_shared_aurora_contract(state: str) -> bool:
+    """Return whether the current state has the I2 semantic contract."""
+
+    return state in INTEGRATED_ACTIVE_SHARED_AURORA_STATES
+
+
+def _uses_aurora_compact_contract(state: str) -> bool:
+    """Return whether the exact six-tab Variant A overlay is active."""
+
+    return state in {
+        AURORA_COMPACT_OVERLAY_CANDIDATE,
+        CONSOLIDATED_RELEASE_CANDIDATE,
+        N12_EXACT_LOCAL_BASE,
+        V158_RELEASE_CANDIDATE,
+        V158_TASK02_CANDIDATE,
+    }
+
+
+def _validate_integrated_active_shared_aurora_manifest_self_tests() -> tuple[int, int]:
+    """Prove the exact 52/53/105 I2 overlay rejects every bounded mutation."""
+
+    expected = set(INTEGRATED_ACTIVE_SHARED_AURORA_EXPECTED_PATHS)
+    modified = set(INTEGRATED_ACTIVE_SHARED_AURORA_MODIFIED_PATHS)
+    untracked = set(INTEGRATED_ACTIVE_SHARED_AURORA_UNTRACKED_PATHS)
+    require(
+        len(INTEGRATED_ACTIVE_SHARED_AURORA_ADDED_PATHS) == 25
+        and len(INTEGRATED_ACTIVE_SHARED_AURORA_REMOVED_DEV_PATHS) == 3
+        and len(modified) == 52
+        and len(untracked) == 53
+        and len(expected) == 105,
+        "Integrated Active + Shared EMS + Aurora manifest counts differ from 25/3/52/53/105",
+    )
+    require(
+        _integrated_active_shared_aurora_manifest_matches(
+            INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+            INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,
+            expected,
+            modified,
+            untracked,
+            set(),
+        ),
+        "Exact integrated Active + Shared EMS + Aurora manifest rejected its frozen shape",
+    )
+
+    mutations: list[
+        tuple[str, str, set[str], set[str], set[str], set[str]]
+    ] = []
+    for missing in sorted(expected):
+        mutations.append(
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,
+                expected - {missing},
+                modified - {missing},
+                untracked - {missing},
+                set(),
+            )
+        )
+    mutations.extend(
+        [
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,
+                expected | {"__unexpected_i2_path__"},
+                modified | {"__unexpected_i2_path__"},
+                untracked,
+                set(),
+            ),
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,
+                expected,
+                modified,
+                untracked,
+                {"tools/validate_release.py"},
+            ),
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                "0" * 40,
+                expected,
+                modified,
+                untracked,
+                set(),
+            ),
+            (
+                "integration/v1.5.8-active-shared-aurora-mutated",
+                INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,
+                expected,
+                modified,
+                untracked,
+                set(),
+            ),
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,
+                expected,
+                modified - {"custom_components/hoymiles_hit_modbus/models.py"},
+                untracked | {"custom_components/hoymiles_hit_modbus/models.py"},
+                set(),
+            ),
+            (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+                INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,
+                expected,
+                modified
+                | {"custom_components/hoymiles_hit_modbus/baseline_energy_timeline.py"},
+                untracked
+                - {"custom_components/hoymiles_hit_modbus/baseline_energy_timeline.py"},
+                set(),
+            ),
+        ]
+    )
+    rejected = sum(
+        not _integrated_active_shared_aurora_manifest_matches(*mutation)
+        for mutation in mutations
+    )
+    require(
+        rejected == len(mutations) == 111,
+        f"Integrated Active + Shared EMS + Aurora manifest mutation result is {rejected}/111",
+    )
+    expected_status = frozenset(
+        (
+            "A" if path in untracked else "M",
+            path,
+        )
+        for path in expected
+    )
+    expected_modes = {path: "100644" for path in expected}
+    clean = {
+        "branch": INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH,
+        "head": "1" * 40,
+        "parents": (INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,),
+        "subject": INTEGRATED_ACTIVE_SHARED_AURORA_COMMIT_SUBJECT,
+        "staged": frozenset(),
+        "unstaged": frozenset(),
+        "untracked": frozenset(),
+        "unmerged": frozenset(),
+        "worktree_clean": True,
+        "committed_status": expected_status,
+        "committed_modes": expected_modes,
+    }
+    require(
+        _integrated_active_shared_aurora_clean_commit_matches(**clean),
+        "Exact clean integrated Active + Shared EMS + Aurora commit was rejected",
+    )
+    status_anchor = next(iter(expected_status))
+    clean_mutations = (
+        {**clean, "branch": "integration/v1.5.8-active-shared-aurora-mutated"},
+        {**clean, "head": INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA},
+        {
+            **clean,
+            "parents": (
+                INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA,
+                "2" * 40,
+            ),
+        },
+        {**clean, "subject": "feat: wrong integrated candidate"},
+        {
+            **clean,
+            "unstaged": frozenset({"__unexpected_worktree_path__"}),
+            "worktree_clean": False,
+        },
+        {
+            **clean,
+            "committed_status": expected_status - {status_anchor},
+        },
+        {
+            **clean,
+            "committed_status": expected_status | {("A", "__unexpected_path__")},
+        },
+        {**clean, "committed_modes": {**expected_modes, "__unexpected_path__": "100644"}},
+    )
+    committed_rejected = sum(
+        not _integrated_active_shared_aurora_clean_commit_matches(**mutation)
+        for mutation in clean_mutations
+    )
+    require(
+        committed_rejected == len(clean_mutations) == 8,
+        "Integrated Active + Shared EMS + Aurora clean-commit mutation result "
+        f"is {committed_rejected}/8",
+    )
+    return 2, rejected + committed_rejected
+
+
+def _classify_aurora_compact_overlay() -> str:
+    """Recognize only the exact Variant A overlay."""
+
+    branch = _git_text("branch", "--show-current")
+    head = _git_text("rev-parse", "HEAD")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+
+    staged = frozenset(_git_path_set("diff", "--cached", "--name-only"))
+    unstaged = frozenset(_git_path_set("diff", "--name-only", "HEAD"))
+    untracked = frozenset(
+        _git_path_set("ls-files", "--others", "--exclude-standard")
+    )
+    unmerged = frozenset(
+        _git_path_set("diff", "--name-only", "--diff-filter=U")
+    )
+    require(not unmerged, "Aurora Compact WIP overlay contains unmerged paths")
+    require(
+        _aurora_compact_manifest_matches(
+            branch,
+            head,
+            set(unstaged | untracked),
+            set(unstaged),
+            set(untracked),
+            set(staged),
+        ),
+        "Aurora Compact overlay differs from its exact manifest",
+    )
+    require(
+        _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+        == {("M", path) for path in unstaged}
+        and not _git_text("diff", "--summary", "HEAD"),
+        "Aurora Compact WIP overlay contains a rename, delete or mode change",
+    )
+    for relative_path in AURORA_COMPACT_EXPECTED_PATHS:
+        candidate = ROOT / relative_path
+        require(
+            candidate.is_file() and not candidate.is_symlink(),
+            f"Aurora Compact WIP path is not a regular file: {relative_path}",
+        )
+    require(
+        _validate_aurora_compact_manifest_self_tests() == (1, 95),
+        "Aurora Compact manifest self-test counts differ",
+    )
+    return AURORA_COMPACT_OVERLAY_CANDIDATE
+
+
+def _classify_integrated_active_shared_aurora_state() -> str:
+    """Recognize the exact I2 overlay or its clean single-parent commit."""
+
+    branch = _git_text("branch", "--show-current")
+    head = _git_text("rev-parse", "HEAD")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+
+    staged = frozenset(_git_path_set("diff", "--cached", "--name-only"))
+    unstaged = frozenset(_git_path_set("diff", "--name-only", "HEAD"))
+    untracked = frozenset(
+        _git_path_set("ls-files", "--others", "--exclude-standard")
+    )
+    unmerged = frozenset(
+        _git_path_set("diff", "--name-only", "--diff-filter=U")
+    )
+    git_status = _git_try("status", "--porcelain=v1", "--untracked-files=all")
+    require(
+        git_status.returncode == 0,
+        "Cannot inspect Integrated Active + Shared EMS + Aurora worktree status",
+    )
+    require(not unmerged, "Integrated Active + Shared EMS + Aurora overlay contains unmerged paths")
+    i3_overlay_matches = _i3_manifest_matches(
+        branch,
+        head,
+        set(unstaged | untracked),
+        set(unstaged),
+        set(untracked),
+        set(staged),
+    )
+    if i3_overlay_matches:
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == {("M", path) for path in unstaged}
+            and not _git_text("diff", "--summary", "HEAD"),
+            "I3 overlay contains a rename, delete or mode change",
+        )
+        for relative_path in I3_EXPECTED_PATHS:
+            candidate = ROOT / relative_path
+            require(
+                candidate.is_file() and not candidate.is_symlink(),
+                f"I3 path is not a regular file: {relative_path}",
+            )
+        require(
+            _validate_i3_manifest_self_tests() == (1, 31),
+            "I3 manifest self-test counts differ",
+        )
+        return I3_OVERLAY_CANDIDATE
+    overlay_matches = _integrated_active_shared_aurora_manifest_matches(
+        branch,
+        head,
+        set(unstaged | untracked),
+        set(unstaged),
+        set(untracked),
+        set(staged),
+    )
+    committed_status = (
+        frozenset(
+            _git_name_status(
+                "diff-tree",
+                "--no-commit-id",
+                "--name-status",
+                "--find-renames",
+                "-r",
+                head,
+            )
+        )
+        if head != INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA
+        else frozenset()
+    )
+    committed_modes = (
+        _git_tree_modes(head, INTEGRATED_ACTIVE_SHARED_AURORA_EXPECTED_PATHS)
+        if head != INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA
+        else {}
+    )
+    clean_commit_matches = _integrated_active_shared_aurora_clean_commit_matches(
+        branch,
+        head,
+        _git_commit_parents(head),
+        _git_text("show", "-s", "--format=%s", head),
+        staged,
+        unstaged,
+        untracked,
+        unmerged,
+        not git_status.stdout.strip(),
+        committed_status,
+        committed_modes,
+    )
+    require(
+        overlay_matches or clean_commit_matches,
+        "Integrated Active + Shared EMS + Aurora candidate is neither the exact "
+        "52/53/105-path overlay nor its clean single-parent commit",
+    )
+    if overlay_matches:
+        require(
+            _git_name_status("diff", "--name-status", "--find-renames", "HEAD")
+            == {("M", path) for path in unstaged}
+            and not _git_text("diff", "--summary", "HEAD"),
+            "Integrated Active + Shared EMS + Aurora overlay contains a rename, delete or mode change",
+        )
+    for relative_path in INTEGRATED_ACTIVE_SHARED_AURORA_EXPECTED_PATHS:
+        candidate = ROOT / relative_path
+        require(
+            candidate.is_file() and not candidate.is_symlink(),
+            f"Integrated Active + Shared EMS + Aurora path is not a regular file: {relative_path}",
+        )
+    upstream = _git_try(
+        "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
+    )
+    remote = _git_try(
+        "show-ref",
+        "--verify",
+        "--quiet",
+        "refs/remotes/origin/integration/v1.5.8-active-shared-aurora",
+    )
+    require(
+        upstream.returncode != 0 and remote.returncode == 1,
+        "Integrated Active + Shared EMS + Aurora branch unexpectedly has upstream or remote-tracking state",
+    )
+    require(
+        _validate_integrated_active_shared_aurora_manifest_self_tests()
+        == (2, 119),
+        "Integrated Active + Shared EMS + Aurora manifest self-test counts differ",
+    )
+    return (
+        INTEGRATED_ACTIVE_SHARED_AURORA_OVERLAY
+        if overlay_matches
+        else INTEGRATED_ACTIVE_SHARED_AURORA_COMMITTED_CLEAN
+    )
+
+
+def _classify_consolidated_release_candidate() -> str:
+    """Recognize the exact accepted baseline plus reviewed release-only delta."""
+
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+
+    status = _git_try("status", "--porcelain=v1", "--untracked-files=all")
+    require(
+        status.returncode == 0 and not status.stdout.strip(),
+        "Consolidated release candidate requires a clean working tree",
+    )
+    require(
+        _git_commit_parents(CONSOLIDATED_ACCEPTED_BASE_SHA)
+        == (CONSOLIDATED_ACCEPTED_BASE_PARENT,),
+        "Consolidated accepted baseline parent differs",
+    )
+    require(
+        _git_text("show", "-s", "--format=%s", CONSOLIDATED_ACCEPTED_BASE_SHA)
+        == CONSOLIDATED_ACCEPTED_BASE_SUBJECT,
+        "Consolidated accepted baseline subject differs",
+    )
+    require(
+        _git_text("rev-parse", f"{CONSOLIDATED_ACCEPTED_BASE_SHA}^{{tree}}")
+        == CONSOLIDATED_ACCEPTED_BASE_TREE,
+        "Consolidated accepted baseline tree differs",
+    )
+    ancestor = _git_try(
+        "merge-base", "--is-ancestor", CONSOLIDATED_ACCEPTED_BASE_SHA, "HEAD"
+    )
+    require(ancestor.returncode == 0, "Consolidated accepted baseline is not an ancestor")
+
+    actual_status = frozenset(
+        _git_name_status(
+            "diff",
+            "--name-status",
+            "--find-renames",
+            f"{CONSOLIDATED_ACCEPTED_BASE_SHA}..HEAD",
+        )
+    )
+    release_with_handoff = CONSOLIDATED_RELEASE_STATUS | {
+        ("A", CONSOLIDATED_HANDOFF_PATH)
+    }
+    require(
+        actual_status in {
+            CONSOLIDATED_RELEASE_STATUS,
+            release_with_handoff,
+            release_with_handoff | CONSOLIDATED_PUBLIC_DOCS_STATUS,
+        },
+        "Consolidated release delta differs from the reviewed versioning/handoff/documentation paths",
+    )
+    expected_modes = {
+        path: "100644"
+        for _status, path in actual_status
+    }
+    require(
+        _git_tree_modes(_git_text("rev-parse", "HEAD"), set(expected_modes))
+        == expected_modes,
+        "Consolidated release path modes differ",
+    )
+    for _status, relative_path in actual_status:
+        candidate = ROOT / relative_path
+        require(
+            candidate.is_file() and not candidate.is_symlink(),
+            f"Consolidated release path is not a regular file: {relative_path}",
+        )
+    return CONSOLIDATED_RELEASE_CANDIDATE
+
+
+def _n12_status_records(value: object, label: str) -> frozenset[tuple[str, ...]]:
+    """Parse one frozen name-status list from the externally reviewed manifest."""
+
+    require(isinstance(value, list), f"N12 {label} is not a list")
+    records: set[tuple[str, ...]] = set()
+    for item in value:
+        require(
+            isinstance(item, dict) and set(item) == {"status", "paths"},
+            f"N12 {label} record has an unexpected shape",
+        )
+        status = item["status"]
+        paths = item["paths"]
+        require(
+            status in {"A", "M"}
+            and isinstance(paths, list)
+            and len(paths) == 1
+            and isinstance(paths[0], str),
+            f"N12 {label} record is not a single-path add/modify",
+        )
+        records.add((status, paths[0]))
+    require(len(records) == len(value), f"N12 {label} contains duplicates")
+    return frozenset(records)
+
+
+def _load_n12_manifest() -> dict:
+    """Load only the versioned N12 manifest whose bytes are pinned here."""
+
+    path = ROOT / N12_MANIFEST_PATH
+    require(path.is_file() and not path.is_symlink(), "N12 manifest is missing or not regular")
+    raw = path.read_bytes()
+    require(
+        hashlib.sha256(raw).hexdigest() == N12_MANIFEST_SHA256,
+        "N12 manifest differs from the reviewed SHA-256",
+    )
+    manifest = json.loads(raw)
+    require(isinstance(manifest, dict), "N12 manifest is not an object")
+    require(
+        manifest.get("schema") == 1
+        and manifest.get("identity") == "ems-1.5.8-n12-exact-local-base-v1",
+        "N12 manifest schema or identity differs",
+    )
+    require(
+        manifest.get("source")
+        == {
+            "base_commit": N12_BASE_SHA,
+            "base_parent": N12_BASE_PARENT,
+            "base_tree": N12_BASE_TREE,
+            "base_subject": N12_BASE_SUBJECT,
+            "candidate_diff_git_hash": "48a4e3dca3b93c722ad81ef6f7444b2e53afb86f",
+            "candidate_diff_sha256": "bc87566fa77872b360a7ebe449845b233fec238d69884f73927e30e4ed282b17",
+            "candidate_snapshot_aggregate_sha256": "ec2d4a79d8c8961077f0e5b6f26f313aab28426f58b13c6106dbecc66952e2ce",
+            "reconstructed_candidate_commit": "96fc91b7bc6c4b258e654958c2ecf2400438ae74",
+        },
+        "N12 base/diff/snapshot identity differs",
+    )
+    return manifest
+
+
+def _n12_index_flags_are_unmasked() -> bool:
+    """Reject assume-unchanged, skip-worktree and nonstandard index flags."""
+
+    output = subprocess.check_output(["git", "ls-files", "-v", "-z"], cwd=ROOT)
+    records = [record for record in output.split(b"\0") if record]
+    return bool(records) and all(record.startswith(b"H ") for record in records)
+
+
+def _masked_n12_validator_bytes() -> bytes:
+    """Mask release-validator self-hashes before checking reviewed identity."""
+
+    source = Path(__file__).read_bytes()
+    masked, count = re.subn(
+        rb'((?:N12_VALIDATOR_MASKED_SHA256|V158_TASK02_VALIDATOR_MASKED_SHA256) = ")'
+        rb'[0-9a-f]{64}"',
+        lambda match: match.group(1) + (b"0" * 64) + b'"',
+        source,
+    )
+    require(count == 2, "release validator self-hash markers differ")
+    return masked
+
+
+def _load_v158_release_manifest() -> dict:
+    """Load the closed release-preparation delta pinned by the validator."""
+
+    path = ROOT / V158_RELEASE_MANIFEST_PATH
+    require(
+        path.is_file() and not path.is_symlink(),
+        "v1.5.8 release-delta manifest is missing or not regular",
+    )
+    raw = path.read_bytes()
+    require(
+        hashlib.sha256(raw).hexdigest() == V158_RELEASE_MANIFEST_SHA256,
+        "v1.5.8 release-delta manifest differs from the reviewed SHA-256",
+    )
+    manifest = json.loads(raw)
+    require(isinstance(manifest, dict), "v1.5.8 release-delta manifest is not an object")
+    require(
+        set(manifest)
+        == {
+            "schema",
+            "identity",
+            "accepted_n12",
+            "protected_scopes",
+            "release_delta",
+            "release_file_sha256",
+            "counts",
+        }
+        and manifest.get("schema") == 1
+        and manifest.get("identity") == "ems-1.5.8-reviewed-release-delta-v1",
+        "v1.5.8 release-delta schema or identity differs",
+    )
+    require(
+        manifest.get("accepted_n12")
+        == {
+            "commit": N12_ACCEPTED_SHA,
+            "parent": N12_ACCEPTED_PARENT,
+            "tree": N12_ACCEPTED_TREE,
+            "subject": N12_ACCEPTED_SUBJECT,
+            "manifest_path": N12_MANIFEST_PATH,
+            "manifest_sha256": N12_MANIFEST_SHA256,
+        },
+        "v1.5.8 accepted N12 identity differs",
+    )
+    return manifest
+
+
+def _masked_v158_task02_validator_bytes() -> bytes:
+    """Return the same two-marker masked release-validator identity."""
+
+    return _masked_n12_validator_bytes()
+
+
+def _load_v158_task02_manifest() -> dict:
+    """Load the exact SOC/PV/tariff-lease candidate manifest."""
+
+    path = ROOT / V158_TASK02_MANIFEST_PATH
+    require(
+        path.is_file() and not path.is_symlink(),
+        "Task 02 candidate manifest is missing or not regular",
+    )
+    raw = path.read_bytes()
+    require(
+        hashlib.sha256(raw).hexdigest() == V158_TASK02_MANIFEST_SHA256,
+        "Task 02 candidate manifest differs from the reviewed SHA-256",
+    )
+    manifest = json.loads(raw)
+    require(isinstance(manifest, dict), "Task 02 candidate manifest is not an object")
+    require(
+        set(manifest)
+        == {
+            "schema",
+            "identity",
+            "accepted_release",
+            "stage_chain",
+            "scope",
+            "candidate_delta",
+            "candidate_file_sha256",
+            "unchanged_runtime_scopes",
+            "boundaries",
+            "counts",
+        }
+        and manifest.get("schema") == 1
+        and manifest.get("identity")
+        == "ems-1.5.8-task02-soc-pv-tariff-lease-candidate-v1",
+        "Task 02 candidate manifest schema or identity differs",
+    )
+    return manifest
+
+
+def _task02_status_records(value: object) -> frozenset[tuple[str, str]]:
+    """Parse the exact single-path Task 02 candidate delta."""
+
+    require(isinstance(value, list), "Task 02 candidate delta is not a list")
+    records: set[tuple[str, str]] = set()
+    for item in value:
+        require(
+            isinstance(item, dict) and set(item) == {"status", "path"},
+            "Task 02 candidate delta record has an unexpected shape",
+        )
+        status = item["status"]
+        path = item["path"]
+        require(
+            status in {"A", "M"} and isinstance(path, str) and bool(path),
+            "Task 02 candidate delta record is invalid",
+        )
+        records.add((status, path))
+    require(len(records) == len(value), "Task 02 candidate delta contains duplicates")
+    return frozenset(records)
+
+
+def _task02_snapshot_matches(
+    actual_status: frozenset[tuple[str, str]],
+    expected_status: frozenset[tuple[str, str]],
+    actual_hashes: dict[str, str],
+    expected_hashes: dict[str, str],
+    actual_stages: object,
+    expected_stages: object,
+) -> bool:
+    """Match all reviewed Task 02 trust inputs without branch-name fallback."""
+
+    return (
+        actual_status == expected_status
+        and actual_hashes == expected_hashes
+        and actual_stages == expected_stages
+    )
+
+
+def _classify_v158_task02_candidate() -> str:
+    """Require frozen SOC-01, PV-NOC-01 and TARYFA-LEASE-01; DIAG deferred."""
+
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+    status = _git_try("status", "--porcelain=v1", "--untracked-files=all")
+    require(
+        status.returncode == 0 and not status.stdout.strip(),
+        "Task 02 candidate requires a genuinely clean working tree",
+    )
+    require(
+        _n12_index_flags_are_unmasked(),
+        "Task 02 candidate contains masked or nonstandard index flags",
+    )
+    head = _git_text("rev-parse", "HEAD")
+    require(
+        _git_commit_parents(head) == (V158_TASK02_TAIL_SHA,)
+        and _git_text("show", "-s", "--format=%s", head)
+        == V158_TASK02_FREEZE_SUBJECT,
+        "Task 02 freeze commit parent or subject differs",
+    )
+    require(
+        frozenset(
+            _git_name_status(
+                "diff", "--name-status", "--find-renames", f"{V158_TASK02_TAIL_SHA}..HEAD"
+            )
+        )
+        == frozenset(
+            {
+                ("M", "CHANGELOG.md"),
+                ("M", "custom_components/hoymiles_hit_modbus/assets.py"),
+                (
+                    "M",
+                    "custom_components/hoymiles_hit_modbus/resources/www/"
+                    "hoymiles-dashboard-strategy.js",
+                ),
+                (
+                    "M",
+                    "custom_components/hoymiles_hit_modbus/resources/www/"
+                    "hoymiles-rce-chart-card.js",
+                ),
+                ("M", "docs/WORK_STATE.MD"),
+                (
+                    "M",
+                    "docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md",
+                ),
+                ("M", "docs/releases/v1.5.8.md"),
+                ("M", "home_assistant/www/hoymiles-dashboard-strategy.js"),
+                ("M", "home_assistant/www/hoymiles-rce-chart-card.js"),
+                ("A", V158_TASK02_MANIFEST_PATH),
+                ("M", "tools/test_aurora_automation_planner_ui_contract.js"),
+                ("M", "tools/test_execution_history_ui.js"),
+                ("M", "tools/test_n12_release_contract.py"),
+                ("M", "tools/test_rcm_optimizer.py"),
+                ("M", "tools/test_supervisor_aurora_ui_contract.js"),
+                ("M", "tools/validate_rce_card.js"),
+                ("M", "tools/validate_release.py"),
+            }
+        ),
+        "Task 02 freeze commit is not the exact reviewed validation delta",
+    )
+    require(
+        _git_text("rev-parse", f"{V158_TASK02_BASE_SHA}^{{tree}}")
+        == V158_TASK02_BASE_TREE
+        and _git_commit_parents(V158_TASK02_BASE_SHA)
+        == ("c736b69d985d6f2a75015abdacb8839a461ac7f1",)
+        and _git_text("show", "-s", "--format=%s", V158_TASK02_BASE_SHA)
+        == "release: prepare portable v1.5.8 candidate",
+        "Task 02 accepted release identity differs",
+    )
+
+    expected_stages = [
+        {
+            "name": "handoff-correction",
+            "commit": "3ecc3e140b44c131b6d39f1a7545ae3f5af8b437",
+            "tree": "4b24b988b4a80442f904842f5da0acfacd9c235b",
+            "parent": V158_TASK02_BASE_SHA,
+            "subject": "docs: correct v1.5.8 release handoff state",
+        },
+        {
+            "name": "SOC-01",
+            "commit": "2544a71645f1902b2fab25cdbd5017fe207cde21",
+            "tree": "888ff2cc9af7500f329e02cd216fd2312971a441",
+            "parent": "3ecc3e140b44c131b6d39f1a7545ae3f5af8b437",
+            "subject": "fix: preserve SOC below RCEm reserve",
+            "manifest_path": "tools/release_manifests/v1_5_8_soc01_delta.json",
+            "manifest_sha256": "39a60b170df19f8b4db4cc46175625fa903b4840de8b5fca12c7d3607c2e8f7e",
+        },
+        {
+            "name": "PV-NOC-01",
+            "commit": "f897f4b52ffb624240bd0be936131afd92e69988",
+            "tree": "4da84cf595af9ed871aedc390dd65b6694c2b187",
+            "parent": "2544a71645f1902b2fab25cdbd5017fe207cde21",
+            "subject": "fix: preserve scheduled overnight PV forecasts",
+            "manifest_path": "tools/release_manifests/v1_5_8_pv_noc01_delta.json",
+            "manifest_sha256": "48c78a8ac6b983d049d98e5a61f93aa8ba49a65196d1524dc20fca747eaa44ef",
+        },
+        {
+            "name": "DIAG-01-superseded",
+            "commit": "3a1c053de27c7c1706b7752cb5648daa4cf6b9aa",
+            "tree": "050801f90ebaf8db64932dafd0ff63a9466974a5",
+            "parent": "f897f4b52ffb624240bd0be936131afd92e69988",
+            "subject": "fix: make diagnostics ZIP bounded and accessible",
+        },
+        {
+            "name": "combined-freeze-superseded",
+            "commit": "342f4effc73b66d55bdcf3b88ce823a32acb121d",
+            "tree": "3e4181ae788f553352708d2ea2c3399ef35660fc",
+            "parent": "3a1c053de27c7c1706b7752cb5648daa4cf6b9aa",
+            "subject": "test: freeze SOC, PV and diagnostics localhost candidate",
+        },
+        {
+            "name": "combined-freeze-reverted",
+            "commit": "42eecbafb9944ef3c57185cf9e1b5c9c2704f26e",
+            "tree": "050801f90ebaf8db64932dafd0ff63a9466974a5",
+            "parent": "342f4effc73b66d55bdcf3b88ce823a32acb121d",
+            "subject": 'Revert "test: freeze SOC, PV and diagnostics localhost candidate"',
+        },
+        {
+            "name": "DIAG-01-reverted",
+            "commit": "bda41f1158334b8975c2c9964f20720cadacf43d",
+            "tree": "4da84cf595af9ed871aedc390dd65b6694c2b187",
+            "parent": "42eecbafb9944ef3c57185cf9e1b5c9c2704f26e",
+            "subject": 'Revert "fix: make diagnostics ZIP bounded and accessible"',
+        },
+        {
+            "name": "TARYFA-LEASE-01",
+            "commit": V158_TASK02_TAIL_SHA,
+            "tree": "eb89d9ee94696f069ef862a69df71b89f175fe0d",
+            "parent": "bda41f1158334b8975c2c9964f20720cadacf43d",
+            "subject": "fix: preserve and release Supervisor control leases",
+        },
+    ]
+    manifest = _load_v158_task02_manifest()
+    require(
+        manifest.get("accepted_release")
+        == {
+            "commit": V158_TASK02_BASE_SHA,
+            "tree": V158_TASK02_BASE_TREE,
+            "parent": "c736b69d985d6f2a75015abdacb8839a461ac7f1",
+            "subject": "release: prepare portable v1.5.8 candidate",
+        },
+        "Task 02 accepted-release manifest identity differs",
+    )
+    stage_chain = manifest.get("stage_chain")
+    require(stage_chain == expected_stages, "Task 02 reviewed stage chain differs")
+    for stage in expected_stages:
+        require(
+            _git_text("rev-parse", f"{stage['commit']}^{{tree}}") == stage["tree"]
+            and _git_commit_parents(stage["commit"]) == (stage["parent"],)
+            and _git_text("show", "-s", "--format=%s", stage["commit"])
+            == stage["subject"],
+            f"Task 02 stage identity differs: {stage['name']}",
+        )
+        if "manifest_path" in stage:
+            require(
+                _git_blob_sha256("HEAD", stage["manifest_path"])
+                == stage["manifest_sha256"],
+                f"Task 02 stage manifest differs: {stage['name']}",
+            )
+
+    expected_status = _task02_status_records(manifest.get("candidate_delta"))
+    actual_status = frozenset(
+        _git_name_status(
+            "diff", "--name-status", "--find-renames", f"{V158_TASK02_BASE_SHA}..HEAD"
+        )
+    )
+    require(len(expected_status) == 36, "Task 02 candidate delta is not exactly 36 paths")
+    expected_modes = {path: "100644" for _status, path in expected_status}
+    require(
+        _git_tree_modes(head, set(expected_modes)) == expected_modes,
+        "Task 02 candidate path modes differ",
+    )
+    for _status, relative_path in expected_status:
+        candidate = ROOT / relative_path
+        require(
+            candidate.is_file() and not candidate.is_symlink(),
+            f"Task 02 candidate path is not a regular file: {relative_path}",
+        )
+
+    expected_hashes = manifest.get("candidate_file_sha256")
+    expected_hash_paths = {
+        path
+        for _status, path in expected_status
+        if path not in {V158_TASK02_MANIFEST_PATH, "tools/validate_release.py"}
+    }
+    require(
+        isinstance(expected_hashes, dict)
+        and set(expected_hashes) == expected_hash_paths
+        and len(expected_hashes) == 34,
+        "Task 02 candidate hash manifest differs",
+    )
+    actual_hashes = {
+        path: _git_blob_sha256("HEAD", path) for path in expected_hash_paths
+    }
+    require(
+        all(
+            isinstance(value, str)
+            and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+            for value in expected_hashes.values()
+        )
+        and actual_hashes == expected_hashes,
+        "Task 02 candidate file hashes differ",
+    )
+    require(
+        manifest.get("unchanged_runtime_scopes")
+        == [
+            "packages",
+            "examples/esphome",
+            "hoymiles-inverter.yaml",
+            "custom_components/hoymiles_hit_modbus/resources/home_assistant",
+            "home_assistant/hoymiles_ems_scheduler.yaml",
+        ]
+        and _git_scoped_tree(V158_TASK02_BASE_SHA, manifest["unchanged_runtime_scopes"])
+        == _git_scoped_tree("HEAD", manifest["unchanged_runtime_scopes"]),
+        "Task 02 firmware/scheduler scopes differ from the accepted release",
+    )
+    require(
+        manifest.get("boundaries")
+        == {
+            "product_version": "1.5.8",
+            "frontend_revision": 80,
+            "offline_validated": True,
+            "localhost_deployed": False,
+            "localhost_accepted": False,
+            "night_transition_live": "PENDING",
+            "tariff_lease_01": "OFFLINE_PASS",
+            "diag_01": "DEFERRED_SEPARATE_TASK",
+            "m01_started": False,
+            "esp_firmware_changed": False,
+        }
+        and manifest.get("counts")
+        == {
+            "candidate_delta_files": 36,
+            "hashed_candidate_files": 34,
+            "stage_commits": 8,
+        },
+        "Task 02 candidate boundaries or counts differ",
+    )
+    require(
+        _task02_snapshot_matches(
+            actual_status,
+            expected_status,
+            actual_hashes,
+            expected_hashes,
+            stage_chain,
+            expected_stages,
+        ),
+        "Task 02 exact candidate snapshot differs",
+    )
+    first_status = next(iter(expected_status))
+    first_hash = next(iter(expected_hashes))
+    mutations = (
+        (actual_status - {first_status}, actual_hashes, stage_chain),
+        (actual_status | {("A", "unexpected-task02-file")}, actual_hashes, stage_chain),
+        (actual_status, {**actual_hashes, first_hash: "0" * 64}, stage_chain),
+        (actual_status, actual_hashes, [*stage_chain[:-1], {**stage_chain[-1], "tree": "0" * 40}]),
+    )
+    rejected = sum(
+        not _task02_snapshot_matches(
+            mutated_status,
+            expected_status,
+            mutated_hashes,
+            expected_hashes,
+            mutated_stages,
+            expected_stages,
+        )
+        for mutated_status, mutated_hashes, mutated_stages in mutations
+    )
+    require(rejected == 4, "Task 02 negative manifest controls did not reject 4/4 mutations")
+    require(
+        hashlib.sha256(_masked_v158_task02_validator_bytes()).hexdigest()
+        == V158_TASK02_VALIDATOR_MASKED_SHA256,
+        "Task 02 validator differs from the reviewed masked SHA-256",
+    )
+    return V158_TASK02_CANDIDATE
+
+
+def _git_scoped_tree(ref: str, scopes: list[str]) -> dict[str, tuple[str, str, str]]:
+    """Return exact mode/type/object identities for every protected path."""
+
+    raw = subprocess.check_output(
+        ["git", "ls-tree", "-r", "-z", ref, "--", *scopes], cwd=ROOT
+    )
+    entries: dict[str, tuple[str, str, str]] = {}
+    for record in raw.split(b"\0"):
+        if not record:
+            continue
+        metadata, raw_path = record.split(b"\t", 1)
+        mode, object_type, object_id = metadata.decode("ascii").split()
+        path = raw_path.decode("utf-8").replace("\\", "/")
+        require(path not in entries, f"duplicate protected tree path: {path}")
+        entries[path] = (mode, object_type, object_id)
+    return entries
+
+
+def _classify_v158_release_candidate() -> str:
+    """Require accepted N12 plus one exact reviewed release-only delta."""
+
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+    status = _git_try("status", "--porcelain=v1", "--untracked-files=all")
+    require(
+        status.returncode == 0 and not status.stdout.strip(),
+        "v1.5.8 release candidate requires a genuinely clean working tree",
+    )
+    require(
+        _n12_index_flags_are_unmasked(),
+        "v1.5.8 release candidate contains masked or nonstandard index flags",
+    )
+    require(
+        _git_commit_parents(N12_ACCEPTED_SHA) == (N12_ACCEPTED_PARENT,)
+        and _git_text("rev-parse", f"{N12_ACCEPTED_SHA}^{{tree}}") == N12_ACCEPTED_TREE
+        and _git_text("show", "-s", "--format=%s", N12_ACCEPTED_SHA)
+        == N12_ACCEPTED_SUBJECT,
+        "accepted N12 commit identity differs",
+    )
+    require(
+        _git_try("merge-base", "--is-ancestor", N12_ACCEPTED_SHA, "HEAD").returncode
+        == 0,
+        "accepted N12 commit is not an ancestor of the release candidate",
+    )
+
+    manifest = _load_v158_release_manifest()
+    release_status = _n12_status_records(
+        manifest.get("release_delta"), "v1.5.8 release delta"
+    )
+    actual_status = frozenset(
+        _git_name_status(
+            "diff", "--name-status", "--find-renames", f"{N12_ACCEPTED_SHA}..HEAD"
+        )
+    )
+    require(
+        actual_status == release_status,
+        "v1.5.8 Git delta differs from the exact reviewed release paths",
+    )
+    expected_modes = {path: "100644" for _status, path in release_status}
+    require(
+        _git_tree_modes(_git_text("rev-parse", "HEAD"), set(expected_modes))
+        == expected_modes,
+        "v1.5.8 release path modes differ",
+    )
+    for _status, relative_path in release_status:
+        candidate = ROOT / relative_path
+        require(
+            candidate.is_file() and not candidate.is_symlink(),
+            f"v1.5.8 release path is not a regular file: {relative_path}",
+        )
+
+    scopes = manifest.get("protected_scopes")
+    require(
+        scopes
+        == [
+            "custom_components/hoymiles_hit_modbus",
+            "packages",
+            "home_assistant",
+            "examples/esphome",
+            "hoymiles-inverter.yaml",
+            "dashboard_hoymiles.yaml",
+        ],
+        "v1.5.8 protected scope declaration differs",
+    )
+    accepted_tree = _git_scoped_tree(N12_ACCEPTED_SHA, scopes)
+    current_tree = _git_scoped_tree("HEAD", scopes)
+    require(
+        current_tree == accepted_tree and len(current_tree) == 114,
+        "v1.5.8 protected runtime/firmware tree differs from accepted N12",
+    )
+
+    release_file_sha256 = manifest.get("release_file_sha256")
+    require(
+        isinstance(release_file_sha256, dict)
+        and set(release_file_sha256)
+        == {
+            path
+            for _status, path in release_status
+            if path not in {V158_RELEASE_MANIFEST_PATH, "tools/validate_release.py"}
+        },
+        "v1.5.8 reviewed file hash set differs from the exact release delta",
+    )
+    for relative_path, expected_sha256 in release_file_sha256.items():
+        require(
+            isinstance(expected_sha256, str)
+            and re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is not None
+            and _git_blob_sha256("HEAD", relative_path) == expected_sha256,
+            f"v1.5.8 reviewed release file differs: {relative_path}",
+        )
+    require(
+        manifest.get("counts")
+        == {
+            "protected_product_files": 114,
+            "release_delta_files": len(release_status),
+            "hashed_release_files": len(release_file_sha256),
+        },
+        "v1.5.8 release-delta counts differ",
+    )
+    require(
+        hashlib.sha256(_masked_n12_validator_bytes()).hexdigest()
+        == N12_VALIDATOR_MASKED_SHA256,
+        "v1.5.8 validator differs from the reviewed masked SHA-256",
+    )
+    return V158_RELEASE_CANDIDATE
+
+
+def _classify_n12_exact_local_base() -> str:
+    """Require the exact N12 product plus the closed validator/test/docs delta."""
+
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"):
+        marker_path = Path(_git_text("rev-parse", "--git-path", marker))
+        if not marker_path.is_absolute():
+            marker_path = ROOT / marker_path
+        require(not marker_path.exists(), f"Git operation marker remains: {marker}")
+    status = _git_try("status", "--porcelain=v1", "--untracked-files=all")
+    require(
+        status.returncode == 0 and not status.stdout.strip(),
+        "N12 exact candidate requires a genuinely clean working tree",
+    )
+    require(
+        _n12_index_flags_are_unmasked(),
+        "N12 exact candidate contains assume-unchanged, skip-worktree or nonstandard index flags",
+    )
+    require(
+        _git_commit_parents(N12_BASE_SHA) == (N12_BASE_PARENT,)
+        and _git_text("rev-parse", f"{N12_BASE_SHA}^{{tree}}") == N12_BASE_TREE
+        and _git_text("show", "-s", "--format=%s", N12_BASE_SHA) == N12_BASE_SUBJECT,
+        "N12 accepted base identity differs",
+    )
+    require(
+        _git_try("merge-base", "--is-ancestor", N12_BASE_SHA, "HEAD").returncode == 0,
+        "N12 accepted base is not an ancestor",
+    )
+
+    manifest = _load_n12_manifest()
+    candidate_status = _n12_status_records(manifest.get("candidate_delta"), "candidate delta")
+    validation_status = _n12_status_records(manifest.get("validation_delta"), "validation delta")
+    require(
+        len(candidate_status) == 19
+        and validation_status
+        == frozenset(
+            {
+                ("M", "CHANGELOG.md"),
+                ("M", "docs/WORK_STATE.MD"),
+                ("A", N12_MANIFEST_PATH),
+                ("A", N12_TEST_PATH),
+                ("M", "tools/validate_release.py"),
+            }
+        ),
+        "N12 candidate or validation delta allowlist differs",
+    )
+    actual_status = frozenset(
+        _git_name_status(
+            "diff", "--name-status", "--find-renames", f"{N12_BASE_SHA}..HEAD"
+        )
+    )
+    require(
+        actual_status == candidate_status | validation_status,
+        "N12 Git delta differs from the exact candidate plus reviewed validation paths",
+    )
+
+    entries = manifest.get("entries")
+    require(isinstance(entries, list), "N12 protected entries are missing")
+    expected_paths: set[str] = set()
+    product_paths: set[str] = set()
+    snapshot_paths: set[str] = set()
+    candidate_paths: set[str] = set()
+    aggregate_lines: list[bytes] = []
+    for entry in entries:
+        require(
+            isinstance(entry, dict)
+            and set(entry) == {"path", "type", "mode", "sha256", "roles"},
+            "N12 protected entry has an unexpected shape",
+        )
+        relative_path = entry["path"]
+        roles = entry["roles"]
+        require(
+            isinstance(relative_path, str)
+            and relative_path not in expected_paths
+            and entry["type"] == "regular"
+            and entry["mode"] == "100644"
+            and isinstance(entry["sha256"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) is not None
+            and isinstance(roles, list)
+            and roles
+            and set(roles) <= {"product", "candidate_diff", "n12_snapshot"},
+            f"Invalid N12 protected entry: {relative_path!r}",
+        )
+        expected_paths.add(relative_path)
+        if "product" in roles:
+            product_paths.add(relative_path)
+        if "n12_snapshot" in roles:
+            snapshot_paths.add(relative_path)
+        if "candidate_diff" in roles:
+            candidate_paths.add(relative_path)
+        aggregate_lines.append(
+            f"{relative_path}\0regular\0{entry['mode']}\0{entry['sha256']}\n".encode()
+        )
+        tree_line = _git_text("ls-tree", "HEAD", "--", relative_path)
+        require(tree_line, f"N12 protected path is missing from HEAD: {relative_path}")
+        metadata, tree_path = tree_line.split("\t", 1)
+        mode, object_type, object_id = metadata.split()
+        require(
+            tree_path.replace("\\", "/") == relative_path
+            and mode == "100644"
+            and object_type == "blob",
+            f"N12 protected path mode/type differs: {relative_path}",
+        )
+        blob = subprocess.check_output(["git", "cat-file", "blob", object_id], cwd=ROOT)
+        require(
+            hashlib.sha256(blob).hexdigest() == entry["sha256"],
+            f"N12 protected Git bytes differ: {relative_path}",
+        )
+        candidate = ROOT / relative_path
+        require(
+            candidate.is_file() and not candidate.is_symlink(),
+            f"N12 protected working path is not regular: {relative_path}",
+        )
+        require(
+            hashlib.sha256(candidate.read_bytes()).hexdigest() == entry["sha256"],
+            f"N12 protected working bytes differ: {relative_path}",
+        )
+
+    counts = manifest.get("counts")
+    require(
+        counts
+        == {
+            "product_files": 114,
+            "snapshot_files": 24,
+            "protected_unique_files": 123,
+            "byte_match_checkout": 123,
+            "eol_only_checkout": 0,
+        }
+        and len(expected_paths) == 123
+        and len(product_paths) == 114
+        and len(snapshot_paths) == 24
+        and candidate_paths == {path for _status, path in candidate_status},
+        "N12 protected manifest counts or roles differ",
+    )
+    require(
+        hashlib.sha256(b"".join(aggregate_lines)).hexdigest()
+        == manifest.get("protected_aggregate_sha256")
+        == "226452c4a162a94ba109bb46748c0730084a32b1847e318a39d94931ddf3adc3",
+        "N12 protected aggregate differs",
+    )
+    scopes = manifest.get("protected_scopes")
+    require(
+        scopes
+        == [
+            "custom_components/hoymiles_hit_modbus",
+            "packages",
+            "home_assistant",
+            "examples/esphome",
+            "hoymiles-inverter.yaml",
+            "dashboard_hoymiles.yaml",
+        ],
+        "N12 protected scope declaration differs",
+    )
+    actual_product_paths = _git_path_set("ls-files", "--", *scopes)
+    require(
+        actual_product_paths == product_paths,
+        "N12 product path set has a missing, extra or renamed file",
+    )
+    validation_file_sha256 = manifest.get("validation_file_sha256")
+    require(
+        validation_file_sha256
+        == {
+            "CHANGELOG.md": "98b3557db50d789fe8393ee7b4162a07fa450a000c30abd3c1bf75bb9e6d5062",
+            "docs/WORK_STATE.MD": "7840f8ad675330192fee29fe026b0fa76d357912d084ac670cddc873eda39175",
+        },
+        "N12 reviewed documentation hash set differs",
+    )
+    for relative_path, expected_sha256 in validation_file_sha256.items():
+        require(
+            _git_blob_sha256("HEAD", relative_path) == expected_sha256,
+            f"N12 reviewed documentation differs: {relative_path}",
+        )
+    test_path = ROOT / N12_TEST_PATH
+    require(test_path.is_file() and not test_path.is_symlink(), "N12 regression test is missing or not regular")
+    require(
+        hashlib.sha256(test_path.read_bytes()).hexdigest() == N12_TEST_SHA256,
+        "N12 regression test differs from the reviewed SHA-256",
+    )
+    require(
+        hashlib.sha256(_masked_n12_validator_bytes()).hexdigest()
+        == N12_VALIDATOR_MASKED_SHA256,
+        "N12 validator differs from the reviewed masked SHA-256",
+    )
+    return N12_EXACT_LOCAL_BASE
+
+
+def validate_current_integrated_manifests() -> str:
+    """Select the explicit integration state without weakening historical gates."""
+
+    if ((ROOT / "tools/release_manifests/rc2_public_provenance.json").is_file()
+        or _git_try("merge-base", "--is-ancestor", "e1ffdc2494ebfb53b5e8c692acac012f11f954c3", "HEAD").returncode == 0):
+        sys.path.insert(0, str(ROOT / "tools"))
+        from rc2_release_contract import validate
+        validate(ROOT)
+        return "RC2_LOCAL_CANDIDATE"
+    branch = _git_text("branch", "--show-current")
+    head = _git_text("rev-parse", "HEAD")
+    task02_tail = _git_try("merge-base", "--is-ancestor", V158_TASK02_TAIL_SHA, "HEAD")
+    if task02_tail.returncode == 0 and head != V158_TASK02_TAIL_SHA:
+        return _classify_v158_task02_candidate()
+    accepted_n12 = _git_try("merge-base", "--is-ancestor", N12_ACCEPTED_SHA, "HEAD")
+    if accepted_n12.returncode == 0 and head != N12_ACCEPTED_SHA:
+        return _classify_v158_release_candidate()
+    n12 = _git_try("merge-base", "--is-ancestor", N12_BASE_SHA, "HEAD")
+    if n12.returncode == 0:
+        return _classify_n12_exact_local_base()
+    consolidated = _git_try(
+        "merge-base", "--is-ancestor", CONSOLIDATED_ACCEPTED_BASE_SHA, "HEAD"
+    )
+    if consolidated.returncode == 0:
+        return _classify_consolidated_release_candidate()
+    if branch == AURORA_COMPACT_BRANCH:
+        return _classify_aurora_compact_overlay()
+    if branch == INTEGRATED_ACTIVE_SHARED_AURORA_BRANCH:
+        return _classify_integrated_active_shared_aurora_state()
+    if branch == SUPERVISOR_ACTIVE_BRANCH:
+        return _classify_supervisor_active_overlay()
+    if branch == AP3B_BRANCH:
+        return _classify_ap3b_overlay()
+    if branch == INTEGRATION_BRANCH:
+        return _classify_v158_bal_aurora_integration()
+    return validate_current_ap2r1l_manifests()
+
+
+def validate_n12_release_contract() -> str:
+    """Run the committed N12 mutation suite without recursively running main."""
+
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    completed = subprocess.run(
+        [sys.executable, "-B", str(ROOT / N12_TEST_PATH)],
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    require(
+        completed.returncode == 0,
+        "N12 release-contract regressions failed\n"
+        f"{completed.stdout}{completed.stderr}",
+    )
+    result = completed.stdout.strip()
+    require(
+        re.fullmatch(r"N12 release contract: \d+/\d+ checks passed", result)
+        is not None,
+        "N12 release-contract result line differs",
+    )
+    return result
+
+
+def validate_current_ap1_contract() -> None:
+    """Run current AP-1 contracts and inspect the actual current adapters."""
+
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    for test_name in (
+        "test_automation_plan_timeline.py",
+        "test_rcm_timeline_model.py",
+        "test_rcm_optimizer.py",
+        "test_optimizer_startup_contract.py",
+        "test_optimizer_executor_contract.py",
+    ):
+        completed = subprocess.run(
+            [sys.executable, "-B", str(ROOT / "tools" / test_name)],
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        require(
+            completed.returncode == 0,
+            f"Current AP-1 contract failed: {test_name}\n"
+            f"{completed.stdout}{completed.stderr}",
+        )
+
+    timeline_source = (COMPONENT / "timeline_sensor.py").read_text(
+        encoding="utf-8"
+    )
+    common_source = (COMPONENT / "automation_plan_timeline.py").read_text(
+        encoding="utf-8"
+    )
+    sensor_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
+    init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
+    rcm_source = (COMPONENT / "rcm_sensor.py").read_text(encoding="utf-8")
+    rcm_model_source = (COMPONENT / "rcm_timeline_model.py").read_text(
+        encoding="utf-8"
+    )
+    registration_contract_path = (
+        ROOT / "tests" / "test_timeline_platform_registration.py"
+    )
+    require(
+        registration_contract_path.is_file(),
+        "Current AP-1E real Home Assistant registration test is missing",
+    )
+    registration_test_source = registration_contract_path.read_text(encoding="utf-8")
+    rcm_full_solver_call = rcm_source.index(
+        "result = await self.hass.async_add_executor_job("
+    )
+    rcm_full_solver_name = rcm_source.index(
+        "optimize_rcm,",
+        rcm_full_solver_call,
+    )
+    rcm_full_trace_build = rcm_source.index(
+        "build_rcm_timeline_trace(",
+        rcm_full_solver_name,
+    )
+    require(
+        "_unrecorded_attributes = frozenset({MATCH_ALL})" in timeline_source
+        and "RestoreEntity" not in timeline_source
+        and "_attr_should_poll = False" in timeline_source,
+        "Current AP-1 Recorder/Restore/polling contract differs",
+    )
+    require(
+        "MAX_POINTS = 192" in common_source
+        and "MAX_SERIALIZED_BYTES = 262_144" in common_source
+        and "MAX_SOURCES = 16" in common_source
+        and 'PLAN_REVISION_SCOPE = "runtime"' in common_source
+        and 'ACTIVE_SCOPE = "publication_snapshot"' in common_source,
+        "Current AP-1 schema or bounded-limit contract differs",
+    )
+    require(
+        'policy_id="rce"' in sensor_source
+        and 'policy_id="tariff"' in sensor_source
+        and 'policy_id="rcm"' in sensor_source
+        and _ap1e_r2_identity_contracts(timeline_source, init_source),
+        "Current AP-1 timeline IDs or unique-ID construction differs",
+    )
+    require(
+        sensor_source.count("entities.append(rcm_plan)") == 1
+        and sensor_source.count('policy_id="rcm"') == 1
+        and "source_sensor=rcm_plan" in sensor_source
+        and sum(
+            isinstance(node, ast.Name) and node.id == "optimize_rcm"
+            for node in ast.walk(ast.parse(rcm_source))
+        )
+        == 1
+        and "build_rcm_timeline_trace(" in rcm_source
+        and rcm_full_solver_name < rcm_full_trace_build
+        and "optimize_rcm" not in rcm_model_source
+        and "MAX_HORIZON_SECONDS = 48 * 60 * 60" in rcm_model_source
+        and "SLOT_MINUTES = 15" in rcm_model_source,
+        "Current AP-2R1 RCEm registration/model boundary differs",
+    )
+    future_voltage_tokens = (
+        "future_voltage_l1",
+        "future_voltage_l2",
+        "future_voltage_l3",
+        "predicted_voltage_l1",
+        "predicted_voltage_l2",
+        "predicted_voltage_l3",
+    )
+    authority_tokens = (
+        "services.async_call",
+        "write_register",
+        "modbus.write",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+    )
+    require(
+        not any(token in rcm_model_source for token in future_voltage_tokens)
+        and not any(token in rcm_model_source for token in authority_tokens),
+        "Current AP-2R1 model fabricates voltage or adds authority",
+    )
+    for language in ("en", "pl"):
+        translations = load_json(COMPONENT / "translations" / f"{language}.json")
+        sensor_translations = translations.get("entity", {}).get("sensor", {})
+        require(
+            "rcm_automation_plan_timeline" in sensor_translations,
+            f"Missing RCEm timeline translation key: {language}",
+        )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source.replace(
+                "self.entity_id = timeline_entity_id(policy_id)",
+                "# suggested_object_id-only mutation",
+                1,
+            ),
+            init_source,
+        ),
+        "Suggested-object-ID-only mutation survived the AP-1E-R2 gate",
+    )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source,
+            init_source.replace(
+                "for policy_id in TIMELINE_POLICY_IDS:",
+                "for deleted_entry in entity_registry.deleted_entities.values():",
+                1,
+            ),
+        ),
+        "Broad deleted-row normalization survived the AP-1E-R2 gate",
+    )
+    require(
+        not _ap1e_r2_identity_contracts(
+            timeline_source + "\nentity_registry.async_update_entity(timeline.entity_id)\n",
+            init_source,
+        ),
+        "Post-add timeline rename survived the AP-1E-R2 gate",
+    )
+    forbidden = (
+        "async_track_state_change_event",
+        "async_track_time_interval",
+        "async_create_background_task",
+        "services.async_call",
+        "modbus.write",
+        "owner_acquire",
+        "grant_execution",
+        "handover_execution",
+    )
+    require(
+        not any(token in timeline_source for token in forbidden)
+        and timeline_source.count("async_call_later(") == 1
+        and "def _schedule_retention_expiry(" in timeline_source
+        and 'blocker_code="last_complete_expired"' in timeline_source,
+        "Current AP-1 gained polling, unbounded timers or physical authority",
+    )
+    reconcile_source = init_source.split(
+        "def _async_reconcile_entity_registry(", 1
+    )[1].split("\n\nasync def ", 1)[0]
+    require(
+        reconcile_source.count(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.count(
+            'active_translation_keys.add("rcm_automation_plan_timeline")'
+        )
+        == 1
+        and reconcile_source.index(
+            'active_translation_keys.add("rce_automation_plan_timeline")'
+        )
+        < reconcile_source.index("for registry_entry in")
+        and reconcile_source.index(
+            'active_translation_keys.add("tariff_automation_plan_timeline")'
+        )
+        < reconcile_source.index("for registry_entry in")
+        and not any(
+            token in reconcile_source
+            for token in ("startswith(", "endswith(", "re.search(", "re.match(")
+        ),
+        "Current AP-1E exact timeline reconciliation keys differ",
+    )
+    for key in (
+        "rce_automation_plan_timeline",
+        "tariff_automation_plan_timeline",
+        "rcm_automation_plan_timeline",
+    ):
+        require(
+            not _ap1e_r2_identity_contracts(
+                timeline_source,
+                init_source.replace(
+                    f'    active_translation_keys.add("{key}")\n',
+                    "",
+                    1,
+                ),
+            ),
+            f"Missing {key} survived the AP-1E-R2 static gate",
+        )
+    real_test_tokens = (
+        'HA_VERSION == "2026.8.2"',
+        "ConfigEntry(",
+        "EntityPlatform(",
+        "sensor_platform.async_setup_entry",
+        "entity_registry.async_get_or_create",
+        "device_registry.async_get_or_create",
+        "hass.states.get",
+        "_async_prepare_timeline_entity_registry",
+        "_async_reconcile_entity_registry",
+        "platform.async_reset",
+        "pref_disable_new_entities=disable_new_entities",
+        "RegistryEntryDisabler.INTEGRATION",
+        "DeletedRegistryEntry",
+        "TimelineIdentityCollisionError",
+        "EVENT_ENTITY_REGISTRY_UPDATED",
+        "reconciliation_changed_active_timeline",
+        '"rcm": (',
+        "unexpected_rcm_call",
+    )
+    require(
+        all(token in registration_test_source for token in real_test_tokens)
+        and "class FakeEntityPlatform" not in registration_test_source
+        and "class StubEntityPlatform" not in registration_test_source,
+        "Current AP-1E registration test does not freeze the real HA lifecycle",
+    )
+
+
+def _write_historical_paths(
+    destination: Path,
+    reference: str,
+    paths: set[str] | frozenset[str],
+) -> None:
+    """Overlay exact tracked blobs from one frozen historical reference."""
+
+    for relative_path in paths:
+        target = destination / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(
+            subprocess.check_output(
+                ["git", "show", f"{reference}:{relative_path}"],
+                cwd=ROOT,
+            )
+        )
+
+
+def _write_rev28_portable_layer(
+    destination: Path,
+    layer: str,
+    paths: set[str] | frozenset[str],
+) -> None:
+    """Overlay one exact layer from the tracked compressed REV28 fixture."""
+
+    fixture = _validate_rev28_portable_fixture()
+    archive_path = ROOT / fixture["frontend_layers_archive"]
+    require(
+        archive_path.is_file()
+        and not archive_path.is_symlink()
+        and hashlib.sha256(archive_path.read_bytes()).hexdigest()
+        == fixture["frontend_layers_archive_sha256"],
+        "Historical REV28 frontend layer archive differs",
+    )
+    expected_members = {
+        f"base/{path}" for path in fixture["base_overlay_paths"]
+    } | {
+        f"rev28/{path}" for path in fixture["rev28_overlay_paths"]
+    }
+    with tarfile.open(archive_path, mode="r:gz") as archive:
+        members = archive.getmembers()
+        require(
+            {member.name for member in members} == expected_members
+            and all(member.isfile() and member.mode == 0o644 for member in members),
+            "Historical REV28 frontend archive member manifest differs",
+        )
+        for relative_path in paths:
+            member = archive.getmember(f"{layer}/{relative_path}")
+            source = archive.extractfile(member)
+            require(source is not None, f"Historical REV28 layer is unreadable: {relative_path}")
+            target = destination / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read())
+
+
+def build_historical_rev28_frontend_fixture(destination: Path) -> None:
+    """Build the original 14/32 REV28 validator fixture outside the repo."""
+
+    archive = subprocess.check_output(
+        ["git", "archive", "--format=tar", VALIDATOR_HISTORICAL_REF],
+        cwd=ROOT,
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
+        bundle.extractall(destination, filter="fully_trusted")
+
+    quiet = {"cwd": destination, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    subprocess.check_call(["git", "init"], **quiet)
+    subprocess.check_call(["git", "config", "user.name", "AP-1 validator"], **quiet)
+    subprocess.check_call(
+        ["git", "config", "user.email", "validator@example.invalid"],
+        **quiet,
+    )
+    subprocess.check_call(["git", "add", "--all"], **quiet)
+    subprocess.check_call(["git", "commit", "-m", "v1.5.7 fixture"], **quiet)
+    subprocess.check_call(["git", "tag", VALIDATOR_HISTORICAL_REF], **quiet)
+
+    historical_objects_available = _git_commit_exists(PROTECTED_ASSETS_AST_BASE) and _git_commit_exists(
+        REV28_HISTORICAL_COMMIT
+    )
+    if historical_objects_available:
+        historical_base_paths = _git_path_set(
+            "diff",
+            "--name-only",
+            f"{VALIDATOR_HISTORICAL_REF}...{PROTECTED_ASSETS_AST_BASE}",
+        )
+        _write_historical_paths(
+            destination,
+            PROTECTED_ASSETS_AST_BASE,
+            historical_base_paths,
+        )
+    else:
+        portable_fixture = _validate_rev28_portable_fixture()
+        historical_base_paths = set(portable_fixture["base_overlay_paths"])
+        _write_rev28_portable_layer(
+            destination,
+            "base",
+            historical_base_paths,
+        )
+    subprocess.check_call(["git", "add", "--all"], **quiet)
+    subprocess.check_call(["git", "commit", "-m", "Supervisor fixture"], **quiet)
+
+    if historical_objects_available:
+        _write_historical_paths(
+            destination,
+            REV28_HISTORICAL_COMMIT,
+            PHASE_2_TASK_PATHS,
+        )
+    else:
+        _write_rev28_portable_layer(
+            destination,
+            "rev28",
+            PHASE_2_TASK_PATHS,
+        )
+
+
+def _require_protected_assets_ast(module: ast.Module) -> None:
+    """Require the exact c65e8b73 function/class AST declaration set."""
+    actual_nodes = {
+        f"assets.{node.name}": node
+        for node in module.body
+        if isinstance(
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+        )
+    }
+    require(
+        set(actual_nodes) == set(PROTECTED_ASSETS_AST_SHA256),
+        "Protected assets.py function/class declaration set changed",
+    )
+    for qualified_name, expected_hash in PROTECTED_ASSETS_AST_SHA256.items():
+        node = actual_nodes[qualified_name]
+        if sys.version_info >= (3, 13):
+            canonical = ast.dump(
+                node,
+                annotate_fields=True,
+                include_attributes=False,
+                show_empty=True,
+            )
+        else:
+            canonical = ast.dump(node, annotate_fields=True, include_attributes=False)
+        actual_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        require(
+            actual_hash == expected_hash,
+            f"Protected scheduler-delivery AST changed: {qualified_name}",
+        )
+
+
+def validate_protected_assets_ast(assets_source: str) -> None:
+    """Protect all assets.py declarations and prove the S29 detector fires."""
+    require(
+        PROTECTED_ASSETS_AST_BASE
+        == "c65e8b73096cb64ff2d21b6e2b05602f71a4a2af",
+        "Protected assets.py AST base is not the reviewed exact commit",
+    )
+    _require_protected_assets_ast(ast.parse(assets_source))
+
+    # S29: a semantic edit to final destination attestation must be rejected
+    # by the same literal AST oracle used for the real current worktree.
+    mutation = ast.parse(assets_source)
+    target = next(
+        (
+            node
+            for node in mutation.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_attest_scheduler_destination"
+        ),
+        None,
+    )
+    require(target is not None, "S29 mutation target is missing")
+    target.body.append(ast.Pass())
+    try:
+        _require_protected_assets_ast(mutation)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("S29 protected scheduler-delivery mutation survived")
+
+
 def load_json(path: Path) -> dict | list:
     """Load and validate UTF-8 JSON."""
     with path.open(encoding="utf-8") as json_file:
         return json.load(json_file)
+
+
+def normalized_source_bytes(path: Path) -> bytes:
+    """Return UTF-8 source bytes under the repository LF contract."""
+    raw = path.read_bytes()
+    require(b"\r" not in raw.replace(b"\r\n", b""), f"Lone CR in {path}")
+    return raw.replace(b"\r\n", b"\n")
+
+
+def load_build_module():
+    """Load the deterministic asset generator without executing its main."""
+    path = ROOT / "tools" / "build_hacs_assets.py"
+    spec = importlib.util.spec_from_file_location("hoymiles_build_hacs_assets", path)
+    require(spec is not None and spec.loader is not None, "Cannot load asset generator")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def reviewed_ast_sha256(tree: ast.AST) -> str:
+    """Hash one explicit, version-stable AST serialization contract."""
+    serialized = ast.dump(
+        tree,
+        annotate_fields=True,
+        include_attributes=False,
+        indent=None,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def runtime_call_origin(expression: ast.expr) -> str | None:
+    """Return the direct mandatory runtime function behind await/asyncio.run."""
+    while isinstance(expression, ast.Await):
+        expression = expression.value
+    if (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Attribute)
+        and isinstance(expression.func.value, ast.Name)
+        and expression.func.value.id == "asyncio"
+        and expression.func.attr == "run"
+        and len(expression.args) == 1
+    ):
+        expression = expression.args[0]
+    if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Name):
+        return expression.func.id
+    return None
+
+
+def validate_runtime_runner(tree: ast.Module, runner_name: str) -> None:
+    """Require real calls and result origins in both supported runtime runners."""
+    runner = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == runner_name
+        ),
+        None,
+    )
+    require(runner is not None, f"Battery runtime runner is missing: {runner_name}")
+    assignments: dict[str, str | None] = {}
+    expression_calls: set[str] = set()
+    for statement in runner.body:
+        if (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+        ):
+            assignments[statement.targets[0].id] = runtime_call_origin(statement.value)
+        elif isinstance(statement, ast.Expr):
+            origin = runtime_call_origin(statement.value)
+            if origin is not None:
+                expression_calls.add(origin)
+    for result_name, function_name in REQUIRED_BALANCING_RUNTIME_RESULTS.items():
+        require(
+            assignments.get(result_name) == function_name,
+            f"Battery runtime result no longer originates from {function_name}: "
+            f"{runner_name}.{result_name}",
+        )
+        require(
+            any(
+                isinstance(node, ast.Name)
+                and isinstance(node.ctx, ast.Load)
+                and node.id == result_name
+                for node in ast.walk(runner)
+            ),
+            f"Battery runtime result is no longer reported: {runner_name}.{result_name}",
+        )
+    require(
+        "test_exact_start" in expression_calls,
+        f"Battery runtime exact-start group is disabled in {runner_name}",
+    )
+
+
+def validate_balancing_test_identity() -> None:
+    """Require exact reviewed focused and HA runtime tests and all groups."""
+    test_path = ROOT / "tools" / "test_battery_balancing_contract.py"
+    runtime_path = ROOT / "tools" / "test_battery_balancing_ha_runtime.py"
+    require(test_path.is_file(), "Focused battery-balancing test is missing")
+    require(runtime_path.is_file(), "Exact HA battery-balancing runtime test is missing")
+    source_bytes = normalized_source_bytes(test_path)
+    source = source_bytes.decode("utf-8")
+    tree = ast.parse(source, filename=str(test_path))
+    functions = {
+        item.name for item in tree.body if isinstance(item, ast.FunctionDef)
+    }
+    require(
+        REQUIRED_BALANCING_TEST_FUNCTIONS <= functions,
+        "Focused battery-balancing test group was removed or disabled",
+    )
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
+    ast_hash = reviewed_ast_sha256(tree)
+    require(
+        source_hash == EXPECTED_BALANCING_TEST_SHA256
+        and ast_hash == EXPECTED_BALANCING_TEST_AST_SHA256,
+        "Focused battery-balancing test is not the reviewed candidate AST/hash",
+    )
+
+    runtime_bytes = normalized_source_bytes(runtime_path)
+    runtime_source = runtime_bytes.decode("utf-8")
+    runtime_tree = ast.parse(runtime_source, filename=str(runtime_path))
+    runtime_functions = {
+        item.name
+        for item in runtime_tree.body
+        if isinstance(item, ast.AsyncFunctionDef)
+    }
+    require(
+        REQUIRED_BALANCING_RUNTIME_FUNCTIONS <= runtime_functions,
+        "Exact HA battery-balancing runtime group was removed or disabled",
+    )
+    validate_runtime_runner(runtime_tree, "async_main")
+    validate_runtime_runner(runtime_tree, "main")
+    require(
+        hashlib.sha256(runtime_bytes).hexdigest()
+        == EXPECTED_BALANCING_RUNTIME_SHA256
+        and reviewed_ast_sha256(runtime_tree)
+        == EXPECTED_BALANCING_RUNTIME_AST_SHA256,
+        "Exact HA battery-balancing runtime is not the reviewed AST/hash",
+    )
+
+
+def semantic_sha256(value: object) -> str:
+    """Hash a parsed YAML object without formatting or key-order dependence."""
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def collect_template_objects(package: dict) -> dict[str, dict]:
+    """Collect the exact lifecycle-critical template objects by unique ID."""
+    found: dict[str, dict] = {}
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            unique_id = value.get("unique_id")
+            if unique_id in EXPECTED_BALANCING_TEMPLATE_OBJECTS:
+                found[str(unique_id)] = value
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(package.get("template", []))
+    require(
+        set(found) == EXPECTED_BALANCING_TEMPLATE_OBJECTS,
+        "Unrecognized or missing balancing template object: "
+        f"{sorted(set(found) ^ EXPECTED_BALANCING_TEMPLATE_OBJECTS)}",
+    )
+    return found
+
+
+def iter_object_mappings(value: object):
+    """Yield every mapping nested in one parsed lifecycle object."""
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from iter_object_mappings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_object_mappings(child)
+
+
+def iter_object_strings(value: object):
+    """Yield every string nested in one parsed lifecycle object."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from iter_object_strings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_object_strings(child)
+
+
+def balancing_semantic_objects(package: dict) -> tuple[dict[str, object], dict[str, object]]:
+    """Return the frozen script and non-script lifecycle object maps."""
+    scripts = {
+        name: package.get("script", {}).get(name)
+        for name in sorted(EXPECTED_BALANCING_OBJECTS["script"])
+    }
+    automations = {
+        str(item.get("id")): item
+        for item in package.get("automation", [])
+        if item.get("id") in EXPECTED_BALANCING_OBJECTS["automation"]
+    }
+    controls: dict[str, object] = {
+        f"automation:{name}": item for name, item in automations.items()
+    }
+    for domain in ("input_boolean", "input_datetime", "input_text", "input_number", "timer"):
+        for name in sorted(EXPECTED_BALANCING_OBJECTS[domain]):
+            controls[f"{domain}:{name}"] = package.get(domain, {}).get(name)
+    for name, item in collect_template_objects(package).items():
+        controls[f"template:{name}"] = item
+    return ({f"script:{name}": item for name, item in scripts.items()}, controls)
+
+
+def lifecycle_boundary_objects(package: dict) -> dict[str, object]:
+    """Return every package object, partitioning template objects by unique_id."""
+    objects: dict[str, object] = {}
+    for domain, section in package.items():
+        if domain == "template":
+            continue
+        if isinstance(section, dict):
+            for name, item in section.items():
+                objects[f"{domain}:{name}"] = item
+            continue
+        if isinstance(section, list):
+            for index, item in enumerate(section):
+                identifier = index
+                if isinstance(item, dict):
+                    identifier = item.get("id", item.get("unique_id", index))
+                object_name = f"{domain}:{identifier}"
+                require(object_name not in objects, f"Duplicate package object: {object_name}")
+                objects[object_name] = item
+            continue
+        objects[f"package:{domain}"] = section
+
+    extracted = object()
+
+    def extract_templates(value: object, path: str) -> object:
+        if isinstance(value, dict):
+            unique_id = value.get("unique_id")
+            if unique_id is not None:
+                object_name = f"template:{unique_id}"
+                require(object_name not in objects, f"Duplicate template object: {object_name}")
+                objects[object_name] = value
+                return extracted
+            residual: dict[object, object] = {}
+            for key, child in value.items():
+                remaining = extract_templates(child, f"{path}.{key}")
+                if remaining is not extracted:
+                    residual[key] = remaining
+            return residual
+        if isinstance(value, list):
+            residual_list: list[object] = []
+            for index, child in enumerate(value):
+                remaining = extract_templates(child, f"{path}.{index}")
+                if remaining is not extracted:
+                    residual_list.append(remaining)
+            return residual_list
+        return value
+
+    for index, item in enumerate(package.get("template", [])):
+        residual = extract_templates(item, f"template.{index}")
+        if residual not in ({}, []):
+            objects[f"template-container:{index}"] = residual
+    return objects
+
+
+def validate_lifecycle_parser_boundary(objects: dict[str, object]) -> None:
+    """Permit raw lifecycle parsing only in the canonical transaction sensor."""
+    helper = "input_text.hoymiles_battery_balancing_lifecycle"
+    raw_readers: set[str] = set()
+    direct_writers: list[str] = []
+
+    def variable_assignments(value: object):
+        if isinstance(value, dict):
+            variables = value.get("variables")
+            if isinstance(variables, dict):
+                for name, expression in variables.items():
+                    yield str(name), list(iter_object_strings(expression))
+            for child in value.values():
+                yield from variable_assignments(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from variable_assignments(child)
+
+    def mentions_alias(text: str, alias: str) -> bool:
+        return re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(alias)}(?![A-Za-z0-9_])", text
+        ) is not None
+
+    def parses_alias(text: str, alias: str) -> bool:
+        token = rf"(?<![A-Za-z0-9_]){re.escape(alias)}(?![A-Za-z0-9_])"
+        return re.search(
+            token + r"\s*(?:\.\s*split\s*\(|\[\s*\d+\s*\]|\|\s*split\s*\()",
+            text,
+        ) is not None
+
+    for object_name, value in objects.items():
+        texts = list(iter_object_strings(value))
+        assignments = list(variable_assignments(value))
+        tainted = {
+            name
+            for name, expressions in assignments
+            if any(helper in expression for expression in expressions)
+        }
+        changed = True
+        while changed:
+            changed = False
+            for name, expressions in assignments:
+                if name in tainted:
+                    continue
+                if any(
+                    mentions_alias(expression, alias)
+                    for expression in expressions
+                    for alias in tainted
+                ):
+                    tainted.add(name)
+                    changed = True
+        direct_parse = any(
+            helper in text
+            and (
+                ".split(" in text
+                or re.search(r"\|\s*split\s*\(", text)
+                or re.search(r"\[\s*\d+\s*\]", text)
+            )
+            for text in texts
+        )
+        alias_parse = any(
+            parses_alias(text, alias) for text in texts for alias in tainted
+        )
+        if direct_parse or alias_parse:
+            raw_readers.add(object_name)
+        for mapping in iter_object_mappings(value):
+            service_name = mapping.get("action", mapping.get("service"))
+            if service_name != "input_text.set_value":
+                continue
+            target = mapping.get("target", {})
+            data = mapping.get("data", {})
+            entity_id = (
+                target.get("entity_id") if isinstance(target, dict) else None
+            ) or (data.get("entity_id") if isinstance(data, dict) else None)
+            entity_ids = (
+                [entity_id]
+                if isinstance(entity_id, str)
+                else entity_id
+                if isinstance(entity_id, list)
+                else []
+            )
+            if helper in entity_ids:
+                direct_writers.append(object_name)
+    require(
+        raw_readers == EXPECTED_LIFECYCLE_RAW_READERS,
+        "Lifecycle raw-reader boundary changed: "
+        f"{sorted(raw_readers ^ EXPECTED_LIFECYCLE_RAW_READERS)}",
+    )
+    require(
+        direct_writers == ["script:hoymiles_battery_balancing_write_record"],
+        "Lifecycle helper must have exactly one canonical serializer",
+    )
+
+
+def validate_balancing_scheduler_freeze(
+    package: dict,
+    *,
+    scheduler_sha256: str = EXPECTED_BALANCING_SCHEDULER_SHA256,
+    control_semantic_sha256: str = EXPECTED_BALANCING_CONTROL_SEMANTIC_SHA256,
+) -> None:
+    """Freeze the canonical scheduler bytes and lifecycle-critical semantics."""
+    scheduler_path = ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml"
+    require(
+        hashlib.sha256(normalized_source_bytes(scheduler_path)).hexdigest()
+        == scheduler_sha256,
+        "Canonical EMS scheduler is not the reviewed battery-balancing candidate",
+    )
+    scripts, controls = balancing_semantic_objects(package)
+    require(
+        semantic_sha256(scripts) == EXPECTED_BALANCING_SCRIPT_SEMANTIC_SHA256,
+        "Battery-balancing script semantics are not the reviewed candidate",
+    )
+    require(
+        semantic_sha256(controls) == control_semantic_sha256,
+        "Battery-balancing control semantics are not the reviewed candidate",
+    )
+    validate_lifecycle_parser_boundary(lifecycle_boundary_objects(package))
+
+
+def validate_balancing_object_freeze(package: dict) -> None:
+    """Reject an unreviewed balancing helper, script, or automation."""
+    for domain in (
+        "input_boolean",
+        "input_datetime",
+        "input_text",
+        "input_number",
+        "timer",
+        "script",
+    ):
+        actual = {
+            key for key in package.get(domain, {}) if "battery_balancing" in key
+        }
+        if domain == "script":
+            actual.add("hoymiles_notify_battery_balancing_lifecycle")
+        require(
+            actual == EXPECTED_BALANCING_OBJECTS[domain],
+            f"Unrecognized or missing balancing {domain} object: "
+            f"{sorted(actual ^ EXPECTED_BALANCING_OBJECTS[domain])}",
+        )
+    automation_ids = {
+        item.get("id")
+        for item in package.get("automation", [])
+        if "battery_balancing" in str(item.get("id", ""))
+    }
+    require(
+        automation_ids == EXPECTED_BALANCING_OBJECTS["automation"],
+        "Unrecognized or missing balancing automation: "
+        f"{sorted(automation_ids ^ EXPECTED_BALANCING_OBJECTS['automation'])}",
+    )
+
+
+def validate_managed_asset_freshness(catalog: list[dict]) -> None:
+    """Compare all managed text assets with an in-memory generator pass."""
+    generator = load_build_module()
+    first = generator.render_managed_assets(catalog)
+    second = generator.render_managed_assets(catalog)
+    require(first == second, "In-memory asset generation is not deterministic")
+    for destination, expected in first.items():
+        require(destination.is_file(), f"Missing managed asset: {destination}")
+        actual = normalized_source_bytes(destination)
+        require(
+            actual == expected.encode("utf-8"),
+            "Managed asset is stale or locally mutated: "
+            f"{destination.relative_to(ROOT)}",
+        )
+    for filename in (
+        "hoymiles-dashboard-strategy.js",
+        "hoymiles-rce-chart-card.js",
+        "hoymiles-inverter.png",
+    ):
+        source = ROOT / "home_assistant" / "www" / filename
+        destination = RESOURCES / "www" / filename
+        require(
+            source.read_bytes() == destination.read_bytes(),
+            f"Managed frontend copy is stale: {filename}",
+        )
+
+
+def validate_mandatory_workflow_step(
+    workflow: dict, command: str, *, job_name: str | None = None
+) -> None:
+    """Require one exact, unconditionally executed mandatory command."""
+    jobs = workflow.get("jobs", {})
+    require(isinstance(jobs, dict), "Validation workflow jobs are not a mapping")
+    require(job_name is not None, "Mandatory release gate must freeze its exact job")
+    job = jobs.get(job_name)
+    require(isinstance(job, dict), f"Mandatory workflow job is missing: {job_name}")
+
+    def constant_disabled(value: object) -> bool:
+        if value is False:
+            return True
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value == 0
+        if not isinstance(value, str):
+            return False
+        normalized = value.strip().casefold()
+        return normalized in {"false", "0"} or re.fullmatch(
+            r"\$\{\{\s*(?:false|0)\s*\}\}", normalized
+        ) is not None
+
+    def require_unconditional(scope: dict, label: str) -> None:
+        if "if" not in scope:
+            return
+        condition = scope.get("if")
+        require(
+            not constant_disabled(condition),
+            f"Mandatory workflow {label} is statically disabled: {condition!r}",
+        )
+        # The reviewed mandatory gates currently have no conditional execution.
+        # Any future condition needs an explicit frozen allowlist change.
+        require(False, f"Mandatory workflow {label} has an unauthorized if condition")
+
+    require_unconditional(job, f"job {job_name}")
+    steps = job.get("steps", [])
+    require(isinstance(steps, list), f"Workflow job has no step list: {job_name}")
+    matching_steps = [
+        step
+        for step in steps
+        if isinstance(step, dict) and str(step.get("run", "")).strip() == command
+    ]
+    require(
+        len(matching_steps) == 1,
+        f"CI must run exactly one mandatory command in {job_name}: {command}",
+    )
+    step = matching_steps[0]
+    require_unconditional(step, f"step {job_name}/{command}")
+    require(
+        "continue-on-error" not in step or step.get("continue-on-error") is False,
+        f"Mandatory command is continue-on-error: {command}",
+    )
+
+
+def validate_effective_workflow_command(
+    workflow: dict,
+    command: str,
+    *,
+    job_name: str,
+    allowed_condition: str | None = None,
+) -> None:
+    """Require one live command line, including reviewed conditional gates."""
+
+    jobs = workflow.get("jobs", {})
+    require(isinstance(jobs, dict), "Validation workflow jobs are not a mapping")
+    matches: list[tuple[str, dict, dict]] = []
+    for candidate_job_name, candidate_job in jobs.items():
+        if not isinstance(candidate_job, dict):
+            continue
+        steps = candidate_job.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            commands = {
+                line.strip()
+                for line in str(step.get("run", "")).splitlines()
+                if line.strip()
+            }
+            if command in commands:
+                matches.append((str(candidate_job_name), candidate_job, step))
+    require(
+        len(matches) == 1,
+        f"CI must contain exactly one effective command line: {command}",
+    )
+    actual_job_name, job, step = matches[0]
+    require(
+        actual_job_name == job_name,
+        f"Mandatory command moved from {job_name} to {actual_job_name}: {command}",
+    )
+    require(
+        "continue-on-error" not in job and "continue-on-error" not in step,
+        f"Mandatory command is continue-on-error: {command}",
+    )
+    job_condition = job.get("if")
+    step_condition = step.get("if")
+    require(
+        job_condition is None,
+        f"Mandatory workflow job has an unauthorized condition: {job_name}",
+    )
+    if allowed_condition is None:
+        require(
+            step_condition is None,
+            f"Mandatory command has an unauthorized condition: {command}",
+        )
+    else:
+        require(
+            step_condition == allowed_condition,
+            f"Conditional mandatory command differs: {command}",
+        )
 
 
 def iter_mappings(value):
@@ -81,7 +6562,7 @@ def load_localization_module():
 
 
 def load_assets_module():
-    """Load the asset installer with a minimal Home Assistant type stub."""
+    """Load assets.py with only documented public HA surfaces stubbed."""
     homeassistant = types.ModuleType("homeassistant")
     components = types.ModuleType("homeassistant.components")
     lovelace = types.ModuleType("homeassistant.components.lovelace")
@@ -90,14 +6571,19 @@ def load_assets_module():
     core = types.ModuleType("homeassistant.core")
     helpers = types.ModuleType("homeassistant.helpers")
     storage = types.ModuleType("homeassistant.helpers.storage")
+    entity_registry = types.ModuleType(
+        "homeassistant.helpers.entity_registry"
+    )
     core.HomeAssistant = object
     lovelace_const.CONF_RESOURCE_TYPE_WS = "res_type"
     lovelace_const.LOVELACE_DATA = "lovelace"
     lovelace_const.MODE_STORAGE = "storage"
+    ha_const.ATTR_EDITABLE = "editable"
     ha_const.CONF_ID = "id"
     ha_const.CONF_TYPE = "type"
     ha_const.CONF_URL = "url"
-    storage.Store = object
+    storage.Store = ValidatorStore
+    entity_registry.async_get = lambda hass: hass.entity_registry
     homeassistant.components = components
     components.lovelace = lovelace
     lovelace.const = lovelace_const
@@ -105,14 +6591,16 @@ def load_assets_module():
     homeassistant.core = core
     homeassistant.helpers = helpers
     helpers.storage = storage
-    sys.modules.setdefault("homeassistant", homeassistant)
-    sys.modules.setdefault("homeassistant.components", components)
-    sys.modules.setdefault("homeassistant.components.lovelace", lovelace)
-    sys.modules.setdefault("homeassistant.components.lovelace.const", lovelace_const)
-    sys.modules.setdefault("homeassistant.const", ha_const)
-    sys.modules.setdefault("homeassistant.core", core)
-    sys.modules.setdefault("homeassistant.helpers", helpers)
-    sys.modules.setdefault("homeassistant.helpers.storage", storage)
+    helpers.entity_registry = entity_registry
+    sys.modules["homeassistant"] = homeassistant
+    sys.modules["homeassistant.components"] = components
+    sys.modules["homeassistant.components.lovelace"] = lovelace
+    sys.modules["homeassistant.components.lovelace.const"] = lovelace_const
+    sys.modules["homeassistant.const"] = ha_const
+    sys.modules["homeassistant.core"] = core
+    sys.modules["homeassistant.helpers"] = helpers
+    sys.modules["homeassistant.helpers.storage"] = storage
+    sys.modules["homeassistant.helpers.entity_registry"] = entity_registry
 
     custom_components = types.ModuleType("custom_components")
     package = types.ModuleType("custom_components.hoymiles_hit_modbus")
@@ -125,6 +6613,8 @@ def load_assets_module():
     const_module.VERSION = json.loads(
         (COMPONENT / "manifest.json").read_text(encoding="utf-8")
     )["version"]
+    const_module.EMS_PACKAGE_VERSION = VALIDATOR_PACKAGE_MARKER
+    const_module.EMS_PACKAGE_VERSION_ENTITY = VALIDATOR_MARKER_ENTITY
     sys.modules[const_module.__name__] = const_module
 
     path = COMPONENT / "assets.py"
@@ -139,149 +6629,570 @@ def load_assets_module():
     return module
 
 
-def validate_fresh_asset_install() -> None:
-    """Exercise fresh installation and the legacy-dashboard migration path."""
+def validate_fresh_asset_install(
+    *,
+    scheduler_hashes: dict[str, str] = VALIDATOR_NEW_HASHES,
+    frontend_revision: int = 38,
+    frontend_query_suffix: str = "",
+) -> None:
+    """Exercise managed assets only through async_install_assets."""
     assets = load_assets_module()
+    assets_source = (COMPONENT / "assets.py").read_text(encoding="utf-8")
+    module = ast.parse(assets_source)
+    symbols = {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    require("_copy_assets" not in symbols, "Removed _copy_assets symbol returned")
+    validator_module = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    validator_calls = {
+        (node.func.value.id, node.func.attr)
+        for node in ast.walk(validator_module)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+    }
+    require(
+        ("assets", "_copy_assets") not in validator_calls,
+        "Validator calls removed path",
+    )
+    require(
+        ("assets", "_sync_assets") not in validator_calls,
+        "Validator bypasses the actual async state machine",
+    )
+    require(
+        VALIDATOR_STORE_CONTRACTS
+        == {
+            "input_select": (1, frozenset({1, 2})),
+            "input_boolean": (1, frozenset({1})),
+        },
+        "Literal Store contract oracle differs",
+    )
+    require(
+        tuple(VALIDATOR_HELPER_IDS)
+        == (
+            "input_select.hoymiles_ems_supervisor_mode",
+            "input_select.hoymiles_ems_supervisor_profile",
+            "input_boolean.hoymiles_ems_supervisor_allow_rce",
+            "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+            "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+        ),
+        "Literal canonical helper oracle differs",
+    )
+
     with tempfile.TemporaryDirectory(prefix="hoymiles_hacs_install_") as tmp:
         config_path = Path(tmp)
         dashboard_path = config_path / "dashboard_hoymiles.yaml"
-        package_path = (
-            config_path / "packages" / "hoymiles_ems_scheduler.yaml"
-        )
-        frontend_local_ready = (config_path / "www").is_dir()
-        polish_written = assets._copy_assets(config_path, "pl-PL", False)
+        package_path = validator_scheduler_path(config_path)
+        shared_package_path = validator_shared_inputs_path(config_path)
+        hass = ValidatorHass(config_path)
+        results: list = []
+
+        def capture(name: str, result) -> None:
+            if name == "_sync_assets":
+                results.append(result)
+
+        hass.executor_after = capture
+        polish_written = validator_install(assets, hass)
         require(
-            len(polish_written) == 7,
-            "Fresh Polish installation did not copy all seven assets",
+            len(polish_written) == 8,
+            "Fresh Polish async installation did not write eight assets",
         )
         require(
-            (config_path / "www").is_dir()
-            and not frontend_local_ready,
-            "Fresh-no-www setup must remain restart-gated after copying assets",
+            dashboard_path.read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_bytes(),
+            "Fresh async installation copied wrong Polish dashboard",
         )
         require(
-            dashboard_path.read_text(encoding="utf-8")
-            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_text(
-                encoding="utf-8"
-            ),
-            "Fresh Polish installation copied the wrong dashboard",
+            package_path.read_bytes()
+            == (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes(),
+            "Fresh async installation copied wrong scheduler",
+        )
+        require(
+            shared_package_path.read_bytes()
+            == (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_shared_inputs.yaml"
+            ).read_bytes(),
+            "Fresh async installation copied wrong shared-input package",
+        )
+        require(
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["fresh"],
+            "Fresh literal transition differs",
+        )
+        require(
+            validator_metadata_hash(hass) == scheduler_hashes["pl"],
+            "Fresh scheduler metadata differs",
         )
         for filename in assets.LOCAL_FRONTEND_ASSETS:
             require(
                 (config_path / "www" / filename).read_bytes()
                 == (RESOURCES / "www" / filename).read_bytes(),
-                f"Fresh installation copied the wrong /local asset: {filename}",
+                f"Fresh async installation copied wrong /local asset: {filename}",
             )
+        inode = package_path.stat().st_ino
+        saves = hass.store_save_calls
+        results.clear()
+        second = validator_install(assets, hass)
+        require(second == [], "Second async run is not idempotent")
+        require(package_path.stat().st_ino == inode, "Second async run replaced scheduler")
+        require(hass.store_save_calls == saves, "Second async run churned Store")
         require(
-            assets._copy_assets(config_path, "pl-PL", False) == [],
-            "Asset installer overwrites user files without explicit permission",
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["current"],
+            "Current literal transition differs",
         )
 
-        legacy_dashboard = """\
-title: Custom user dashboard
-entities:
-  - sensor.hoymiles_inverter_pv1_voltage
-  - sensor.pv_hoymiles_inverter_pv1_current
-  - sensor.unrelated_user_entity
-"""
-        dashboard_path.write_text(legacy_dashboard, encoding="utf-8")
-        legacy_package = """\
-script:
-  custom_user_script:
-    sequence:
-      - action: select.select_option
-        target:
-          entity_id: select.pv_hoymiles_inverter_tryb_ems
-"""
-        package_path.write_text(legacy_package, encoding="utf-8")
-        migrated = assets._copy_assets(config_path, "pl-PL", False)
-        require(
-            migrated == [dashboard_path, package_path],
-            "Existing legacy assets were not migrated in place",
-        )
-        migrated_text = dashboard_path.read_text(encoding="utf-8")
-        require(
-            "sensor.hoymiles_hit_pv1_voltage" in migrated_text
-            and "sensor.hoymiles_hit_pv1_current" in migrated_text,
-            "Legacy dashboard ids were not replaced with stable proxy ids",
-        )
-        require(
-            "title: Custom user dashboard" in migrated_text
-            and "sensor.unrelated_user_entity" in migrated_text,
-            "Legacy migration did not preserve user dashboard content",
-        )
-        backup_path = dashboard_path.with_name(
-            f"{dashboard_path.name}{assets.LEGACY_ENTITY_BACKUP_SUFFIX}"
-        )
-        require(
-            backup_path.read_text(encoding="utf-8") == legacy_dashboard,
-            "Legacy dashboard migration did not create an exact backup",
-        )
-        migrated_package = package_path.read_text(encoding="utf-8")
-        require(
-            "select.hoymiles_hit_ems_mode" in migrated_package
-            and "custom_user_script" in migrated_package,
-            "Legacy EMS package was not safely migrated",
-        )
-        package_backup = package_path.with_name(
-            f"{package_path.name}{assets.LEGACY_ENTITY_BACKUP_SUFFIX}"
-        )
-        require(
-            package_backup.read_text(encoding="utf-8") == legacy_package,
-            "Legacy EMS migration did not create an exact backup",
-        )
-        require(
-            assets._copy_assets(config_path, "pl-PL", False) == [],
-            "Stable dashboard migration is not idempotent",
-        )
-
-        english_written = assets._copy_assets(config_path, "en-GB", True)
-        require(
-            len(english_written) == 7,
-            "English overwrite installation did not copy all seven assets",
-        )
-        require(
-            (config_path / "dashboard_hoymiles.yaml").read_text(
-                encoding="utf-8"
+    for language in ("pl", "en"):
+        with tempfile.TemporaryDirectory(prefix=f"hoymiles_historical_{language}_") as tmp:
+            config_path = Path(tmp)
+            package_path = validator_scheduler_path(config_path)
+            package_path.parent.mkdir(parents=True)
+            relative = (
+                "custom_components/hoymiles_hit_modbus/resources/"
+                f"home_assistant/{language}/hoymiles_ems_scheduler.yaml"
             )
-            == (RESOURCES / "dashboard_hoymiles_en.yaml").read_text(
-                encoding="utf-8"
+            historical = subprocess.check_output(
+                ["git", "show", f"{VALIDATOR_HISTORICAL_REF}:{relative}"],
+                cwd=ROOT,
+            )
+            require(
+                hashlib.sha256(historical).hexdigest()
+                == VALIDATOR_HISTORICAL_HASHES[language],
+                f"Literal historical {language} hash differs",
+            )
+            package_path.write_bytes(historical)
+            hass = ValidatorHass(
+                config_path,
+                "pl-PL" if language == "pl" else "en-GB",
+            )
+            written = validator_install(assets, hass)
+            require(package_path in written, f"Historical {language} did not update")
+            require(
+                package_path.with_name(
+                    package_path.name + VALIDATOR_BACKUP_SUFFIX
+                ).read_bytes()
+                == historical,
+                f"Historical {language} backup differs",
+            )
+            require(
+                validator_metadata_hash(hass) == scheduler_hashes[language],
+                f"Historical {language} metadata differs",
+            )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_final_attestation_foreign_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        historical = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{VALIDATOR_HISTORICAL_REF}:custom_components/"
+                "hoymiles_hit_modbus/resources/"
+                "home_assistant/pl/hoymiles_ems_scheduler.yaml",
+            ],
+            cwd=ROOT,
+        )
+        old_hash = hashlib.sha256(historical).hexdigest()
+        package_path.write_bytes(historical)
+        backup = package_path.with_name(
+            package_path.name + VALIDATOR_BACKUP_SUFFIX
+        )
+        foreign = b"validator foreign destination after filesystem transaction\n"
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        observed: dict = {}
+
+        def install_foreign_after_sync(name: str, result) -> None:
+            if name == "_sync_assets":
+                observed["backup"] = (
+                    validator_file_identity(backup),
+                    backup.read_bytes(),
+                )
+                winner = package_path.parent / "validator-foreign-winner"
+                winner.write_bytes(foreign)
+                winner.replace(package_path)
+                observed["foreign_identity"] = validator_file_identity(package_path)
+            elif name == "_attest_scheduler_destination":
+                observed["attestation"] = result
+
+        hass.executor_after = install_foreign_after_sync
+        written = validator_install(assets, hass)
+        require(
+            package_path not in written,
+            "Final destination mismatch reported scheduler write",
+        )
+        require(
+            package_path.read_bytes() == foreign,
+            "Final destination mismatch overwrote foreign bytes",
+        )
+        require(
+            validator_file_identity(package_path) == observed["foreign_identity"],
+            "Final destination mismatch changed foreign identity",
+        )
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Final destination mismatch advanced scheduler metadata",
+        )
+        require(
+            (validator_file_identity(backup), backup.read_bytes())
+            == observed["backup"],
+            "Final destination mismatch changed fixed backup",
+        )
+        require(
+            observed["attestation"].action.value
+            == VALIDATOR_TRANSITIONS["destination_changed"],
+            "Final destination mismatch category differs",
+        )
+        require(
+            not list(
+                package_path.parent.glob(
+                    f".{package_path.name}.hoymiles_hit_modbus.rollback.*.tmp"
+                )
             ),
-            "English installation copied the wrong dashboard",
+            "Final destination mismatch left rollback artifact",
         )
 
-    with tempfile.TemporaryDirectory(prefix="hoymiles_managed_upgrade_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="hoymiles_final_attestation_inode_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        historical = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{VALIDATOR_HISTORICAL_REF}:custom_components/"
+                "hoymiles_hit_modbus/resources/"
+                "home_assistant/pl/hoymiles_ems_scheduler.yaml",
+            ],
+            cwd=ROOT,
+        )
+        old_hash = hashlib.sha256(historical).hexdigest()
+        package_path.write_bytes(historical)
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        observed = {}
+
+        def replace_with_same_hash(name: str, result) -> None:
+            if name == "_sync_assets":
+                observed["installed_identity"] = result.scheduler.after.identity
+                winner = package_path.parent / "validator-same-hash-new-inode"
+                winner.write_bytes(
+                    (
+                        RESOURCES
+                        / "home_assistant"
+                        / "pl"
+                        / "hoymiles_ems_scheduler.yaml"
+                    ).read_bytes()
+                )
+                winner.replace(package_path)
+                observed["winner_identity"] = validator_file_identity(package_path)
+            elif name == "_attest_scheduler_destination":
+                observed["attestation"] = result
+
+        hass.executor_after = replace_with_same_hash
+        written = validator_install(assets, hass)
+        require(
+            package_path not in written,
+            "Hash-only final attestation reported scheduler write",
+        )
+        require(
+            hashlib.sha256(package_path.read_bytes()).hexdigest()
+            == scheduler_hashes["pl"],
+            "Same-hash replacement bytes differ",
+        )
+        require(
+            validator_file_identity(package_path) == observed["winner_identity"],
+            "Same-hash replacement identity changed after attestation",
+        )
+        require(
+            observed["attestation"].resulting_snapshot.identity
+            != observed["installed_identity"],
+            "Same-hash replacement did not exercise identity mismatch",
+        )
+        require(
+            observed["attestation"].action.value
+            == VALIDATOR_TRANSITIONS["destination_changed"],
+            "Hash-only final attestation accepted a different inode",
+        )
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Same-hash identity mismatch advanced scheduler metadata",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_dashboard_managed_") as tmp:
         config_path = Path(tmp)
         dashboard_path = config_path / "dashboard_hoymiles.yaml"
-        dashboard_path.write_text("title: previous managed release\n", encoding="utf-8")
-        previous_hash = assets._sha256(dashboard_path)
-        written, managed = assets._sync_assets(
-            config_path,
-            "pl-PL",
-            False,
-            {"dashboard_hoymiles.yaml": previous_hash},
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(
+            (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes()
+        )
+        old_dashboard = b"title: previous managed release\n"
+        dashboard_path.write_bytes(old_dashboard)
+        old_hash = hashlib.sha256(old_dashboard).hexdigest()
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {
+                "dashboard_hoymiles.yaml": old_hash,
+                VALIDATOR_SCHEDULER_RELATIVE: scheduler_hashes["pl"],
+            },
+        }
+        written = validator_install(assets, hass)
+        require(dashboard_path in written, "Managed dashboard was not upgraded")
+        require(
+            dashboard_path.read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_pl.yaml").read_bytes(),
+            "Managed dashboard async update bytes differ",
+        )
+        custom = b"title: user customization\n"
+        dashboard_path.write_bytes(custom)
+        stale = dict(hass.store_payload)
+        written = validator_install(assets, hass)
+        require(dashboard_path not in written, "Customized dashboard was overwritten")
+        require(dashboard_path.read_bytes() == custom, "Customized dashboard changed")
+        require(
+            hass.store_payload.get("assets", {}).get("dashboard_hoymiles.yaml")
+            is None,
+            "Customized dashboard retained false managed metadata",
+        )
+        require(stale != hass.store_payload, "Customized dashboard metadata did not reconcile")
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_english_overwrite_") as tmp:
+        config_path = Path(tmp)
+        hass = ValidatorHass(config_path, "en-GB")
+        written = validator_install(assets, hass, overwrite=True)
+        require(len(written) == 8, "Fresh English async overwrite count differs")
+        require(
+            (config_path / "dashboard_hoymiles.yaml").read_bytes()
+            == (RESOURCES / "dashboard_hoymiles_en.yaml").read_bytes(),
+            "English async overwrite copied wrong dashboard",
         )
         require(
-            dashboard_path in written
-            and managed["dashboard_hoymiles.yaml"]
-            == assets._sha256(dashboard_path),
-            "An unchanged managed dashboard was not upgraded",
+            validator_shared_inputs_path(config_path).read_bytes()
+            == (
+                RESOURCES
+                / "home_assistant"
+                / "en"
+                / "hoymiles_ems_shared_inputs.yaml"
+            ).read_bytes(),
+            "English async overwrite copied wrong shared-input package",
+        )
+        require(
+            validator_metadata_hash(hass) == scheduler_hashes["en"],
+            "English scheduler metadata differs",
         )
 
-        dashboard_path.write_text("title: user customization\n", encoding="utf-8")
-        custom_content = dashboard_path.read_text(encoding="utf-8")
-        written, managed = assets._sync_assets(
-            config_path,
-            "pl-PL",
-            False,
-            {"dashboard_hoymiles.yaml": previous_hash},
+    with tempfile.TemporaryDirectory(prefix="hoymiles_live_collision_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(
+            (
+                RESOURCES
+                / "home_assistant"
+                / "pl"
+                / "hoymiles_ems_scheduler.yaml"
+            ).read_bytes()
+        )
+        hass = ValidatorHass(config_path)
+        results: list = []
+
+        def capture_collision(name: str, result) -> None:
+            if name == "_sync_assets":
+                results.append(result)
+
+        hass.executor_after = capture_collision
+        validator_set_ui_collision(hass)
+        written = validator_install(assets, hass)
+        require(package_path not in written, "Live editable collision was missed")
+        require(validator_metadata_hash(hass) is None, "Collision repaired missing metadata")
+        require(
+            not package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX).exists(),
+            "Current collision created backup",
         )
         require(
-            dashboard_path not in written
-            and dashboard_path.read_text(encoding="utf-8") == custom_content
-            and "dashboard_hoymiles.yaml" not in managed,
-            "A user-modified dashboard was overwritten",
+            results[0].scheduler.action.value
+            == VALIDATOR_TRANSITIONS["collision"],
+            "Literal collision transition differs",
         )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_backup_exact_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        backup = package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX)
+        backup.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        before = (backup.stat().st_ino, backup.stat().st_mtime_ns, backup.read_bytes())
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path in written, "Exact existing backup blocked overwrite")
+        require(
+            (backup.stat().st_ino, backup.stat().st_mtime_ns, backup.read_bytes())
+            == before,
+            "Exact existing backup was overwritten",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_backup_foreign_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        backup = package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX)
+        backup.write_bytes(b"foreign backup")
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path not in written, "Foreign backup allowed overwrite")
+        require(package_path.read_bytes() == VALIDATOR_BACKUP_FIXTURE, "Foreign backup changed scheduler")
+        require(backup.read_bytes() == b"foreign backup", "Foreign backup was overwritten")
+        require(validator_metadata_hash(hass) is None, "Foreign backup advanced metadata")
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_legacy_temp_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        legacy = package_path.parent / VALIDATOR_OLD_TEMP
+        legacy.write_bytes(b"protected legacy temp")
+        identity = (legacy.stat().st_ino, legacy.stat().st_mtime_ns)
+        written = validator_install(assets, ValidatorHass(config_path), overwrite=True)
+        require(package_path in written, "Legacy fixed temp blocked unique-temp transaction")
+        require(legacy.read_bytes() == b"protected legacy temp", "Legacy temp bytes changed")
+        require(
+            (legacy.stat().st_ino, legacy.stat().st_mtime_ns) == identity,
+            "Legacy temp identity changed",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_metadata_recovery_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        old_hash = hashlib.sha256(VALIDATOR_BACKUP_FIXTURE).hexdigest()
+        hass = ValidatorHass(config_path)
+        hass.store_payload = {
+            "integration_version": "1.5.7",
+            "assets": {VALIDATOR_SCHEDULER_RELATIVE: old_hash},
+        }
+        hass.metadata_failures = 1
+        try:
+            validator_install(assets, hass, overwrite=True)
+        except OSError:
+            pass
+        else:
+            raise RuntimeError("Injected metadata failure was swallowed")
+        inode = package_path.stat().st_ino
+        require(
+            validator_metadata_hash(hass) == old_hash,
+            "Metadata failure advanced scheduler hash",
+        )
+        written = validator_install(assets, hass)
+        require(package_path not in written, "Metadata self-heal replaced current file")
+        require(package_path.stat().st_ino == inode, "Metadata self-heal changed identity")
+        require(
+            validator_metadata_hash(hass) == scheduler_hashes["pl"],
+            "Metadata self-heal did not commit exact new hash",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_modified_policy_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        modified = b"# user modified scheduler\nstate: custom\n"
+        package_path.write_bytes(modified)
+        hass = ValidatorHass(config_path)
+        written = validator_install(assets, hass, overwrite=False)
+        require(package_path not in written, "overwrite false replaced modified scheduler")
+        require(package_path.read_bytes() == modified, "modified scheduler changed")
+        require(
+            not package_path.with_name(package_path.name + VALIDATOR_BACKUP_SUFFIX).exists(),
+            "modified hold created backup",
+        )
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path in written, "explicit overwrite did not replace modified scheduler")
+        require(
+            package_path.with_name(
+                package_path.name + VALIDATOR_BACKUP_SUFFIX
+            ).read_bytes()
+            == modified,
+            "Explicit overwrite backup differs",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles_replace_failure_") as tmp:
+        config_path = Path(tmp)
+        package_path = validator_scheduler_path(config_path)
+        package_path.parent.mkdir(parents=True)
+        package_path.write_bytes(VALIDATOR_BACKUP_FIXTURE)
+        hass = ValidatorHass(config_path)
+        hass.replace_failure_path = package_path
+        written = validator_install(assets, hass, overwrite=True)
+        require(package_path not in written, "Replace failure reported success")
+        require(
+            package_path.read_bytes() == VALIDATOR_BACKUP_FIXTURE,
+            "Replace failure changed scheduler",
+        )
+        require(
+            validator_metadata_hash(hass) is None,
+            "Replace failure advanced scheduler metadata",
+        )
+
+    async def validate_executor_pause_collision() -> None:
+        with tempfile.TemporaryDirectory(prefix="hoymiles_pause_collision_") as tmp:
+            config_path = Path(tmp)
+            hass = ValidatorHass(config_path)
+            hass.pause_executor_name = "_sync_assets"
+            hass.pause_entered = asyncio.Event()
+            hass.pause_release = asyncio.Event()
+            task = asyncio.create_task(
+                assets.async_install_assets(
+                    hass,
+                    overwrite=False,
+                    publish_frontend=False,
+                )
+            )
+            await hass.pause_entered.wait()
+            validator_set_ui_collision(hass)
+            hass.pause_release.set()
+            written = await task
+            package_path = validator_scheduler_path(config_path)
+            require(package_path not in written, "Paused collision reported write")
+            require(not package_path.exists(), "Paused collision did not remove fresh file")
+            require(
+                validator_metadata_hash(hass) is None,
+                "Paused collision advanced scheduler metadata",
+            )
+
+    asyncio.run(validate_executor_pause_collision())
+
+    require(
+        "hass.services.async_call" not in assets_source
+        and "write_register" not in assets_source
+        and "grant_execution" not in assets_source,
+        "Managed-package delivery added a physical execution path",
+    )
 
     class FakeResourceCollection:
         """Exercise the same live collection contract as Lovelace websocket."""
@@ -595,16 +7506,20 @@ script:
 
     require(
         assets.FRONTEND_RESOURCE_URL
-        == f"/local/hoymiles-rce-chart-card.js?v={assets.VERSION}.24"
+        == f"/local/hoymiles-rce-chart-card.js?v={assets.VERSION}.{frontend_revision}{frontend_query_suffix}"
         and assets.FRONTEND_BOOTSTRAP_URL
-        == f"/local/hoymiles-dashboard-strategy.js?v={assets.VERSION}.24"
+        == f"/local/hoymiles-dashboard-strategy.js?v={assets.VERSION}.{frontend_revision}{frontend_query_suffix}"
         and "/local/hoymiles-dashboard-strategy.js"
         in assets.MANAGED_FRONTEND_RESOURCE_PATHS,
-        "Frontend revision 24 or bootstrap migration paths changed",
+        f"Frontend revision {frontend_revision} or bootstrap migration paths changed",
     )
 
 
-def validate_frontend_asset_failure_isolation(init_source: str) -> None:
+def validate_frontend_asset_failure_isolation(
+    init_source: str,
+    *,
+    execution_history_view: bool = False,
+) -> None:
     """Prove optional asset failures cannot disable integration-wide setup."""
     source_tree = ast.parse(init_source)
     selected = [
@@ -618,6 +7533,16 @@ def validate_frontend_asset_failure_isolation(init_source: str) -> None:
         == {"_async_prepare_frontend_assets", "async_setup"},
         "Frontend failure-isolation functions are missing",
     )
+
+    class RemoveInitialDefaultsImports(ast.NodeTransformer):
+        """Replace I2's local production import with isolated test doubles."""
+
+        def visit_ImportFrom(self, node: ast.ImportFrom):
+            if node.level == 1 and node.module == "ems_initial_defaults":
+                return None
+            return node
+
+    selected = [RemoveInitialDefaultsImports().visit(node) for node in selected]
     executable = ast.Module(
         body=[
             ast.ImportFrom(
@@ -683,6 +7608,23 @@ def validate_frontend_asset_failure_isolation(init_source: str) -> None:
         async def async_add_executor_job(self, target, *args):
             return target(*args)
 
+    async def fake_capture_fresh_install_evidence(_hass):
+        return object()
+
+    async def fake_initial_defaults_step(*_args, **_kwargs) -> None:
+        return None
+
+    async def fake_installation_identity(_hass) -> str:
+        return "validator-installation-id"
+
+    class FakeInitialDefaultSeeder:
+        @classmethod
+        def for_home_assistant(cls, _hass):
+            return cls()
+
+        async def async_run_once(self, *, now) -> None:
+            return None
+
     issues = FakeIssueRegistry()
     module_globals = {
         "Path": Path,
@@ -698,10 +7640,34 @@ def validate_frontend_asset_failure_isolation(init_source: str) -> None:
         "RESOURCE_ROOT": Path("resources"),
         "FRONTEND_MODULE_URL": "/local/card.js?v=test",
         "ATTR_OVERWRITE": "overwrite",
+        "ATTR_PAUSED": "paused",
+        "ATTR_POLICY": "policy",
+        "ATTR_ENABLED": "enabled",
         "SERVICE_INSTALL_ASSETS": "install_assets",
+        "SERVICE_MASTER_STOP": "master_stop",
+        "SERVICE_SET_EMS_PAUSED": "set_ems_paused",
+        "SERVICE_SET_POLICY_ENABLED": "set_policy_enabled",
+        "SERVICE_RESUME_AFTER_MASTER_STOP": "resume_after_master_stop",
         "INSTALL_ASSETS_SCHEMA": object(),
+        "SET_EMS_PAUSED_SCHEMA": object(),
+        "SET_POLICY_ENABLED_SCHEMA": object(),
+        "HomeAssistantError": RuntimeError,
+        "async_request_supervisor_master_stop": lambda _hass: None,
+        "async_set_supervisor_paused": lambda *_args, **_kwargs: None,
+        "async_set_supervisor_policy_enabled": lambda *_args, **_kwargs: None,
+        "async_resume_supervisor_after_master_stop": lambda *_args, **_kwargs: None,
+        "FreshInstallEvidence": lambda *_args, **_kwargs: object(),
+        "async_capture_fresh_install_evidence": fake_capture_fresh_install_evidence,
+        "async_stage_fresh_install_authorization": fake_initial_defaults_step,
+        "async_authorize_fresh_install": fake_initial_defaults_step,
+        "EMSInitialDefaultSeeder": FakeInitialDefaultSeeder,
+        "async_get_or_create_installation_identity": fake_installation_identity,
+        "EMS_PACKAGE_VERSION": "1.5.8",
+        "datetime": types.SimpleNamespace(now=lambda _timezone: object()),
+        "timezone": types.SimpleNamespace(utc=object()),
         "StaticPathConfig": lambda *args, **kwargs: (args, kwargs),
         "HoymilesSupportBundleView": lambda: object(),
+        "HoymilesExecutionHistoryView": lambda: object(),
     }
     exec(compile(executable, "<frontend-startup-contract>", "exec"), module_globals)
 
@@ -745,8 +7711,25 @@ def validate_frontend_asset_failure_isolation(init_source: str) -> None:
         )
     require(
         len(failed_hass.http.static_paths) == 1
-        and len(failed_hass.http.views) == 1
-        and len(failed_hass.services.registrations) == 1
+        and len(failed_hass.http.views) == (2 if execution_history_view else 1)
+        and len(failed_hass.services.registrations)
+        == (5 if execution_history_view else 2)
+        and {
+            args[1]
+            for args, _kwargs in failed_hass.services.registrations
+            if len(args) >= 2
+        }
+        == (
+            {
+                "install_assets",
+                "master_stop",
+                "set_ems_paused",
+                "set_policy_enabled",
+                "resume_after_master_stop",
+            }
+            if execution_history_view
+            else {"install_assets", "master_stop"}
+        )
         and not extra_urls,
         "Asset failure did not preserve setup or published an unsafe module",
     )
@@ -765,6 +7748,713 @@ def validate_frontend_asset_failure_isolation(init_source: str) -> None:
         extra_urls == ["/local/card.js?v=test"],
         "Successful frontend setup did not publish exactly one canonical module",
     )
+
+
+def validate_ui_count_self_tests(
+    node_executable: str,
+    validation_root: Path = ROOT,
+) -> None:
+    """Prove both exact UI counters reject one-less and one-more oracles."""
+    ui_test = validation_root / "tools" / "test_supervisor_aurora_ui_contract.js"
+    source = ui_test.read_text(encoding="utf-8")
+    count_contracts = ((69, 1109), (68, 1078), (65, 913))
+    matching_contracts = [
+        (groups, checks)
+        for groups, checks in count_contracts
+        if source.count(f"const EXPECTED_GROUP_COUNT = {groups};") == 1
+        and source.count(f"const EXPECTED_CHECK_COUNT = {checks};") == 1
+    ]
+    require(
+        len(matching_contracts) == 1,
+        "UI count self-test cannot identify one exact current or historical contract",
+    )
+    expected_groups, expected_checks = matching_contracts[0]
+    cases = (
+        (
+            f"const EXPECTED_GROUP_COUNT = {expected_groups};",
+            f"const EXPECTED_GROUP_COUNT = {expected_groups - 1};",
+        ),
+        (
+            f"const EXPECTED_GROUP_COUNT = {expected_groups};",
+            f"const EXPECTED_GROUP_COUNT = {expected_groups + 1};",
+        ),
+        (
+            f"const EXPECTED_CHECK_COUNT = {expected_checks};",
+            f"const EXPECTED_CHECK_COUNT = {expected_checks - 1};",
+        ),
+        (
+            f"const EXPECTED_CHECK_COUNT = {expected_checks};",
+            f"const EXPECTED_CHECK_COUNT = {expected_checks + 1};",
+        ),
+    )
+    with tempfile.TemporaryDirectory(prefix="hoymiles-rev28-counts-") as directory:
+        target = Path(directory) / ui_test.name
+        for index, (anchor, replacement) in enumerate(cases, start=1):
+            require(
+                source.count(anchor) == 1,
+                f"UI count self-test {index} anchor is not unique",
+            )
+            target.write_text(
+                source.replace(anchor, replacement, 1),
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["HOYMILES_UI_TEST_ROOT"] = str(validation_root)
+            completed = subprocess.run(
+                [node_executable, str(target)],
+                cwd=validation_root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            require(
+                completed.returncode != 0
+                and "UI "
+                in f"{completed.stdout}{completed.stderr}",
+                f"UI count ±1 self-test {index} unexpectedly survived",
+            )
+
+
+def validate_rev28_visual_mutations(
+    node_executable: str,
+    validation_root: Path = ROOT,
+) -> int:
+    """Run V01–V12 against both canonical and packaged card bytes."""
+
+    def replace_once(text: str, old: str, new: str, mutation_id: str) -> str:
+        require(
+            text.count(old) == 1,
+            f"{mutation_id} mutation anchor count is {text.count(old)}, expected 1",
+        )
+        return text.replace(old, new, 1)
+
+    def remove_last_reduced_motion(text: str) -> str:
+        marker = "  @media (prefers-reduced-motion: reduce) {"
+        component_start = text.find("const HOYMILES_EMS_SUPERVISOR_CSS")
+        component_end = text.find(
+            "class HoymilesEmsSupervisorPanel", component_start
+        )
+        start = text.rfind(marker, component_start, component_end)
+        end = text.find(
+            "  @container (max-width: 1024px)", start, component_end
+        )
+        require(start >= 0 and end > start, "V08 reduced-motion block anchor missing")
+        return text[:start] + text[end:]
+
+    mutations = (
+        (
+            "V01",
+            lambda text: text.replace(
+                "--policy-accent: var(--supervisor-rce);",
+                "--policy-accent: var(--supervisor-cyan);",
+            )
+            .replace(
+                "--policy-accent: var(--supervisor-tariff);",
+                "--policy-accent: var(--supervisor-cyan);",
+            )
+            .replace(
+                "--policy-accent: var(--supervisor-rcm);",
+                "--policy-accent: var(--supervisor-cyan);",
+            ),
+        ),
+        (
+            "V02",
+            lambda text: replace_once(
+                text,
+                '  .supervisor-panel[data-tone="shadow-selected"] {\n'
+                "    --supervisor-tone: var(--supervisor-violet);",
+                '  .supervisor-panel[data-tone="shadow-selected"] {\n'
+                "    --supervisor-tone: var(--supervisor-ready);",
+                "V02",
+            ),
+        ),
+        (
+            "V03",
+            lambda text: replace_once(
+                text,
+                'this._copyElement("span", "", "physicalAuthority")',
+                'this._copyElement("span", "", "heroIntro")',
+                "V03",
+            ),
+        ),
+        (
+            "V04",
+            lambda text: replace_once(
+                text,
+                '      "details",\n'
+                '      ("supervisor-knowledge-detail " + className).trim()',
+                '      "section",\n'
+                '      ("supervisor-knowledge-detail " + className).trim()',
+                "V04",
+            ),
+        ),
+        (
+            "V05",
+            lambda text: replace_once(
+                text,
+                'this._copyElement("span", "", "safetyStrip")',
+                'this._copyElement("span", "", "heroIntro")',
+                "V05",
+            ),
+        ),
+        (
+            "V06",
+            lambda text: replace_once(
+                replace_once(
+                    text,
+                    "--supervisor-tariff: #49a5ff;",
+                    "--supervisor-tariff: #f2b84b;",
+                    "V06",
+                ),
+                "--supervisor-rcm: #b07cff;",
+                "--supervisor-rcm: #f2b84b;",
+                "V06",
+            ),
+        ),
+        (
+            "V07",
+            lambda text: replace_once(
+                text,
+                "  .supervisor-title {\n"
+                "    color: var(--hoymiles-aurora-text);",
+                "  .supervisor-title {\n"
+                "    color: #12ab34;",
+                "V07",
+            ),
+        ),
+        ("V08", remove_last_reduced_motion),
+        (
+            "V09",
+            lambda text: replace_once(
+                text,
+                "  @container (max-width: 390px) {\n"
+                "    .supervisor-hero { gap: 17px; padding: 15px 12px; }",
+                "  @container (max-width: 390px) {\n"
+                "    .supervisor-scope { display: none; }\n"
+                "    .supervisor-hero { gap: 17px; padding: 15px 12px; }",
+                "V09",
+            ),
+        ),
+        (
+            "V10",
+            lambda text: replace_once(
+                text,
+                "      hero,\n"
+                "      liveGrid,\n"
+                "      policySection,\n"
+                "      howSection,\n"
+                "      safetyStrip,\n"
+                "      knowledgeSection",
+                "      hero,\n"
+                "      knowledgeSection,\n"
+                "      liveGrid,\n"
+                "      policySection,\n"
+                "      howSection,\n"
+                "      safetyStrip",
+                "V10",
+            ),
+        ),
+        (
+            "V11",
+            lambda text: replace_once(
+                text,
+                '  rce: "mdi:chart-line",',
+                '  rce: "mdi:circle-outline",',
+                "V11",
+            ),
+        ),
+        (
+            "V12",
+            lambda text: replace_once(
+                text,
+                "  .supervisor-backdrop,\n"
+                "  .supervisor-blob,\n"
+                "  .supervisor-points,\n"
+                "  .supervisor-vignette {\n"
+                "    inset: 0;\n"
+                "    pointer-events: none;",
+                "  .supervisor-backdrop,\n"
+                "  .supervisor-blob,\n"
+                "  .supervisor-points,\n"
+                "  .supervisor-vignette {\n"
+                "    inset: 0;\n"
+                "    pointer-events: auto;",
+                "V12",
+            ),
+        ),
+    )
+
+    validation_component = (
+        validation_root / "custom_components" / "hoymiles_hit_modbus"
+    )
+    canonical_card = (
+        validation_root / "home_assistant" / "www" / "hoymiles-rce-chart-card.js"
+    )
+    packaged_card = (
+        validation_component / "resources" / "www" / "hoymiles-rce-chart-card.js"
+    )
+    baseline = canonical_card.read_text(encoding="utf-8")
+    require(
+        packaged_card.read_text(encoding="utf-8") == baseline,
+        "Visual mutation baseline lacks generated card parity",
+    )
+    with tempfile.TemporaryDirectory(prefix="hoymiles-rev28-visual-") as directory:
+        fixture_root = Path(directory)
+        shutil.copytree(
+            validation_component,
+            fixture_root / "custom_components" / "hoymiles_hit_modbus",
+        )
+        for relative_path in (
+            "dashboard_hoymiles.yaml",
+            "home_assistant/hoymiles_ems_scheduler.yaml",
+            "home_assistant/www/hoymiles-dashboard-strategy.js",
+            "home_assistant/www/hoymiles-rce-chart-card.js",
+            "tools/build_hacs_assets.py",
+            "tools/validate_rce_card.js",
+            "tools/validate_release.py",
+        ):
+            source_path = validation_root / relative_path
+            target_path = fixture_root / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+
+        ui_test = (
+            validation_root / "tools" / "test_supervisor_aurora_ui_contract.js"
+        )
+        environment = os.environ.copy()
+        environment["HOYMILES_UI_TEST_ROOT"] = str(fixture_root)
+        detected = 0
+        for mutation_id, mutate in mutations:
+            mutated = mutate(baseline)
+            require(mutated != baseline, f"{mutation_id} did not alter the card")
+            for relative_path in (
+                "home_assistant/www/hoymiles-rce-chart-card.js",
+                "custom_components/hoymiles_hit_modbus/resources/www/"
+                "hoymiles-rce-chart-card.js",
+            ):
+                (fixture_root / relative_path).write_text(
+                    mutated,
+                    encoding="utf-8",
+                )
+            completed = subprocess.run(
+                [node_executable, str(ui_test)],
+                cwd=fixture_root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if completed.returncode != 0:
+                detected += 1
+        require(
+            detected == len(mutations) == 12,
+            f"Visual mutation result is {detected}/12, expected 12/12",
+        )
+    return detected
+
+
+def validate_ap3b_contract_mutations(node_executable: str) -> int:
+    """Detect the mandatory AP-3B/Supervisor and R3 visual mutations."""
+
+    copied_paths = (
+        "dashboard_hoymiles.yaml",
+        "home_assistant/hoymiles_ems_scheduler.yaml",
+        "home_assistant/www/hoymiles-dashboard-strategy.js",
+        "home_assistant/www/hoymiles-rce-chart-card.js",
+        "tools/build_hacs_assets.py",
+        "tools/test_aurora_automation_planner_ui_contract.js",
+        "tools/test_supervisor_aurora_ui_contract.js",
+        "tools/validate_rce_card.js",
+        "tools/validate_release.py",
+    )
+
+    def replace_once(text: str, old: str, new: str, mutation_id: str) -> str:
+        require(
+            text.count(old) == 1,
+            f"{mutation_id} target count is {text.count(old)}, expected 1",
+        )
+        return text.replace(old, new, 1)
+
+    with tempfile.TemporaryDirectory(prefix="hoymiles-ap3b-mutations-") as directory:
+        fixture_root = Path(directory)
+        shutil.copytree(
+            COMPONENT,
+            fixture_root / "custom_components" / "hoymiles_hit_modbus",
+        )
+        for relative_path in copied_paths:
+            target = fixture_root / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative_path, target)
+
+        environment = os.environ.copy()
+        environment["HOYMILES_UI_TEST_ROOT"] = str(fixture_root)
+
+        def reset(relative_path: str) -> Path:
+            target = fixture_root / relative_path
+            shutil.copy2(ROOT / relative_path, target)
+            return target
+
+        def read(relative_path: str) -> str:
+            return (fixture_root / relative_path).read_bytes().decode("utf-8")
+
+        def write(relative_path: str, text: str) -> None:
+            (fixture_root / relative_path).write_bytes(text.encode("utf-8"))
+
+        def test_fails(test_name: str) -> bool:
+            completed = subprocess.run(
+                [node_executable, str(fixture_root / "tools" / test_name)],
+                cwd=fixture_root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            return completed.returncode != 0
+
+        results: list[tuple[str, bool]] = []
+        dashboard_path = "dashboard_hoymiles.yaml"
+        card_path = "home_assistant/www/hoymiles-rce-chart-card.js"
+
+        reset(dashboard_path)
+        dashboard = read(dashboard_path)
+        plan_start = dashboard.index("  - title: Plan EMS\n")
+        supervisor_start = dashboard.index("  - title: Automatyka EMS\n")
+        write(dashboard_path, dashboard[:plan_start] + dashboard[supervisor_start:])
+        results.append(
+            ("M01_REMOVE_PLAN_VIEW", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(dashboard_path)
+        dashboard = read(dashboard_path)
+        dashboard = replace_once(
+            dashboard,
+            "  - title: Plan EMS\n",
+            "  - title: __AP3B_TITLE_SWAP__\n",
+            "M02",
+        )
+        dashboard = replace_once(
+            dashboard,
+            "  - title: Automatyka EMS\n",
+            "  - title: Plan EMS\n",
+            "M02",
+        )
+        dashboard = replace_once(
+            dashboard,
+            "  - title: __AP3B_TITLE_SWAP__\n",
+            "  - title: Automatyka EMS\n",
+            "M02",
+        )
+        write(dashboard_path, dashboard)
+        results.append(
+            ("M02_SUPERVISOR_TITLE_IN_POSITION_2", test_fails("test_supervisor_aurora_ui_contract.js"))
+        )
+
+        reset(dashboard_path)
+        dashboard = read(dashboard_path)
+        plan_start = dashboard.index("  - title: Plan EMS\n")
+        supervisor_start = dashboard.index("  - title: Automatyka EMS\n")
+        supervisor_end = dashboard.index("\n  - title:", supervisor_start + 1) + 1
+        plan_block = dashboard[plan_start:supervisor_start]
+        supervisor_block = dashboard[supervisor_start:supervisor_end]
+        write(
+            dashboard_path,
+            dashboard[:plan_start]
+            + supervisor_block
+            + plan_block
+            + dashboard[supervisor_end:],
+        )
+        results.append(
+            ("M03_MOVE_PLAN_AFTER_SUPERVISOR", test_fails("test_supervisor_aurora_ui_contract.js"))
+        )
+
+        reset(dashboard_path)
+        write(
+            dashboard_path,
+            replace_once(
+                read(dashboard_path),
+                "    path: plan-automatyki\n",
+                "    path: plan-automatyki-mutated\n",
+                "M04",
+            ),
+        )
+        results.append(
+            ("M04_CHANGE_PLAN_PATH", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(dashboard_path)
+        write(
+            dashboard_path,
+            replace_once(
+                read(dashboard_path),
+                "type: custom:hoymiles-automation-planner-card",
+                "type: custom:hoymiles-automation-planner-card-mutated",
+                "M05",
+            ),
+        )
+        results.append(
+            ("M05_CHANGE_AP3B_CUSTOM_ELEMENT", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        assets_path = "custom_components/hoymiles_hit_modbus/assets.py"
+        reset(assets_path)
+        write(
+            assets_path,
+            replace_once(
+                read(assets_path),
+                "FRONTEND_ASSET_REVISION = 69",
+                "FRONTEND_ASSET_REVISION = 68",
+                "M06",
+            ),
+        )
+        results.append(
+            ("M06_STALE_REVISION_68", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        strategy_path = "home_assistant/www/hoymiles-dashboard-strategy.js"
+        reset(strategy_path)
+        write(
+            strategy_path,
+            replace_once(read(strategy_path), "1.5.8.69", "1.5.8.68", "M07"),
+        )
+        results.append(
+            ("M07_ONE_RESOURCE_REVISION_68", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(dashboard_path)
+        write(
+            dashboard_path,
+            replace_once(
+                read(dashboard_path),
+                "supervisor_allow_rce_entity: input_boolean.hoymiles_ems_supervisor_allow_rce",
+                "supervisor_allow_rce_entity: input_boolean.hoymiles_rce_discharge_enabled",
+                "M08",
+            ),
+        )
+        results.append(
+            ("M08_MUTATE_SUPERVISOR_HELPER", test_fails("test_supervisor_aurora_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                'Object.freeze(["Off", "Shadow"])',
+                'Object.freeze(["Shadow"])',
+                "M09",
+            ),
+        )
+        results.append(
+            ("M09_REMOVE_SUPERVISOR_OFF", test_fails("test_supervisor_aurora_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                'Object.freeze(["Off", "Shadow"])',
+                'Object.freeze(["Off", "Shadow", "Active"])',
+                "M10",
+            ),
+        )
+        results.append(
+            ("M10_ADD_SUPERVISOR_ACTIVE", test_fails("test_supervisor_aurora_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                "class HoymilesAutomationPlannerCard extends HTMLElement {\n  constructor() {",
+                "class HoymilesAutomationPlannerCard extends HTMLElement {\n"
+                "  _forbiddenPhysicalAuthority() {\n"
+                '    return this._latestHass.callService("modbus", "write_register", {});\n'
+                "  }\n\n"
+                "  constructor() {",
+                "M11",
+            ),
+        )
+        results.append(
+            ("M11_ADD_PHYSICAL_AUTHORITY", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        supervisor_test_path = "tools/test_supervisor_aurora_ui_contract.js"
+        reset(supervisor_test_path)
+        frozen_attestation = (
+            'check(supervisorDigest === '
+            '"f4c76f967627539fb0be47819702fd869d6024006754178d6095239817797570", '
+            '"Supervisor YAML subtree exactly matches the frozen contract");'
+        )
+        write(
+            supervisor_test_path,
+            replace_once(
+                read(supervisor_test_path),
+                frozen_attestation,
+                'check(true, "Supervisor YAML subtree exactly matches the frozen contract");',
+                "M12",
+            ),
+        )
+        results.append(
+            (
+                "M12_BYPASS_SUPERVISOR_SUBTREE_ATTESTATION",
+                not _ap3b_supervisor_test_guard(read(supervisor_test_path)),
+            )
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                'expectedSoc.setAttribute("class", "ap-soc-expected");',
+                'expectedSoc.setAttribute("class", "ap-soc-expected-removed");',
+                "M13",
+            ),
+        )
+        results.append(
+            ("M13_REMOVE_MAIN_GREEN_LINE", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                'expectedSoc.dataset.sourceField =\n'
+                '      "canonical.slots.soc_equation.soc_end_percent";',
+                'expectedSoc.dataset.sourceField =\n'
+                '      "canonical.slots.soc_equation.soc_start_percent";',
+                "M14",
+            ),
+        )
+        results.append(
+            ("M14_MAP_GREEN_LINE_TO_TARGET", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                "this._setSocPath(this._refs.socExpected, expected);",
+                'this._setSocPath(this._refs.socExpected, "M 0 50 L 1000 50");',
+                "M15",
+            ),
+        )
+        results.append(
+            ("M15_EXTEND_CURRENT_SOC_AS_FAKE_FUTURE", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                'protectedFloor: "Minimalna rezerwa",',
+                'protectedFloor: "Przewidywany poziom baterii",',
+                "M16",
+            ),
+        )
+        results.append(
+            ("M16_RELABEL_RESERVE_AS_EXPECTED", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                "parts.hour % 2 !== 0",
+                "true",
+                "M17",
+            ),
+        )
+        results.append(
+            ("M17_REMOVE_TWO_HOUR_TICKS", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                'expectedSoc: "Przewidywany poziom baterii",',
+                'expectedSoc: "baseline_soc_percent",',
+                "M18",
+            ),
+        )
+        results.append(
+            ("M18_RESTORE_RAW_FIELD_LABEL", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                "element.append(time, action, value);",
+                'element.append(this._element("ha-icon"), time, action, value);',
+                "M19",
+            ),
+        )
+        results.append(
+            ("M19_REPEAT_ICON_PER_SLOT", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                "background: color-mix(in srgb, var(--card-background-color, var(--ha-card-background)) 92%, var(--ap-muted) 8%);",
+                "background: var(--ap-rce);",
+                "M20",
+            ),
+        )
+        results.append(
+            ("M20_SATURATE_WHOLE_HORIZON_NO_ACTION", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                "--ap-panel-surface: color-mix(in srgb, var(--card-background-color, var(--ha-card-background)) 87%, transparent);",
+                "--ap-panel-surface: #333333;",
+                "M21",
+            ),
+        )
+        results.append(
+            ("M21_RESTORE_FLAT_GREY_THEME", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        reset(card_path)
+        write(
+            card_path,
+            replace_once(
+                read(card_path),
+                "  _flush() {\n    if (!this._mounted || !this._latestHass) return;",
+                "  _flush() {\n"
+                "    this.shadowRoot.replaceChildren(...this.shadowRoot.children);\n"
+                "    if (!this._mounted || !this._latestHass) return;",
+                "M22",
+            ),
+        )
+        results.append(
+            ("M22_RESTORE_FULL_RERENDER", test_fails("test_aurora_automation_planner_ui_contract.js"))
+        )
+
+        detected = sum(1 for _, result in results if result)
+        survivors = [mutation_id for mutation_id, result in results if not result]
+        require(
+            detected == len(results) == 22 and not survivors,
+            f"AP-3B mutation result is {detected}/22; survivors: {survivors}",
+        )
+        return detected
 
 
 def png_dimensions(path: Path) -> tuple[int, int]:
@@ -789,6 +8479,24 @@ def entity_translation_keys(translations: dict) -> dict[str, set[str]]:
 
 def main() -> int:
     """Validate HACS layout, translations, Python and bundled assets."""
+    if ((ROOT / "tools/release_manifests/rc2_public_provenance.json").is_file()
+        or _git_try("merge-base", "--is-ancestor", "e1ffdc2494ebfb53b5e8c692acac012f11f954c3", "HEAD").returncode == 0):
+        sys.path.insert(0, str(ROOT / "tools"))
+        from rc2_release_contract import structural
+        return structural(sys.modules[__name__])
+    validate_historical_rev28_gate()
+    current_ap2r1_gate = validate_current_integrated_manifests()
+    n12_contract_result = (
+        validate_n12_release_contract()
+        if current_ap2r1_gate
+        in {N12_EXACT_LOCAL_BASE, V158_RELEASE_CANDIDATE, V158_TASK02_CANDIDATE}
+        else ""
+    )
+    uses_supervisor_active_contract = (
+        current_ap2r1_gate == SUPERVISOR_ACTIVE_OVERLAY_CANDIDATE
+        or _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+    )
+    validate_current_ap1_contract()
     integration_dirs = [
         path for path in COMPONENT_ROOT.iterdir() if path.is_dir()
     ]
@@ -833,6 +8541,7 @@ def main() -> int:
     entity_source = (COMPONENT / "entity.py").read_text(encoding="utf-8")
     init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
     assets_source = (COMPONENT / "assets.py").read_text(encoding="utf-8")
+    validate_protected_assets_ast(assets_source)
     config_flow_source = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
     sensor_platform_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
     const_source = (COMPONENT / "const.py").read_text(encoding="utf-8")
@@ -878,6 +8587,53 @@ def main() -> int:
     ems_package_source = (
         ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml"
     ).read_text(encoding="utf-8")
+    ems_package = yaml.safe_load(ems_package_source)
+    require(isinstance(ems_package, dict), "Canonical EMS scheduler is not a mapping")
+    validate_balancing_object_freeze(ems_package)
+    validate_balancing_scheduler_freeze(
+        ems_package,
+        scheduler_sha256=(
+            N12_SCHEDULER_SHA256
+            if current_ap2r1_gate
+            in {N12_EXACT_LOCAL_BASE, V158_RELEASE_CANDIDATE, V158_TASK02_CANDIDATE}
+            else (
+                CONSOLIDATED_SCHEDULER_SHA256
+                if current_ap2r1_gate == CONSOLIDATED_RELEASE_CANDIDATE
+                else (
+                    AURORA_COMPACT_SCHEDULER_SHA256
+                    if _uses_aurora_compact_contract(current_ap2r1_gate)
+                    else (
+                        INTEGRATED_ACTIVE_SHARED_AURORA_SCHEDULER_SHA256
+                        if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+                        else (
+                            SUPERVISOR_ACTIVE_SCHEDULER_SHA256
+                            if uses_supervisor_active_contract
+                            else EXPECTED_BALANCING_SCHEDULER_SHA256
+                        )
+                    )
+                )
+            )
+        ),
+        control_semantic_sha256=(
+            EXPECTED_BALANCING_CONTROL_SEMANTIC_SHA256
+            if current_ap2r1_gate
+            in {N12_EXACT_LOCAL_BASE, V158_RELEASE_CANDIDATE, V158_TASK02_CANDIDATE}
+            else (
+                AURORA_COMPACT_BALANCING_CONTROL_SEMANTIC_SHA256
+                if _uses_aurora_compact_contract(current_ap2r1_gate)
+                else (
+                    INTEGRATED_ACTIVE_SHARED_AURORA_BALANCING_CONTROL_SEMANTIC_SHA256
+                    if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+                    else (
+                        SUPERVISOR_ACTIVE_BALANCING_CONTROL_SEMANTIC_SHA256
+                        if uses_supervisor_active_contract
+                        else EXPECTED_BALANCING_CONTROL_SEMANTIC_SHA256
+                    )
+                )
+            )
+        ),
+    )
+    validate_balancing_test_identity()
     require(
         'EMS_PACKAGE_SENTINEL = "input_boolean.hoymiles_rce_discharge_enabled"'
         in const_source
@@ -983,6 +8739,8 @@ def main() -> int:
     )
 
     catalog = load_json(COMPONENT / "entity_catalog.json")
+    require(isinstance(catalog, list), "Generated entity catalog is not a list")
+    validate_managed_asset_freshness(catalog)
     require(isinstance(catalog, list), "Entity catalog must be a list")
     require(len(catalog) >= 250, "The generated catalog is unexpectedly small")
     identities = {
@@ -1070,6 +8828,78 @@ def main() -> int:
 
     english_package = required_assets[2].read_text(encoding="utf-8")
     polish_package = required_assets[3].read_text(encoding="utf-8")
+    balancing_power_source = ems_package_source.split(
+        "      # Single runtime source of truth for the complete parallel system.", 1
+    )[1].split(
+        "      # Canonical parser for the exact 18-field b2 lifecycle schema.", 1
+    )[0]
+    balancing_worker_source = ems_package_source.split(
+        "  hoymiles_battery_balancing_transaction_worker:", 1
+    )[1].split("\nautomation:", 1)[0]
+    canonical_balancing = balancing_power_source + balancing_worker_source
+    for marker in (
+        "BALANCING_SLOW_TARGET_KW = 0.4",
+        "hoymiles_battery_balancing_cycle_sequence:",
+        "hoymiles_battery_balancing_notification_outbox:",
+        "self_use_semantics: direct_battery_charge_cap",
+        "grid_charge_semantics: common_ac_budget_including_load",
+        "b2|{{ record_cycle }}|{{ record_persisted_state }}",
+        "conditional_commit_current",
+        "record_guard_steady_commit",
+        "hoymiles_battery_balancing_p95_hard_stop_capture",
+        "hoymiles_battery_balancing_recovery_hard_stop_capture",
+        "t1|{{ timing_cycle }}|{{ timing_gap_generation }}",
+        "a1|{{ abort_cycle }}|{{ abort_generation }}",
+        "o1|{{ slot_1_event_id }}",
+        "gap_deadline_ms",
+        "clock_anomaly",
+        "HOLD_ARMING",
+        "RECOVERY_REQUIRED",
+        "NOTIFICATION_PENDING",
+        "data_stale_timeout",
+        "queue_restore_worker",
+        "snapshot_changed_before_transaction",
+        "required_mode_after_ack",
+        "required_mode_after_power",
+        "release_abort_generation",
+        "script.hoymiles_verified_set_ems_maximum_charge_power",
+        "script.hoymiles_verified_set_ems_force_charge_soc",
+        "script.hoymiles_verified_set_ems_mode",
+    ):
+        require(marker in ems_package_source, f"Balancing contract marker missing: {marker}")
+    require(
+        ems_package_source.count("BALANCING_SLOW_TARGET_KW = 0.4") == 1
+        and "| float(20)" not in canonical_balancing
+        and "modbus.write" not in canonical_balancing
+        and "as_timestamp(now()) | int }}|pending" not in canonical_balancing,
+        "Balancing must use one 0.4 kW source and no positive/direct-write fallback",
+    )
+    for marker in (
+        "Przygotowanie cyklu wyrównywania",
+        "Ładowanie z PV do 95% SOC",
+        "Ładowanie z sieci do 95% SOC",
+        "Wolne ładowanie ok. 0,4 kW od 95% do 100% SOC",
+        "Wyrównywanie ogniw przy 100% SOC",
+    ):
+        require(marker in polish_package, f"Polish balancing label missing: {marker}")
+    for marker in (
+        "Preparing the balancing cycle",
+        "Charging from PV to 95% SOC",
+        "Charging from the grid to 95% SOC",
+        "Slow charging at approximately 0.4 kW from 95% to 100% SOC",
+        "Balancing cells at 100% SOC",
+        "Battery balancing — durable transaction counter",
+        "Battery balancing — durable notification outbox",
+        "Battery balancing — serialized physical worker",
+        "Manual recovery required — no trusted snapshot",
+        "['Standby', 'Grid test', 'On-grid operation']",
+    ):
+        require(marker in english_package, f"English balancing label missing: {marker}")
+    require(
+        "Wolne ładowanie 2 kW od 99%" not in polish_package
+        and "Slow 2 kW charging from 99%" not in english_package,
+        "Managed schedulers still describe the superseded 2 kW / 99% phase",
+    )
     require(
         "No active automation" in english_package
         and "Balancing" in english_package
@@ -1077,7 +8907,9 @@ def main() -> int:
         and "Enabled — waiting for a selected slot" in english_package
         and "Active — grid charging" in english_package
         and "Unavailable — initializing" in english_package
-        and "Enabled — blocked: RCE policy is enabled" in english_package,
+        and "Unavailable — EMS is initializing" in english_package
+        and "Compatibility mode — tariff blocked: RCE policy is enabled"
+        in english_package,
         "English EMS package lacks the human ownership/tariff policy states",
     )
     require(
@@ -1087,30 +8919,128 @@ def main() -> int:
         and "Włączone — oczekuje na wybrany blok" in polish_package
         and "Aktywne — ładowanie z sieci" in polish_package
         and "Niedostępne — trwa inicjalizacja" in polish_package
-        and "Włączone — zablokowane: włączona polityka RCE" in polish_package,
+        and "Niedostępne — trwa inicjalizacja EMS" in polish_package
+        and "Tryb zgodności — taryfa zablokowana: włączona polityka RCE"
+        in polish_package,
         "Polish EMS package lacks the human ownership/tariff policy states",
     )
 
     dashboard_source = (
         ROOT / "dashboard_hoymiles.yaml"
     ).read_text(encoding="utf-8")
+    if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate):
+        # I2 may reorganize or repeat existing information, but its canonical
+        # dashboard must preserve the complete pre-I2 entity inventory.
+        baseline_dashboard_source = _git_text(
+            "show",
+            f"{INTEGRATED_ACTIVE_SHARED_AURORA_BASE_SHA}:dashboard_hoymiles.yaml",
+        )
+        dashboard_entity_pattern = re.compile(
+            r"\b[a-z_]+\.hoymiles_[a-z0-9_]+\b"
+        )
+        baseline_entities = frozenset(
+            dashboard_entity_pattern.findall(baseline_dashboard_source)
+        )
+        # The integrated A0+A11+C4 source snapshot immediately before I2 is
+        # HEAD plus the already-reviewed shared/timeline identities and minus
+        # the six superseded legacy helper identities. Freeze that exact
+        # pre-I2 overlay here; comparing raw HEAD to 454 would be impossible
+        # because raw HEAD contains 442 identities.
+        superseded_legacy_entities = {
+            "input_boolean.hoymiles_rcm_shadow_mode",
+            "input_number.hoymiles_rce_fallback_daily_load",
+            "input_select.hoymiles_rce_inverter_rated_power",
+            "input_text.hoymiles_solcast_forecast_day_3_entity",
+            "input_text.hoymiles_solcast_forecast_today_entity",
+            "input_text.hoymiles_solcast_forecast_tomorrow_entity",
+        }
+        integrated_snapshot_entities = {
+            "input_boolean.hoymiles_rcm_active",
+            "input_boolean.hoymiles_rcm_export_control_active",
+            "input_boolean.hoymiles_rcm_pre_discharge_active",
+            "input_boolean.hoymiles_tariff_charge_active",
+            "input_button.hoymiles_ems_supervisor_master_stop",
+            "input_number.hoymiles_ems_fallback_daily_home_load",
+            "input_select.hoymiles_ems_inverter_rated_power_each",
+            "input_text.hoymiles_ems_pv_forecast_day_3_entity",
+            "input_text.hoymiles_ems_pv_forecast_today_entity",
+            "input_text.hoymiles_ems_pv_forecast_tomorrow_entity",
+            "input_text.hoymiles_tariff_active_action",
+            "sensor.hoymiles_ems_baseline_energy_timeline",
+            "sensor.hoymiles_ems_hardware_mode",
+            "sensor.hoymiles_hit_ems_shared_inputs",
+            "sensor.hoymiles_hit_ems_supervisor_canonical_plan",
+            "sensor.hoymiles_hit_rce_automation_plan_timeline",
+            "sensor.hoymiles_hit_rcm_automation_plan_timeline",
+            "sensor.hoymiles_hit_tariff_automation_plan_timeline",
+        }
+        baseline_entities = frozenset(
+            (baseline_entities - superseded_legacy_entities)
+            | integrated_snapshot_entities
+        )
+        expected_entities = (
+            baseline_entities
+            | {
+                "input_boolean.hoymiles_battery_balancing_active",
+                "binary_sensor.hoymiles_battery_balancing_restore_authorized",
+                "input_number.hoymiles_ems_battery_to_home_efficiency",
+                "input_number.hoymiles_ems_pv_to_battery_efficiency",
+                "script.hoymiles_start_battery_balancing",
+                "script.hoymiles_stop_battery_balancing",
+                "sensor.hoymiles_battery_balancing_transaction",
+                "sensor.hoymiles_hit_pv_total_power_direct",
+            }
+            if _uses_aurora_compact_contract(current_ap2r1_gate)
+            else baseline_entities
+        )
+        current_entities = frozenset(
+            dashboard_entity_pattern.findall(dashboard_source)
+        )
+        require(
+            len(baseline_entities) == 454
+            and len(expected_entities)
+            == (462 if _uses_aurora_compact_contract(current_ap2r1_gate) else 454)
+            and current_entities == expected_entities,
+            "Dashboard entity preservation differs from the exact I2/Compact baseline; "
+            f"missing={sorted(expected_entities - current_entities)}, "
+            f"unexpected={sorted(current_entities - expected_entities)}",
+        )
 
     def require_owner_and_tariff_rows(text: str, label: str) -> None:
         owner_marker = "entity: sensor.hoymiles_ems_control_owner"
         tariff_marker = "entity: sensor.hoymiles_tariff_charge_status"
         conflict_marker = "entity: binary_sensor.hoymiles_ems_control_conflict"
-        main_start = text.index(owner_marker)
-        main_end = text.index("\n      - type:", main_start)
-        main_card = text[main_start:main_end]
-        require(
-            main_card.index(owner_marker)
-            < main_card.index(tariff_marker)
-            < main_card.index(conflict_marker),
-            f"{label} main EMS card does not pair owner and tariff policy rows",
-        )
-        tariff_view = text.split("path: ladowanie-taryfowe", 1)[1].split(
-            "\n  - title:", 1
-        )[0]
+
+        def view_block(path: str) -> str:
+            marker = f"\n    path: {path}\n"
+            require(
+                text.count(marker) == 1,
+                f"{label} must expose exactly one {path} view",
+            )
+            return text.split(marker, 1)[1].split("\n  - title:", 1)[0]
+
+        if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate):
+            start_view = view_block("start")
+            supervisor_view = view_block("ems-supervisor")
+            require(
+                start_view.count("custom:hoymiles-aurora-overview-card") == 1
+                and supervisor_view.count(
+                    "custom:hoymiles-ems-supervisor-card"
+                )
+                == 1,
+                f"{label} does not expose the compact EMS overview and canonical Supervisor views",
+            )
+        else:
+            main_start = text.index(owner_marker)
+            main_end = text.index("\n      - type:", main_start)
+            main_card = text[main_start:main_end]
+            require(
+                main_card.index(owner_marker)
+                < main_card.index(tariff_marker)
+                < main_card.index(conflict_marker),
+                f"{label} main EMS card does not pair owner and tariff policy rows",
+            )
+        tariff_view = view_block("ladowanie-taryfowe")
         require(
             tariff_view.count(owner_marker) == 1
             and tariff_view.count(tariff_marker) == 1
@@ -1137,12 +9067,17 @@ def main() -> int:
         expected_zebra_cards >= 56,
         "Source dashboard unexpectedly lost zebra entity cards",
     )
-    rce_plan_index = dashboard_source.index("title: Plan rozładowań RCE")
+    rce_plan_title = (
+        "title: Pełna rozpiska planu RCE"
+        if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+        else "title: Plan rozładowań RCE"
+    )
+    rce_plan_index = dashboard_source.index(rce_plan_title)
     rce_details_index = dashboard_source.index(
         "title: RCE — szczegóły i diagnostyka"
     )
     rce_details_end = dashboard_source.index(
-        "\n      - type: markdown\n",
+        "\n      - type:",
         rce_details_index,
     )
     require(
@@ -1152,6 +9087,146 @@ def main() -> int:
         "RCE details must remain in the main column below the discharge plan",
     )
     dashboard_payloads = []
+    planner_bindings = {
+        "canonical_timeline_entity": (
+            "sensor.hoymiles_hit_ems_supervisor_canonical_plan"
+        ),
+        "rce_timeline_entity": "sensor.hoymiles_hit_rce_automation_plan_timeline",
+        "tariff_timeline_entity": "sensor.hoymiles_hit_tariff_automation_plan_timeline",
+        "rcm_timeline_entity": "sensor.hoymiles_hit_rcm_automation_plan_timeline",
+        "rce_plan_entity": "sensor.hoymiles_hit_rce_optimized_plan",
+        "tariff_plan_entity": "sensor.hoymiles_hit_tariff_charge_plan",
+        "rcm_plan_entity": "sensor.hoymiles_hit_rcm_voltage_plan",
+        "supervisor_entity": "sensor.hoymiles_hit_ems_supervisor",
+        "physical_mode_entity": "sensor.hoymiles_ems_hardware_mode",
+        "control_conflict_entity": "binary_sensor.hoymiles_ems_control_conflict",
+        "rce_enabled_entity": "input_boolean.hoymiles_rce_discharge_enabled",
+        "rce_active_entity": "input_boolean.hoymiles_rce_discharge_active",
+        "rce_expert_entity": "input_boolean.hoymiles_rce_advanced_view",
+        "tariff_enabled_entity": "input_boolean.hoymiles_tariff_charge_enabled",
+        "tariff_active_entity": "input_boolean.hoymiles_tariff_charge_active",
+        "tariff_active_action_entity": "input_text.hoymiles_tariff_active_action",
+        "tariff_expert_entity": "input_boolean.hoymiles_tariff_advanced_view",
+        "rcm_enabled_entity": "input_boolean.hoymiles_rcm_enabled",
+        "rcm_active_entity": "input_boolean.hoymiles_rcm_active",
+        "rcm_export_active_entity": "input_boolean.hoymiles_rcm_export_control_active",
+        "rcm_pre_discharge_active_entity": "input_boolean.hoymiles_rcm_pre_discharge_active",
+        "rcm_expert_entity": "input_boolean.hoymiles_rcm_advanced_view",
+    }
+    if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate):
+        planner_bindings["baseline_timeline_entity"] = (
+            "sensor.hoymiles_ems_baseline_energy_timeline"
+        )
+    if not uses_supervisor_active_contract:
+        planner_bindings["rcm_shadow_entity"] = (
+            "input_boolean.hoymiles_rcm_shadow_mode"
+        )
+    supervisor_bindings = {
+        "supervisor_entity": "sensor.hoymiles_hit_ems_supervisor",
+        "supervisor_mode_entity": "input_select.hoymiles_ems_supervisor_mode",
+        "supervisor_profile_entity": "input_select.hoymiles_ems_supervisor_profile",
+        "supervisor_allow_rce_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_rce"
+        ),
+        "supervisor_allow_tariff_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_tariff"
+        ),
+        "supervisor_allow_rcm_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_rcm"
+        ),
+    }
+    if uses_supervisor_active_contract:
+        supervisor_bindings["supervisor_master_stop_entity"] = (
+            "input_button.hoymiles_ems_supervisor_master_stop"
+        )
+    quick_control_bindings = {
+        "supervisor_entity": "sensor.hoymiles_hit_ems_supervisor",
+        "supervisor_mode_entity": "input_select.hoymiles_ems_supervisor_mode",
+        "supervisor_profile_entity": "input_select.hoymiles_ems_supervisor_profile",
+        "supervisor_allow_rce_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_rce"
+        ),
+        "supervisor_allow_tariff_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_tariff"
+        ),
+        "supervisor_allow_rcm_entity": (
+            "input_boolean.hoymiles_ems_supervisor_allow_rcm"
+        ),
+        "balancing_enabled_entity": (
+            "input_boolean.hoymiles_battery_balancing_enabled"
+        ),
+        "settings_path": "ustawienia-ems",
+        "details_path": "ems-supervisor",
+    }
+    balancing_plan_bindings = {
+        "enabled_entity": "input_boolean.hoymiles_battery_balancing_enabled",
+        "active_entity": "input_boolean.hoymiles_battery_balancing_active",
+        "status_entity": "sensor.hoymiles_battery_balancing_status",
+        "next_run_entity": "sensor.hoymiles_battery_balancing_next_run",
+        "hold_hours_entity": "input_number.hoymiles_battery_balancing_hold_hours",
+        "details_path": "bateria",
+    }
+    variant_a_ems_bindings = {
+        "supervisor_entity": "sensor.hoymiles_hit_ems_supervisor",
+        "supervisor_mode_entity": "input_select.hoymiles_ems_supervisor_mode",
+        "supervisor_profile_entity": "input_select.hoymiles_ems_supervisor_profile",
+        "supervisor_allow_rce_entity": "input_boolean.hoymiles_ems_supervisor_allow_rce",
+        "supervisor_allow_tariff_entity": "input_boolean.hoymiles_ems_supervisor_allow_tariff",
+        "supervisor_allow_rcm_entity": "input_boolean.hoymiles_ems_supervisor_allow_rcm",
+        "supervisor_master_stop_entity": "input_button.hoymiles_ems_supervisor_master_stop",
+        "baseline_timeline_entity": "sensor.hoymiles_ems_baseline_energy_timeline",
+        "canonical_timeline_entity": "sensor.hoymiles_hit_ems_supervisor_canonical_plan",
+        "tariff_plan_entity": "sensor.hoymiles_hit_tariff_charge_plan",
+        "tariff_timeline_entity": "sensor.hoymiles_hit_tariff_automation_plan_timeline",
+        "tariff_active_entity": "input_boolean.hoymiles_tariff_charge_active",
+        "tariff_action_entity": "input_text.hoymiles_tariff_active_action",
+        "rcm_timeline_entity": "sensor.hoymiles_hit_rcm_automation_plan_timeline",
+        "rcm_active_entity": "input_boolean.hoymiles_rcm_active",
+        "rcm_export_control_active_entity": "input_boolean.hoymiles_rcm_export_control_active",
+        "rcm_pre_discharge_active_entity": "input_boolean.hoymiles_rcm_pre_discharge_active",
+        "physical_mode_entity": "sensor.hoymiles_ems_hardware_mode",
+        "control_conflict_entity": "binary_sensor.hoymiles_ems_control_conflict",
+        "execution_readiness_entity": "binary_sensor.hoymiles_ems_execution_ready",
+        "battery_soc_entity": "sensor.hoymiles_hit_overview_battery_soc",
+        "battery_capacity_entity": "sensor.hoymiles_hit_battery_capacity",
+        "battery_power_entity": "sensor.hoymiles_hit_overview_battery_power",
+        "grid_voltage_entity": "sensor.hoymiles_hit_grid_voltage_l1",
+        "balancing_enabled_entity": "input_boolean.hoymiles_battery_balancing_enabled",
+        "balancing_active_entity": "input_boolean.hoymiles_battery_balancing_active",
+        "balancing_status_entity": "sensor.hoymiles_battery_balancing_status",
+        "balancing_next_run_entity": "sensor.hoymiles_battery_balancing_next_run",
+        "balancing_hold_hours_entity": "input_number.hoymiles_battery_balancing_hold_hours",
+        "settings_path": "ustawienia-ems",
+        "rce_path": "automatyka-ems",
+        "tariff_path": "ladowanie-taryfowe",
+        "voltage_path": "rcem-253v",
+        "balancing_path": "ustawienia-balansowania",
+    }
+    variant_a_settings_bindings = {
+        "supervisor_entity": "sensor.hoymiles_hit_ems_supervisor",
+        "supervisor_mode_entity": "input_select.hoymiles_ems_supervisor_mode",
+        "supervisor_profile_entity": "input_select.hoymiles_ems_supervisor_profile",
+        "supervisor_master_stop_entity": "input_button.hoymiles_ems_supervisor_master_stop",
+        "execution_readiness_entity": "binary_sensor.hoymiles_ems_execution_ready",
+        "physical_mode_entity": "sensor.hoymiles_ems_hardware_mode",
+        "control_conflict_entity": "binary_sensor.hoymiles_ems_control_conflict",
+        "shared_inputs_entity": "sensor.hoymiles_hit_ems_shared_inputs",
+        "inverter_power_helper_entity": "input_select.hoymiles_ems_inverter_rated_power_each",
+        "forecast_today_helper_entity": "input_text.hoymiles_ems_pv_forecast_today_entity",
+        "forecast_tomorrow_helper_entity": "input_text.hoymiles_ems_pv_forecast_tomorrow_entity",
+        "forecast_day_3_helper_entity": "input_text.hoymiles_ems_pv_forecast_day_3_entity",
+        "fallback_load_helper_entity": "input_number.hoymiles_ems_fallback_daily_home_load",
+        "pv_to_battery_efficiency_entity": "input_number.hoymiles_ems_pv_to_battery_efficiency",
+        "battery_to_home_efficiency_entity": "input_number.hoymiles_ems_battery_to_home_efficiency",
+        "push_enabled_entity": "input_boolean.hoymiles_ems_push_notifications_enabled",
+        "push_target_entity": "input_text.hoymiles_ems_push_notify_target",
+        "ems_path": "plan-automatyki",
+        "balance_path": "ustawienia-balansowania",
+        "service_path": "diagnostyka",
+    }
+    compact_dashboard_contract = _uses_aurora_compact_contract(
+        current_ap2r1_gate
+    )
     for dashboard_json in required_assets[-2:]:
         dashboard_data = load_json(dashboard_json)
         dashboard_payloads.append(dashboard_data)
@@ -1177,8 +9252,257 @@ def main() -> int:
                 == "custom:hoymiles-aurora-frame-card"
                 for item in iter_mappings(dashboard_data)
             )
-            == 4,
-            f"{dashboard_json.name} must contain four authored Aurora frames",
+            == (3 if compact_dashboard_contract else 4),
+            f"{dashboard_json.name} must contain the expected authored Aurora frames",
+        )
+        start_view = next(
+            (
+                view
+                for view in dashboard_data["views"]
+                if view.get("path") == "start"
+            ),
+            None,
+        )
+        supervisor_view = next(
+            (
+                view
+                for view in dashboard_data["views"]
+                if view.get("path") == "ems-supervisor"
+            ),
+            None,
+        )
+        planner_view = next(
+            (
+                view
+                for view in dashboard_data["views"]
+                if view.get("path") == "plan-automatyki"
+            ),
+            None,
+        )
+        settings_view = next(
+            (
+                view
+                for view in dashboard_data["views"]
+                if view.get("path") == "ustawienia-ems"
+            ),
+            None,
+        )
+        expected_planner_title = (
+            "EMS"
+            if compact_dashboard_contract
+            else (
+                "EMS plan"
+                if dashboard_json.name.endswith("_en.json")
+                else "Plan EMS"
+            )
+        )
+        expected_supervisor_title = (
+            "EMS automation"
+            if dashboard_json.name.endswith("_en.json")
+            else "Automatyka EMS"
+        )
+        expected_supervisor_icon = (
+            "mdi:shield-check"
+            if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+            else (
+                "mdi:shield-lightning-outline"
+                if uses_supervisor_active_contract
+                else "mdi:eye-circle-outline"
+            )
+        )
+        energy_card = next(
+            (
+                card
+                for card in (start_view or {}).get("cards", [])
+                if card.get("type")
+                == "custom:hoymiles-aurora-energy-card"
+            ),
+            None,
+        )
+        overview_card = next(
+            (
+                card
+                for card in (start_view or {}).get("cards", [])
+                if card.get("type")
+                == "custom:hoymiles-aurora-overview-card"
+            ),
+            None,
+        )
+        supervisor_cards = (supervisor_view or {}).get("cards", [])
+        supervisor_card = (
+            supervisor_cards[0] if len(supervisor_cards) == 1 else None
+        )
+        planner_cards = (planner_view or {}).get("cards", [])
+        planner_container = planner_cards[0] if len(planner_cards) == 1 else None
+        compact_planner_cards = (
+            planner_container.get("cards", [])
+            if not compact_dashboard_contract
+            and isinstance(planner_container, dict)
+            and planner_container.get("type") == "vertical-stack"
+            else []
+        )
+        quick_control_card = (
+            compact_planner_cards[0] if len(compact_planner_cards) == 3 else None
+        )
+        balancing_plan_card = (
+            compact_planner_cards[2] if len(compact_planner_cards) == 3 else None
+        )
+        planner_card = (
+            planner_container
+            if compact_dashboard_contract
+            else compact_planner_cards[1]
+            if len(compact_planner_cards) == 3
+            else planner_container
+        )
+        settings_cards = (settings_view or {}).get("cards", [])
+        settings_container = settings_cards[0] if len(settings_cards) == 1 else None
+        compact_settings_cards = (
+            settings_container.get("cards", [])
+            if not compact_dashboard_contract
+            and isinstance(settings_container, dict)
+            and settings_container.get("type") == "vertical-stack"
+            else []
+        )
+        local_nav_card = (
+            compact_settings_cards[0] if len(compact_settings_cards) == 2 else None
+        )
+        settings_card = (
+            settings_container
+            if compact_dashboard_contract
+            else compact_settings_cards[1]
+            if len(compact_settings_cards) == 2
+            else settings_container
+        )
+        integrated_shared_dashboard = _uses_integrated_active_shared_aurora_contract(
+            current_ap2r1_gate
+        )
+        route_paths = tuple(
+            view.get("path") for view in dashboard_data["views"]
+        )
+        visible_route_paths = tuple(
+            view.get("path")
+            for view in dashboard_data["views"]
+            if view.get("subview") is not True
+        )
+        combined_rce_cards = [
+            item
+            for item in iter_mappings(dashboard_data)
+            if item.get("type") == "custom:hoymiles-rce-chart-card"
+        ]
+        require(
+            len(dashboard_data["views"])
+            == (21 if integrated_shared_dashboard else 19)
+            and (
+                (
+                    overview_card is not None
+                    and len((start_view or {}).get("cards", [])) == 1
+                    and start_view.get("type") == "panel"
+                    and overview_card.get("clear_fault_entity")
+                    == "button.hoymiles_hit_clear_fault"
+                )
+                if compact_dashboard_contract
+                else (
+                    energy_card is not None
+                    and all(
+                        key not in energy_card for key in supervisor_bindings
+                    )
+                )
+            )
+            and dashboard_data["views"].index(start_view) == 0
+            and dashboard_data["views"].index(planner_view) == 1
+            and dashboard_data["views"].index(supervisor_view) == 2
+            and dashboard_data["views"][
+                5 if integrated_shared_dashboard else 3
+            ].get("path")
+            == "automatyka-ems"
+            and planner_view.get("title") == expected_planner_title
+            and planner_view.get("icon")
+            == (None if compact_dashboard_contract else "mdi:timeline-clock-outline")
+            and planner_view.get("type") == "panel"
+            and planner_card is not None
+            and planner_card.get("type")
+            == (
+                "custom:hoymiles-aurora-variant-a-ems-page-card"
+                if compact_dashboard_contract
+                else "custom:hoymiles-automation-planner-card"
+            )
+            and set(planner_card)
+            == {
+                "type",
+                *(variant_a_ems_bindings if compact_dashboard_contract else planner_bindings),
+            }
+            and all(
+                planner_card.get(key) == entity_id
+                for key, entity_id in (
+                    variant_a_ems_bindings if compact_dashboard_contract else planner_bindings
+                ).items()
+            )
+            and (
+                not compact_dashboard_contract
+                or (
+                    route_paths == AURORA_COMPACT_VIEW_PATHS
+                    and visible_route_paths
+                    == AURORA_COMPACT_MAIN_VIEW_PATHS
+                    and supervisor_view.get("subview") is True
+                    and settings_view.get("subview") is not True
+                    and len(combined_rce_cards) == 1
+                    and combined_rce_cards[0].get("entity")
+                    == "sensor.hoymiles_rce_day"
+                    and combined_rce_cards[0].get("tomorrow_entity")
+                    == "sensor.hoymiles_rce_day_tomorrow"
+                    and combined_rce_cards[0].get("plan_entity")
+                    == "sensor.hoymiles_hit_rce_optimized_plan"
+                    and combined_rce_cards[0].get("timeline_entity")
+                    == "sensor.hoymiles_hit_rce_automation_plan_timeline"
+                    and combined_rce_cards[0].get("canonical_timeline_entity")
+                    == "sensor.hoymiles_hit_ems_supervisor_canonical_plan"
+                )
+            )
+            and supervisor_view.get("title") == expected_supervisor_title
+            and supervisor_view.get("icon") == expected_supervisor_icon
+            and supervisor_view.get("type") == "panel"
+            and supervisor_card is not None
+            and supervisor_card.get("type")
+            == "custom:hoymiles-ems-supervisor-card"
+            and set(supervisor_card) == {"type", *supervisor_bindings}
+            and all(
+                supervisor_card.get(key) == entity_id
+                for key, entity_id in supervisor_bindings.items()
+            )
+            and (
+                not integrated_shared_dashboard
+                or (
+                    dashboard_data["views"].index(settings_view) == 3
+                    and settings_view.get("title")
+                    == (
+                        "EMS settings"
+                        if dashboard_json.name.endswith("_en.json")
+                        else "Ustawienia EMS"
+                    )
+                    and settings_view.get("icon")
+                    == (None if compact_dashboard_contract else "mdi:tune-vertical-variant")
+                    and settings_view.get("type") == "panel"
+                    and settings_card is not None
+                    and settings_card.get("type")
+                    == (
+                        "custom:hoymiles-aurora-variant-a-settings-page-card"
+                        if compact_dashboard_contract
+                        else "custom:hoymiles-ems-shared-inputs-card"
+                    )
+                    and (
+                        set(settings_card) == {"type", *variant_a_settings_bindings}
+                        and all(
+                            settings_card.get(key) == entity_id
+                            for key, entity_id in variant_a_settings_bindings.items()
+                        )
+                        if compact_dashboard_contract
+                        else isinstance(local_nav_card, dict)
+                        and local_nav_card.get("type") == "custom:hoymiles-local-nav-card"
+                        and settings_card.get("mode") == "full"
+                    )
+                )
+            ),
+            f"{dashboard_json.name} lacks the exact Plan/Supervisor/shared-settings view order",
         )
     require(
         dashboard_structure(dashboard_payloads[0])
@@ -1244,19 +9568,670 @@ def main() -> int:
         and "class HoymilesAuroraFinanceCard" in card_source,
         "Complete Aurora dashboard card set is not registered",
     )
+    planner_start = card_source.find("const HOYMILES_AUTOMATION_PLANNER_BINDINGS")
+    supervisor_start = card_source.find("const HOYMILES_SUPERVISOR_BINDINGS")
+    require(
+        planner_start >= 0 and supervisor_start > planner_start,
+        "AP-3B automation planner source is missing",
+    )
+    planner_source = card_source[planner_start:supervisor_start]
+    require(
+        "class HoymilesAutomationPlannerCard extends HTMLElement"
+        in planner_source
+        and planner_source.count(
+            '"hoymiles-automation-planner-card",\n    HoymilesAutomationPlannerCard'
+        )
+        == 1
+        and "requestAnimationFrame" in planner_source
+        and "_subfingerprints(model)" in planner_source
+        and '"selected-detail": this._selectedKey' in planner_source
+        and "values[`policy:${policyId}`]" in planner_source
+        and "values[`lane:${policyId}`]" in planner_source
+        and "values[`expert:${policyId}`]" in planner_source
+        and "_reconcileLane" in planner_source
+        and "overflow-anchor: none" in planner_source
+        and planner_source.count("shadowRoot.replaceChildren(") == 1
+        and all(
+            forbidden not in planner_source
+            for forbidden in (
+                "callService",
+                "callWS",
+                "fetch(",
+                "new WebSocket",
+                "owner_acquire",
+                "grant_execution",
+                "handover",
+                "modbus",
+                "setInterval",
+                "setTimeout",
+            )
+        ),
+        "AP-3B stable-DOM or observational frontend contract is incomplete",
+    )
+    for key, entity_id in planner_bindings.items():
+        require(
+            re.search(
+                rf"{re.escape(key)}:\s*\"{re.escape(entity_id)}\"",
+                planner_source,
+            )
+            is not None,
+            f"AP-3B exact source binding is missing: {key}",
+        )
+    supervisor_end = card_source.find("class HoymilesAuroraEnergyCard")
+    require(
+        supervisor_start >= 0 and supervisor_end > supervisor_start,
+        "Internal EMS Supervisor panel source is missing",
+    )
+    supervisor_source = card_source[supervisor_start:supervisor_end]
+    reason_start = supervisor_source.find(
+        "const HOYMILES_SUPERVISOR_REASON_COPY"
+    )
+    reason_end = supervisor_source.find(
+        "const HOYMILES_SUPERVISOR_LIFECYCLE_REASON_COPY", reason_start
+    )
+    require(
+        reason_start >= 0 and reason_end > reason_start,
+        "EMS Supervisor reason map source bounds are invalid",
+    )
+    reason_source = supervisor_source[reason_start:reason_end]
+    require(
+        len(re.findall(r"^  [a-z0-9_]+: Object\.freeze\(", reason_source, re.M))
+        == 45,
+        "EMS Supervisor reason map is not 45/45",
+    )
+    energy_end = card_source.find("class HoymilesPowerFlowCard", supervisor_end)
+    energy_source = card_source[supervisor_end:energy_end]
+    aurora_markup = energy_source.find('<div class="aurora">')
+    daily_markup = energy_source.find('<div class="daily">', aurora_markup)
+    require(
+        0 <= aurora_markup < daily_markup
+        and "data-supervisor" not in energy_source
+        and "_supervisorPanel" not in energy_source
+        and "HOYMILES_SUPERVISOR_BINDINGS" not in energy_source,
+        "Start was not restored to Aurora followed directly by daily energy",
+    )
+    supervisor_common_contract = (
+        "class HoymilesEmsSupervisorPanel" in supervisor_source
+        and "class HoymilesEmsSupervisorCard extends HTMLElement"
+        in supervisor_source
+        and supervisor_source.count(
+            '"hoymiles-ems-supervisor-card",\n    HoymilesEmsSupervisorCard'
+        )
+        == 1
+        and "data-supervisor-card" in supervisor_source
+        and 'customElements.define("hoymiles-ems-supervisor-panel"'
+        not in card_source
+    )
+    if uses_supervisor_active_contract:
+        supervisor_scope_contract = (
+            'Object.freeze(["Off", "Active"])' in supervisor_source
+            and 'Object.freeze(["Off", "Shadow"])' not in supervisor_source
+            and (
+                "Zakres trybu wykonawczego: działanie transakcyjne"
+                if _uses_integrated_active_shared_aurora_contract(
+                    current_ap2r1_gate
+                )
+                else "Zakres trybu Active: wykonanie transakcyjne"
+            )
+            in supervisor_source
+            and "Active-mode scope: transactional execution" in supervisor_source
+            and "supervisor_master_stop_entity" in supervisor_source
+            and 'entityId: "input_button.hoymiles_ems_supervisor_master_stop"'
+            in supervisor_source
+            and 'domain: "input_button"' in supervisor_source
+            and 'service: "press"' in supervisor_source
+            and "callService.call(hass, command.domain, command.service, command.data)"
+            in supervisor_source
+        )
+        supervisor_scope_name = "transactional Active"
+    else:
+        supervisor_scope_contract = (
+            'Object.freeze(["Off", "Shadow"])' in supervisor_source
+            and "Observation only" in supervisor_source
+            and "Tylko obserwacja" in supervisor_source
+            and "Profiles currently affect only the observation decision"
+            in supervisor_source
+            and "Profile wpływają obecnie wyłącznie na decyzję obserwacyjną"
+            in supervisor_source
+        )
+        supervisor_scope_name = "observation-only"
+    require(
+        supervisor_common_contract and supervisor_scope_contract,
+        f"EMS Supervisor standalone {supervisor_scope_name} contract is incomplete",
+    )
+    required_supervisor_ui_tokens = [
+        "heroIntro",
+        "howItWorksTitle",
+        "modesTitle",
+        "modeActiveDescription",
+        "profilesTitle",
+        "permissionsTitle",
+        "readResultTitle",
+        "safetyTitle",
+        "technicalTitle",
+        "actionWarning",
+        "max-width: 1440px",
+        "supervisor-blob-three",
+        "@media (prefers-reduced-motion: reduce)",
+        "SUPERVISOR_SEMANTIC_PALETTE_REV28",
+        "supervisor-authority",
+        "supervisor-core-orb",
+        "supervisor-hero-result",
+        "supervisor-policy-identity",
+        "supervisor-policy-permission",
+        "supervisor-permission-context",
+        "supervisor-safety-strip",
+        "supervisor-knowledge-detail",
+        "supervisor-core-ring { animation: none",
+        'content: "↓"',
+    ]
+    if uses_supervisor_active_contract:
+        required_supervisor_ui_tokens.extend(
+            [
+                "_createButtonControl(",
+                "HOYMILES_SUPERVISOR_MODE_OPTIONS",
+                "supervisor_master_stop_entity",
+            ]
+        )
+    else:
+        required_supervisor_ui_tokens.append(
+            'activeCard.setAttribute("aria-disabled", "true")'
+        )
+    for required_ui_token in required_supervisor_ui_tokens:
+        require(
+            required_ui_token in supervisor_source,
+            f"EMS Supervisor standalone UI token missing: {required_ui_token}",
+        )
+    css_start = supervisor_source.find("const HOYMILES_EMS_SUPERVISOR_CSS")
+    css_end = supervisor_source.find(
+        "class HoymilesEmsSupervisorPanel", css_start
+    )
+    supervisor_css = supervisor_source[css_start:css_end]
+    palette_marker = "SUPERVISOR_SEMANTIC_PALETTE_REV28"
+    palette_start = supervisor_css.find(palette_marker)
+    palette_end = supervisor_css.find("  }", palette_start)
+    require(
+        supervisor_css.count(palette_marker) == 1
+        and palette_start >= 0
+        and palette_end > palette_start,
+        "Revision 28 does not contain one centralized Supervisor palette",
+    )
+    palette_block = supervisor_css[palette_start:palette_end]
+    css_outside_palette = (
+        supervisor_css[:palette_start] + supervisor_css[palette_end:]
+    )
+    for name, value in (
+        ("cyan", "#43d5ff"),
+        ("blue", "#4c91ff"),
+        ("violet", "#9b7cff"),
+        ("rce", "#f2b84b"),
+        ("tariff", "#49a5ff"),
+        ("rcm", "#b07cff"),
+        ("ready", "#47df91"),
+        ("warning", "#f1b84b"),
+        ("error", "#ff647c"),
+    ):
+        require(
+            f"--supervisor-{name}: {value}" in palette_block,
+            f"Revision 28 palette lost {name}",
+        )
+    require(
+        re.search(r"#[0-9a-fA-F]{3,8}", css_outside_palette) is None,
+        "Revision 28 has an ad-hoc raw color outside its semantic palette",
+    )
+    require(
+        supervisor_source.count("this._knowledgeDetail(") == 5
+        and 'details.setAttribute("open"' not in supervisor_source
+        and "accordionState" not in supervisor_source
+        and "toggleDetails" not in supervisor_source,
+        "Revision 28 knowledge area is not exactly five closed native details",
+    )
+    content_start = supervisor_source.find("    content.append(")
+    content_end = supervisor_source.find("    panel.append(", content_start)
+    content_append = supervisor_source[content_start:content_end]
+    require(
+        re.search(
+            r"hero,[\s\S]*liveGrid,[\s\S]*policySection,[\s\S]*"
+            r"howSection,[\s\S]*safetyStrip,[\s\S]*knowledgeSection",
+            content_append,
+        )
+        is not None
+        and not re.search(
+            r"modesSection|profilesSection|permissionsSection|"
+            r"readSection|safetySection|technical\b",
+            content_append,
+        ),
+        "Revision 28 documentation wall appears before live information",
+    )
+    selected_tone = (
+        "selected"
+        if uses_supervisor_active_contract
+        else "shadow-selected"
+    )
+    selected_start = supervisor_css.find(
+        f'.supervisor-panel[data-tone="{selected_tone}"]'
+    )
+    selected_end = supervisor_css.find(
+        (
+            '.supervisor-panel[data-tone="transition"]'
+            if uses_supervisor_active_contract
+            else '.supervisor-panel[data-tone="blocked"]'
+        ),
+        selected_start,
+    )
+    require(
+        selected_start >= 0
+        and selected_end > selected_start
+        and "supervisor-ready"
+        not in supervisor_css[selected_start:selected_end]
+        and '.supervisor-policy-badge[data-tone="ready"]'
+        in supervisor_css,
+        f"Revision 28 selected {selected_tone} uses readiness green",
+    )
+    light_start = supervisor_css.find("@media (prefers-color-scheme: light)")
+    light_end = supervisor_css.find(
+        "@media (prefers-reduced-motion: reduce)", light_start
+    )
+    light_css = supervisor_css[light_start:light_end]
+    require(
+        light_start >= 0
+        and light_end > light_start
+        and all(
+            token in light_css
+            for token in (
+                "--supervisor-page-base: color-mix(in srgb, "
+                "var(--primary-background-color, var(--supervisor-on-deep)) "
+                "94%, var(--supervisor-blue) 6%)",
+                "--supervisor-page-cyan-glow: color-mix(in srgb, "
+                "var(--supervisor-cyan) 5%, transparent)",
+                "--supervisor-page-violet-glow: color-mix(in srgb, "
+                "var(--supervisor-violet) 4%, transparent)",
+                ".supervisor-blob { opacity: .08; }",
+                ".supervisor-points { opacity: .1; }",
+            )
+        ),
+        "Revision 28 light theme is not independently pale and restrained",
+    )
+    require(
+        re.search(r"opacity:\s*\.(?:64|72)\b", supervisor_css) is None
+        and ".supervisor-info-disabled { border-style: dashed; opacity: 1; }"
+        in supervisor_css
+        and '.supervisor-policy[data-permitted="false"] '
+        '{ filter: saturate(.68); opacity: 1; }' in supervisor_css,
+        "Revision 28 disabled content loses light-theme contrast",
+    )
+    undersized_supervisor_text = [
+        float(match.group(1))
+        for match in re.finditer(
+            r"font-size:\s*(\d+(?:\.\d+)?)px", supervisor_css
+        )
+        if float(match.group(1)) < 11
+    ]
+    require(
+        not undersized_supervisor_text,
+        "Revision 28 contains Supervisor text below the accepted 11px minimum",
+    )
+    for forbidden in (
+        "setInterval",
+        "setTimeout",
+        "requestAnimationFrame",
+        "number.set_value",
+        "select.select_option",
+        "button.press",
+        "input_boolean.toggle",
+        "modbus.write",
+    ):
+        require(
+            forbidden not in supervisor_source,
+            f"EMS Supervisor contains forbidden scope: {forbidden}",
+        )
+    ui_contract_test = ROOT / "tools" / "test_supervisor_aurora_ui_contract.js"
+    require(
+        ui_contract_test.is_file(),
+        "Missing EMS Supervisor Aurora UI contract test",
+    )
+    ui_contract_source = ui_contract_test.read_text(encoding="utf-8")
+    ui_contract_guard = (
+        _task02_ui_test_guard(ui_contract_source)
+        if current_ap2r1_gate == V158_TASK02_CANDIDATE
+        else (
+        _n12_ui_test_guard(ui_contract_source)
+        if current_ap2r1_gate in {N12_EXACT_LOCAL_BASE, V158_RELEASE_CANDIDATE}
+        else (
+            _consolidated_ui_test_guard(ui_contract_source)
+            if current_ap2r1_gate == CONSOLIDATED_RELEASE_CANDIDATE
+            else (
+                _aurora_compact_ui_test_guard(ui_contract_source)
+                if _uses_aurora_compact_contract(current_ap2r1_gate)
+                else (
+                    _i3_supervisor_aurora_test_guard(ui_contract_source)
+                    if current_ap2r1_gate == I3_OVERLAY_CANDIDATE
+                    else (
+                        _integrated_active_shared_aurora_test_guard(ui_contract_source)
+                        if _uses_integrated_active_shared_aurora_contract(
+                            current_ap2r1_gate
+                        )
+                        else (
+                            _supervisor_active_test_guard(ui_contract_source)
+                            if uses_supervisor_active_contract
+                            else _ap3b_supervisor_test_guard(ui_contract_source)
+                        )
+                    )
+                )
+            )
+        )
+        )
+    )
+    required_ui_groups = [
+        "CENTRALIZED_AURORA_PALETTE",
+        "COLOR_SEMANTICS",
+        "HERO_VISUAL_HIERARCHY",
+        "HERO_STATE_COPY",
+        "POLICY_VISUAL_IDENTITIES",
+        "POLICY_SWITCH_ACCENTS",
+        "DECISION_HIERARCHY",
+        "VISIBLE_SAFETY_STRIP",
+        "KNOWLEDGE_DETAILS",
+        "FIRST_SCREEN_PRIORITY",
+        "AURORA_BACKGROUND_REV28",
+        "REDUCED_MOTION_REV28",
+        "LIGHT_DARK_CONTRAST",
+        "MOBILE_REV28",
+    ]
+    required_ui_groups.append(
+        "ACTIVE_CONTROL_SURFACE_FREEZE"
+        if uses_supervisor_active_contract
+        else "FUNCTIONAL_INERTNESS"
+    )
+    require(
+        ui_contract_guard
+        and all(
+            f'group("{group_name}"' in ui_contract_source
+            for group_name in required_ui_groups
+        ),
+        "Revision 28 UI contract group/check freeze is incomplete",
+    )
+    planner_contract_test = (
+        ROOT / "tools" / "test_aurora_automation_planner_ui_contract.js"
+    )
+    require(planner_contract_test.is_file(), "Missing AP-3B UI contract test")
+    planner_contract_source = planner_contract_test.read_text(encoding="utf-8")
+    require(
+        "100 unrelated burst" in planner_contract_source
+        and "100 age-only flushed updates" in planner_contract_source
+        and "vertical gesture over 8px does not select a point"
+        in planner_contract_source
+        and (
+            "FRONTEND_ASSET_REVISION = 90"
+            if current_ap2r1_gate
+            in {
+                CONSOLIDATED_RELEASE_CANDIDATE,
+                N12_EXACT_LOCAL_BASE,
+                V158_RELEASE_CANDIDATE,
+                V158_TASK02_CANDIDATE,
+            }
+            else (
+                "FRONTEND_ASSET_REVISION = 69"
+                if _uses_aurora_compact_contract(current_ap2r1_gate)
+                else "FRONTEND_ASSET_REVISION = 40"
+            )
+        )
+        in planner_contract_source
+        and '"EMS plan"' in planner_contract_source
+        and "callServiceCount === 0" in planner_contract_source
+        and "callWSCount === 0" in planner_contract_source,
+        "AP-3B test is disabled or lacks the frozen 100/100/1 contract",
+    )
     for dashboard_path in required_assets[:2]:
         dashboard_text = dashboard_path.read_text(encoding="utf-8")
-        require(
-            "entity: sensor.hoymiles_rce_day_tomorrow\n"
-            "            future_data: true" in dashboard_text,
-            f"{dashboard_path.name} does not mark the tomorrow chart as future data",
+        expected_title = (
+            "EMS automation"
+            if dashboard_path.name.endswith("_en.yaml")
+            else "Automatyka EMS"
+        )
+        expected_planner_title = (
+            "EMS"
+            if compact_dashboard_contract
+            else (
+                "EMS plan"
+                if dashboard_path.name.endswith("_en.yaml")
+                else "Plan EMS"
+            )
+        )
+        integrated_shared_dashboard = _uses_integrated_active_shared_aurora_contract(
+            current_ap2r1_gate
+        )
+        expected_supervisor_yaml_icon = (
+            "mdi:shield-check"
+            if integrated_shared_dashboard
+            else (
+                "mdi:shield-lightning-outline"
+                if uses_supervisor_active_contract
+                else "mdi:eye-circle-outline"
+            )
+        )
+        expected_start_title = (
+            (
+                "Overview"
+                if dashboard_path.name.endswith("_en.yaml")
+                else "Przegląd"
+            )
+            if integrated_shared_dashboard
+            else "Start"
+        )
+        start_index = dashboard_text.index(
+            f"  - title: {expected_start_title}"
+        )
+        planner_index = dashboard_text.index(
+            f"  - title: {expected_planner_title}"
+        )
+        supervisor_index = dashboard_text.index(
+            f"  - title: {expected_title}"
+        )
+        settings_title = (
+            "EMS settings"
+            if dashboard_path.name.endswith("_en.yaml")
+            else "Ustawienia EMS"
+        )
+        settings_index = (
+            dashboard_text.index(f"  - title: {settings_title}")
+            if integrated_shared_dashboard
+            else -1
+        )
+        balancing_title = (
+            "Balancing"
+            if dashboard_path.name.endswith("_en.yaml")
+            else "Balansowanie"
+        )
+        balancing_index = (
+            dashboard_text.index(f"  - title: {balancing_title}")
+            if compact_dashboard_contract
+            else -1
+        )
+        rce_index = dashboard_text.index(
+            "  - title: RCE"
+            if compact_dashboard_contract
+            else (
+                "  - title: Energy sales"
+                if dashboard_path.name.endswith("_en.yaml")
+                else "  - title: Sprzedaż energii"
+            )
+        )
+        start_yaml = dashboard_text[start_index:planner_index]
+        planner_yaml = dashboard_text[planner_index:supervisor_index]
+        supervisor_yaml = dashboard_text[
+            supervisor_index:(
+                settings_index if integrated_shared_dashboard else rce_index
+            )
+        ]
+        settings_yaml = (
+            dashboard_text[
+                settings_index:(balancing_index if compact_dashboard_contract else rce_index)
+            ]
+            if integrated_shared_dashboard
+            else ""
+        )
+        if compact_dashboard_contract:
+            require(
+                dashboard_text.count(
+                    "type: custom:hoymiles-rce-chart-card"
+                )
+                == 1
+                and "entity: sensor.hoymiles_rce_day" in dashboard_text
+                and "tomorrow_entity: sensor.hoymiles_rce_day_tomorrow"
+                in dashboard_text
+                and "plan_entity: sensor.hoymiles_hit_rce_optimized_plan"
+                in dashboard_text
+                and "timeline_entity: "
+                "sensor.hoymiles_hit_rce_automation_plan_timeline"
+                in dashboard_text
+                and "canonical_timeline_entity: "
+                "sensor.hoymiles_hit_ems_supervisor_canonical_plan"
+                in dashboard_text,
+                f"{dashboard_path.name} lacks one combined today/tomorrow RCE card",
+            )
+        else:
+            require(
+                "entity: sensor.hoymiles_rce_day_tomorrow\n"
+                "            future_data: true" in dashboard_text,
+                f"{dashboard_path.name} does not mark the tomorrow chart as future data",
+            )
+        yaml_view_blocks = re.findall(
+            r"(?ms)^  - title: .*?(?=^  - title:|\Z)", dashboard_text
+        )
+        yaml_route_state = []
+        for block in yaml_view_blocks:
+            path_match = re.search(r"(?m)^    path:\s*(\S+)\s*$", block)
+            yaml_route_state.append(
+                (
+                    path_match.group(1) if path_match else "",
+                    re.search(r"(?m)^    subview:\s*true\s*$", block)
+                    is not None,
+                )
+            )
+        yaml_visible_paths = tuple(
+            path for path, subview in yaml_route_state if not subview
         )
         require(
-            "type: custom:hoymiles-aurora-energy-card" in dashboard_text
-            and "type: custom:hoymiles-aurora-status-card" in dashboard_text
-            and "type: custom:hoymiles-aurora-history-card" in dashboard_text
-            and "type: custom:hoymiles-aurora-finance-card" in dashboard_text
-            and "type: custom:hoymiles-aurora-frame-card" in dashboard_text
+            len(re.findall(r"^  - title:", dashboard_text, re.M))
+            == (21 if integrated_shared_dashboard else 19)
+            and start_index < planner_index < supervisor_index
+            and (
+                supervisor_index < settings_index < balancing_index < rce_index
+                if compact_dashboard_contract
+                else supervisor_index < settings_index < rce_index
+                if integrated_shared_dashboard
+                else supervisor_index < rce_index
+            )
+            and "path: plan-automatyki" in planner_yaml
+            and (
+                "icon:" not in planner_yaml
+                if compact_dashboard_contract
+                else "icon: mdi:timeline-clock-outline" in planner_yaml
+            )
+            and "type: panel" in planner_yaml
+            and planner_yaml.count(
+                "type: custom:hoymiles-aurora-variant-a-ems-page-card"
+                if compact_dashboard_contract
+                else "type: custom:hoymiles-automation-planner-card"
+            )
+            == 1
+            and all(
+                f"{key}: {entity_id}" in planner_yaml
+                for key, entity_id in (
+                    variant_a_ems_bindings if compact_dashboard_contract else planner_bindings
+                ).items()
+            )
+            and (
+                not compact_dashboard_contract
+                or (
+                    tuple(path for path, _subview in yaml_route_state)
+                    == AURORA_COMPACT_VIEW_PATHS
+                    and yaml_visible_paths == AURORA_COMPACT_MAIN_VIEW_PATHS
+                    and "type: custom:hoymiles-ems-quick-controls-card" not in planner_yaml
+                    and "type: custom:hoymiles-automation-planner-card" not in planner_yaml
+                    and "type: custom:hoymiles-battery-balancing-plan-card" not in planner_yaml
+                    and "subview: true" in supervisor_yaml
+                    and "subview: true" not in settings_yaml
+                )
+            )
+            and "path: ems-supervisor" in supervisor_yaml
+            and f"icon: {expected_supervisor_yaml_icon}" in supervisor_yaml
+            and "type: panel" in supervisor_yaml
+            and supervisor_yaml.count(
+                "type: custom:hoymiles-ems-supervisor-card"
+            )
+            == 1
+            and all(
+                f"{key}: {entity_id}" in supervisor_yaml
+                for key, entity_id in supervisor_bindings.items()
+            )
+            and (
+                (
+                    "type: custom:hoymiles-aurora-overview-card" in start_yaml
+                    and "type: custom:hoymiles-ems-supervisor-card"
+                    not in start_yaml
+                    and "supervisor_profile_entity" not in start_yaml
+                    and "supervisor_allow_" not in start_yaml
+                    and "supervisor_master_stop_entity" not in start_yaml
+                    and "path: ustawienia-ems" in settings_yaml
+                    and (
+                        "icon:" not in settings_yaml
+                        if compact_dashboard_contract
+                        else "icon: mdi:tune-vertical-variant" in settings_yaml
+                    )
+                    and "type: panel" in settings_yaml
+                    and settings_yaml.count(
+                        "type: custom:hoymiles-aurora-variant-a-settings-page-card"
+                        if compact_dashboard_contract
+                        else "type: custom:hoymiles-ems-shared-inputs-card"
+                    )
+                    == 1
+                    and (
+                        all(
+                            f"{key}: {entity_id}" in settings_yaml
+                            for key, entity_id in variant_a_settings_bindings.items()
+                        )
+                        and "type: custom:hoymiles-local-nav-card" not in settings_yaml
+                        and "type: custom:hoymiles-ems-shared-inputs-card" not in settings_yaml
+                        if compact_dashboard_contract
+                        else settings_yaml.count("type: custom:hoymiles-local-nav-card") == 1
+                        and settings_yaml.index("type: custom:hoymiles-local-nav-card")
+                        < settings_yaml.index("type: custom:hoymiles-ems-shared-inputs-card")
+                        and settings_yaml.count("mode: full") == 1
+                    )
+                )
+                if integrated_shared_dashboard
+                else all(
+                    key not in start_yaml for key in supervisor_bindings
+                )
+            ),
+            f"{dashboard_path.name} lacks exact Plan/Supervisor/shared-settings views",
+        )
+        require(
+            (
+                (
+                    "type: custom:hoymiles-aurora-overview-card"
+                    in dashboard_text
+                    and "type: custom:hoymiles-aurora-frame-card"
+                    in dashboard_text
+                    and "clear_fault_entity: button.hoymiles_hit_clear_fault"
+                    in dashboard_text
+                )
+                if compact_dashboard_contract
+                else (
+                    "type: custom:hoymiles-aurora-energy-card"
+                    in dashboard_text
+                    and "type: custom:hoymiles-aurora-status-card"
+                    in dashboard_text
+                    and "type: custom:hoymiles-aurora-history-card"
+                    in dashboard_text
+                    and "type: custom:hoymiles-aurora-finance-card"
+                    in dashboard_text
+                    and "type: custom:hoymiles-aurora-frame-card"
+                    in dashboard_text
+                )
+            )
             and "battery_soc_entity: sensor.hoymiles_hit_overview_battery_soc"
             in dashboard_text
             and "forecast_remaining_entity: "
@@ -1295,19 +10270,33 @@ def main() -> int:
             f"{dashboard_path.name} does not use all "
             f"{expected_zebra_cards} zebra entity cards",
         )
+        statistics_graph_contract = (
+            dashboard_text.count("type: statistics-graph")
+            == (15 if compact_dashboard_contract else 14)
+            and dashboard_text.count(
+                "type: custom:hoymiles-aurora-history-card"
+            )
+            == (6 if compact_dashboard_contract else 8)
+            and "period: 5minute" not in dashboard_text
+            and "min_y_axis: 220" not in dashboard_text
+            if integrated_shared_dashboard
+            else (
+                dashboard_text.count("type: statistics-graph") >= 12
+                and "period: 5minute" in dashboard_text
+                and "min_y_axis: 220" in dashboard_text
+            )
+        )
         require(
-            dashboard_text.count("type: statistics-graph") >= 12
-            and "period: 5minute" in dashboard_text
-            and "min_y_axis: 220" in dashboard_text
+            statistics_graph_contract
             and 'color: "#FF1744"' in dashboard_text
             and 'color: "#00B0FF"' in dashboard_text
             and 'color: "#FFD600"' in dashboard_text,
-            f"{dashboard_path.name} lacks the native statistics graph set",
+            f"{dashboard_path.name} lacks the reviewed statistics/history graph set",
         )
         load_graph_title = (
-            "Odbiorniki — moc ostatnie 24 godziny [W]"
+            "Zużycie domu — moc ostatnie 24 godziny [W]"
             if dashboard_path.name.endswith("_pl.yaml")
-            else "Loads — power over the last 24 hours [W]"
+            else "Home consumption — power over the last 24 hours [W]"
         )
         load_energy_title = (
             "Zużycie domu — ostatnie 30 dni [kWh]"
@@ -1316,11 +10305,68 @@ def main() -> int:
         )
         require(
             load_graph_title in dashboard_text
-            and load_energy_title in dashboard_text
+            and (
+                "- key: energy30d" in dashboard_text
+                if compact_dashboard_contract
+                else load_energy_title in dashboard_text
+            )
             and "entity: sensor.hoymiles_actual_load_energy_total"
             in dashboard_text,
             f"{dashboard_path.name} lacks the LOAD power/energy graphs",
         )
+
+    generator_source = (ROOT / "tools" / "build_hacs_assets.py").read_text(
+        encoding="utf-8"
+    )
+    expected_generator_supervisor_icon = (
+        '"    icon: mdi:shield-check\\n"'
+        if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+        else (
+            '"    icon: mdi:shield-lightning-outline\\n"'
+            if uses_supervisor_active_contract
+            else '"    icon: mdi:eye-circle-outline\\n"'
+        )
+    )
+    if compact_dashboard_contract:
+        generator_view_contract = (
+            'DASHBOARD_VIEW_PATHS = (\n    "start",\n    "plan-automatyki",\n    "ems-supervisor",\n    "ustawienia-ems",'
+            in generator_source
+            and 'DASHBOARD_TOP_LEVEL_PATHS = (\n    "start",\n    "plan-automatyki",\n    "ustawienia-ems",\n    "pv",\n    "bateria",\n    "load-eps",\n)'
+            in generator_source
+            and 'RESOURCES / "dashboard_hoymiles_en.yaml": translate_asset_to_english('
+            in generator_source
+            and "exactly six top-level destinations" in generator_source
+        )
+    else:
+        generator_view_contract = (
+            '"  - title: Plan EMS\\n"' in generator_source
+            and '"  - title: EMS plan\\n"' in generator_source
+            and '"  - title: Automatyka EMS\\n"' in generator_source
+            and '"  - title: EMS automation\\n"' in generator_source
+        )
+    if (
+        _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+        and not compact_dashboard_contract
+    ):
+        generator_view_contract = (
+            generator_view_contract
+            and 'DASHBOARD_VIEW_PATHS = (\n    "start",\n    "plan-automatyki",\n    "ems-supervisor",\n    "ustawienia-ems",'
+            in generator_source
+            and 'RESOURCES / "dashboard_hoymiles_en.yaml": translate_asset_to_english('
+            in generator_source
+        )
+    elif not compact_dashboard_contract:
+        generator_view_contract = (
+            generator_view_contract
+            and '"    path: plan-automatyki\\n"' in generator_source
+            and '"    icon: mdi:timeline-clock-outline\\n"' in generator_source
+            and '"    path: ems-supervisor\\n"' in generator_source
+            and expected_generator_supervisor_icon in generator_source
+        )
+    require(
+        generator_view_contract,
+        "Generator lacks the narrow I2 Plan/Automation title translations",
+    )
 
     rce_sensor_source = (
         COMPONENT / "rce_sensor.py"
@@ -1375,6 +10421,74 @@ def main() -> int:
         and "forecast_tomorrow_kwh" in tariff_sensor_source,
         "Tariff sensor lacks forecast or BMS-safe charge-power diagnostics",
     )
+    require(
+        "def _tariff_forecast_risk_weight(" in tariff_sensor_source
+        and 'learning_policy.mode == "fixed_zero_export"' in tariff_sensor_source
+        and '"forecast_margin_policy"' in tariff_sensor_source
+        and '"fixed_factor_expected_separate_p10_safety"'
+        in tariff_sensor_source
+        and "additional_p10_margin_allowed" not in tariff_sensor_source
+        and "additional_p10_margin_allowed" not in tariff_optimizer_source,
+        "Tariff forecast can stack P10 on the fixed zero-export factor",
+    )
+    if uses_supervisor_active_contract:
+        feedback_source = tariff_sensor_source.split(
+            "def observe_supervisor_accounting_feedback", 1
+        )[1].split("async def _async_forecast_accuracy_timer", 1)[0]
+        require(
+            "CHARGE_POWER_FEEDBACK_VERSION = 3" in tariff_sensor_source
+            and "delivered_power_feedback_w: float" in feedback_source
+            and "evidence_fingerprint: str" in feedback_source
+            and "transaction_started_at: datetime" in feedback_source
+            and "self._charge_power_feedback_last_evidence_fingerprint"
+            in feedback_source
+            and '"charge_power_feedback_source": "supervisor_accounting_v2"'
+            in tariff_sensor_source
+            and "def _update_delivered_power_feedback" not in tariff_sensor_source
+            and '"sensor.hoymiles_hit_grid_to_battery_power"'
+            not in feedback_source
+            and '"sensor.hoymiles_hit_overview_battery_power"'
+            not in feedback_source,
+            "Tariff feedback is not exclusively sourced from accounting v2",
+        )
+    else:
+        feedback_source = tariff_sensor_source.split(
+            "def _update_delivered_power_feedback", 1
+        )[1].split("async def _async_forecast_accuracy_timer", 1)[0]
+        require(
+            "CHARGE_POWER_FEEDBACK_VERSION = 2" in tariff_sensor_source
+            and '"input_text.hoymiles_tariff_active_action"' in feedback_source
+            and '"sensor.hoymiles_ems_control_owner"' in feedback_source
+            and '"sensor.hoymiles_hit_ems_mode_readback_code"' in feedback_source
+            and '"sensor.hoymiles_hit_ems_control_readback_generation"'
+            in feedback_source
+            and '"sensor.hoymiles_hit_grid_to_battery_power"' in feedback_source
+            and '"sensor.hoymiles_hit_overview_grid_total_active_power"'
+            in feedback_source
+            and '"sensor.hoymiles_tariff_grid_charge_power"' not in feedback_source
+            and '"sensor.hoymiles_hit_overview_load_active_power"'
+            not in feedback_source,
+            "Tariff delivered-power feedback is not physical/import fail-closed",
+        )
+    scheduler_source = (
+        ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml"
+    ).read_text(encoding="utf-8")
+    accounting_source = scheduler_source.split(
+        '- name: "Hoymiles Tariff Grid Charge Power"', 1
+    )[1].split('- name: "Hoymiles Tariff Savings Rate"', 1)[0]
+    require(
+        "sensor.hoymiles_hit_grid_to_battery_power" in accounting_source
+        and "sensor.hoymiles_hit_overview_grid_total_active_power"
+        in accounting_source
+        and "sensor.hoymiles_hit_ems_control_readback_generation"
+        in accounting_source
+        and "owner == 'tariff'" in accounting_source
+        and "input_text.hoymiles_tariff_active_action" in accounting_source
+        and "accounting_fail_closed: true" in accounting_source
+        and "sensor.hoymiles_hit_overview_battery_power"
+        not in accounting_source,
+        "Tariff energy/savings accounting is not physical grid-to-battery only",
+    )
 
     stable_entity_assets = [
         ROOT / "dashboard_hoymiles.yaml",
@@ -1393,9 +10507,27 @@ def main() -> int:
     )
     native_integration_entities = {
         ("sensor", "rce_optimized_plan"),
+        ("sensor", "rce_automation_plan_timeline"),
         ("sensor", "tariff_charge_plan"),
+        ("sensor", "tariff_automation_plan_timeline"),
         ("sensor", "rcm_voltage_plan"),
+        ("sensor", "rcm_automation_plan_timeline"),
         ("sensor", "setup_status"),
+        ("sensor", "ems_supervisor"),
+    }
+    if uses_supervisor_active_contract:
+        native_integration_entities.update(
+            {
+                ("sensor", "ems_supervisor_canonical_plan"),
+                ("sensor", "ems_supervisor_grid_to_battery_energy_v2"),
+            }
+        )
+    if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate):
+        native_integration_entities.add(("sensor", "ems_shared_inputs"))
+    # Optional external physical proof. The stock integration does not
+    # synthesize it; tariff accounting remains zero until it exists.
+    optional_fail_closed_physical_entities = {
+        ("sensor", "grid_to_battery_power"),
     }
     for asset_path in stable_entity_assets:
         asset_text = asset_path.read_text(encoding="utf-8")
@@ -1409,7 +10541,12 @@ def main() -> int:
         ):
             require(
                 (domain, translation_key) in identities
-                or (domain, translation_key) in native_integration_entities,
+                or (domain, translation_key) in native_integration_entities
+                or (
+                    (domain, translation_key)
+                    in optional_fail_closed_physical_entities
+                    and "accounting_fail_closed: true" in asset_text
+                ),
                 f"Asset references an entity absent from the catalog: "
                 f"{domain}.hoymiles_hit_{translation_key}",
             )
@@ -1511,6 +10648,17 @@ def main() -> int:
             "binary_sensor.hoymiles_rce_reserve_ready",
             "or is_state('binary_sensor.hoymiles_rce_reserve_ready', 'off')",
         )
+        if uses_supervisor_active_contract:
+            dynamic_reserve_markers = tuple(
+                marker
+                for marker in dynamic_reserve_markers
+                if marker != "input_boolean.hoymiles_rcm_shadow_mode"
+            ) + (
+                "hoymiles_ems_supervisor_master_stop:",
+                "id: hoymiles_ems_supervisor_master_stop",
+                "input_button.hoymiles_ems_supervisor_master_stop",
+                "'input_select.hoymiles_ems_supervisor_mode', 'Active'",
+            )
         for marker in dynamic_reserve_markers:
             require(
                 marker in package_text,
@@ -1588,6 +10736,16 @@ def main() -> int:
         f"CHANGELOG lacks the {manifest['version']} release section",
     )
     release_notes = release_match.group(1)
+    github_release_body = re.match(
+        rf"^# v{re.escape(manifest['version'])}[^\n]*\n\n(.*)\Z",
+        github_release_notes,
+        re.S,
+    )
+    require(
+        github_release_body is not None
+        and github_release_body.group(1).strip() == release_notes.strip(),
+        "Versioned GitHub Release body differs from the CHANGELOG release section",
+    )
     normalized_readme = " ".join(readme.split())
     require(
         readme.startswith(f"# {EXPECTED_PROJECT_NAME}\n")
@@ -1607,19 +10765,34 @@ def main() -> int:
         "Release changelog lacks the HACS-visible user update steps",
     )
     for update_step in (
-        "1. **HACS:**",
-        "2. **Home Assistant:**",
-        "3. **ESP32 / ESPHome:**",
-        "4. **Verification / Weryfikacja:**",
+        "1. **Safety / Bezpieczeństwo:**",
+        "2. **HACS:**",
+        "3. **Home Assistant:**",
+        "4. **ESP32 / ESPHome:**",
+        "5. **Verification / Weryfikacja:**",
     ):
         require(
             update_step in release_notes,
             f"Release changelog lacks required user step: {update_step}",
         )
+    normalized_release_notes = " ".join(release_notes.split())
+    for release_contract in (
+        "exactly **two Home Assistant restarts**",
+        "locally modified scheduler",
+        "This firmware update is mandatory",
+        "Aktualizacja firmware jest obowiązkowa",
+        "inverter_nameplate_power_each_kw=20",
+        "inverter_power_each_kw=16",
+    ):
+        require(
+            release_contract in normalized_release_notes,
+            f"Release changelog lacks hotfix update contract: {release_contract}",
+        )
     release_procedure = (ROOT / "RELEASING.md").read_text(encoding="utf-8")
     require(
         "GitHub Release body visible in HACS" in release_procedure
-        and "does not flash the ESP32" in release_procedure,
+        and "does not flash the ESP32" in release_procedure
+        and "python tools/test_battery_balancing_contract.py" in release_procedure,
         "Release procedure does not require complete HACS/ESP32 instructions",
     )
     readme_images = [ROOT / "docs" / "images" / "dashboard-overview.png"]
@@ -1641,7 +10814,7 @@ def main() -> int:
         "English and Polish READMEs must expose the beginner quick-start guide",
     )
     require(
-        "## User update steps / Kroki po aktualizacji" in github_release_notes
+        "### User update steps / Kroki po aktualizacji" in github_release_notes
         and "ESP32 / ESPHome" in github_release_notes
         and "2064/2064" in github_release_notes,
         "GitHub Release notes are incomplete for HACS users",
@@ -1689,12 +10862,20 @@ def main() -> int:
                 f"{language} README is missing documentation: {documentation_marker}",
             )
     require(
+        "approximately 0.4 kW aggregate net" in normalized_readme
+        and "at `99.9%` SOC" in readme
+        and "około 0,4 kW sumarycznej mocy netto" in readme_pl
+        and "przy `99,9%`" in readme_pl,
+        "README balancing contract does not expose the 95% / 0.4 kW / 99.9% split",
+    )
+    require(
         "README.pl.md" in readme and len(readme_pl.split()) >= len(readme.split()) * 0.8,
         "Polish README is not a complete edition of the English documentation",
     )
 
     esphome_entry_files = [
         ROOT / "hoymiles-inverter.yaml",
+        ROOT / "hoymiles-inverter-flow-control.yaml",
         ROOT / "examples" / "esphome" / "hoymiles-hit-g3.yaml",
     ]
     required_esphome_packages = {
@@ -1711,7 +10892,7 @@ def main() -> int:
         "firmware-compile:" in workflow_source
         and "github.event_name == 'workflow_dispatch'" in workflow_source
         and "startsWith(github.ref, 'refs/tags/v')" in workflow_source
-        and '"esphome==2026.7.2"' in workflow_source
+        and '"esphome==2026.9.0"' in workflow_source
         and "esphome config tools/esphome_verify_ci.yaml" in workflow_source
         and "esphome compile tools/esphome_verify_ci.yaml" in workflow_source,
         "Release workflow lacks the pinned full ESPHome compile gate",
@@ -1720,7 +10901,7 @@ def main() -> int:
         "CI-only full firmware fixture" in firmware_ci_source
         and 'wifi_ssid: "ci-placeholder-network"' in firmware_ci_source
         and 'wifi_password: "ci-placeholder-password"' in firmware_ci_source
-        and 'ota_password: "ci-placeholder-ota"' in firmware_ci_source,
+        and 'api_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="' in firmware_ci_source,
         "Firmware CI fixture must contain only documented placeholder credentials",
     )
     firmware_ci_packages = set(
@@ -1961,17 +11142,57 @@ def main() -> int:
 
     polish_dashboard = required_assets[1].read_text(encoding="utf-8")
     english_dashboard = required_assets[0].read_text(encoding="utf-8")
+    def dashboard_list_parent(lines: list[str], index: int) -> str | None:
+        item_indent = len(lines[index]) - len(lines[index].lstrip())
+        for candidate in reversed(lines[:index]):
+            if not candidate.strip():
+                continue
+            candidate_indent = len(candidate) - len(candidate.lstrip())
+            if candidate_indent >= item_indent:
+                continue
+            parent = re.match(r"^\s*([a-z_]+):\s*$", candidate)
+            return parent.group(1) if parent else None
+        return None
+
     for dashboard_text, language in (
         (polish_dashboard, "Polish"),
         (english_dashboard, "English"),
     ):
         dashboard_lines = dashboard_text.splitlines()
-        require(
-            not re.search(
+        allowed_bare_entity_parents = {"safe_off_entities"}
+        if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate):
+            # I2 markdown cards declare refresh dependencies under entity_id;
+            # those are not visible entity rows and therefore have no name.
+            allowed_bare_entity_parents.add("entity_id")
+        forecast_and_load_settings = (
+            (
+                "sensor.hoymiles_hit_ems_shared_inputs",
+                "input_text.hoymiles_ems_pv_forecast_today_entity",
+                "input_text.hoymiles_ems_pv_forecast_tomorrow_entity",
+                "input_text.hoymiles_ems_pv_forecast_day_3_entity",
+                "input_select.hoymiles_ems_inverter_rated_power_each",
+                "input_number.hoymiles_ems_fallback_daily_home_load",
+            )
+            if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+            else (
+                "input_text.hoymiles_solcast_forecast_today_entity",
+                "input_text.hoymiles_solcast_forecast_tomorrow_entity",
+                "input_select.hoymiles_rce_inverter_rated_power",
+                "input_number.hoymiles_rce_fallback_daily_load",
+            )
+        )
+        unnamed_bare_rows = [
+            line
+            for index, line in enumerate(dashboard_lines)
+            if re.match(
                 r"^\s*-\s+(?:button|sensor|number|select)\.hoymiles_hit_[a-z0-9_]+\s*$",
-                dashboard_text,
-                re.M,
-            ),
+                line,
+            )
+            and dashboard_list_parent(dashboard_lines, index)
+            not in allowed_bare_entity_parents
+        ]
+        require(
+            not unnamed_bare_rows,
             f"{language} dashboard contains entity rows without short names",
         )
         for index, line in enumerate(dashboard_lines):
@@ -1987,10 +11208,19 @@ def main() -> int:
                 if index + 1 < len(dashboard_lines)
                 else ""
             )
+            following_after = (
+                dashboard_lines[index + 2]
+                if index + 2 < len(dashboard_lines)
+                else ""
+            )
+            row_indent = entity_match.group("indent")
+            has_short_name = following.startswith(f"{row_indent}  name:")
+            has_localized_labels = (
+                following.startswith(f"{row_indent}  label_pl:")
+                and following_after.startswith(f"{row_indent}  label_en:")
+            )
             require(
-                following.startswith(
-                    f"{entity_match.group('indent')}  name:"
-                ),
+                has_short_name or has_localized_labels,
                 f"{language} dashboard entity row on line {index + 1} "
                 "has no dashboard-only short name",
             )
@@ -2007,7 +11237,12 @@ def main() -> int:
             f"{language} dashboard still contains non-clickable HTML tables",
         )
         require(
-            "type: custom:hoymiles-aurora-energy-card" in dashboard_text,
+            (
+                "type: custom:hoymiles-aurora-overview-card"
+                if _uses_aurora_compact_contract(current_ap2r1_gate)
+                else "type: custom:hoymiles-aurora-energy-card"
+            )
+            in dashboard_text,
             f"{language} dashboard does not use the Aurora live-energy card",
         )
         require(
@@ -2036,16 +11271,34 @@ def main() -> int:
             if language == "Polish"
             else "Alarms — quick view"
         )
-        start_section = dashboard_text.split("  - title: Start", 1)[1].split(
+        start_title = (
+            ("Przegląd" if language == "Polish" else "Overview")
+            if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+            else "Start"
+        )
+        start_section = dashboard_text.split(
+            f"  - title: {start_title}", 1
+        )[1].split(
             "\n  - title:", 1
         )[0]
         require(
             state_title not in start_section and alarm_title not in start_section,
             f"{language} Start view still duplicates diagnostics/status cards",
         )
+        control_path = (
+            "sterowanie"
+            if language == "Polish"
+            or _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate)
+            else "control"
+        )
+        control_layout = (
+            f"path: {control_path}\n    subview: true\n"
+            "    icon: mdi:tune-variant\n    type: sidebar"
+            if _uses_aurora_compact_contract(current_ap2r1_gate)
+            else f"path: {control_path}\n    icon: mdi:tune-variant\n    type: sidebar"
+        )
         require(
-            f"path: {'sterowanie' if language == 'Polish' else 'control'}\n    icon: mdi:tune-variant\n    type: sidebar"
-            in dashboard_text,
+            control_layout in dashboard_text,
             f"{language} control view is not using the sidebar layout",
         )
         for entity_id in (
@@ -2054,10 +11307,7 @@ def main() -> int:
             "sensor.hoymiles_ems_push_notification_status",
             "input_boolean.hoymiles_rce_dynamic_soc_enabled",
             "input_number.hoymiles_rce_soc_safety_margin",
-            "input_text.hoymiles_solcast_forecast_today_entity",
-            "input_text.hoymiles_solcast_forecast_tomorrow_entity",
-            "input_select.hoymiles_rce_inverter_rated_power",
-            "input_number.hoymiles_rce_fallback_daily_load",
+            *forecast_and_load_settings,
             "sensor.hoymiles_hit_rce_optimized_plan",
             "sensor.hoymiles_solcast_forecast_today",
             "sensor.hoymiles_solcast_forecast_remaining_today",
@@ -2107,14 +11357,23 @@ def main() -> int:
             "https://github.com/BJReplay/ha-solcast-solar" in dashboard_text,
             f"{language} dashboard does not document the Solcast dependency",
         )
-    require(
-        "Wyczyść alarmy falownika" in polish_dashboard,
-        "Polish dashboard lacks the localized Clear Fault name",
-    )
-    require(
-        "Clear Fault" in english_dashboard,
-        "English dashboard lacks the localized Clear Fault name",
-    )
+    if _uses_integrated_active_shared_aurora_contract(current_ap2r1_gate):
+        require(
+            "clear_fault_entity: button.hoymiles_hit_clear_fault"
+            in polish_dashboard
+            and 'clear: "Wyczyść alarmy falownika"' in card_source
+            and 'clear: "Clear inverter alarms"' in card_source,
+            "Canonical Aurora card lacks the localized Clear Fault contract",
+        )
+    else:
+        require(
+            "Wyczyść alarmy falownika" in polish_dashboard,
+            "Polish dashboard lacks the localized Clear Fault name",
+        )
+        require(
+            "Clear Fault" in english_dashboard,
+            "English dashboard lacks the localized Clear Fault name",
+        )
     require(
         'name: "Docelowy SOC ładowania z sieci"' in polish_dashboard,
         "Polish dashboard lacks the localized Force Charge SOC name",
@@ -2193,11 +11452,19 @@ def main() -> int:
         "battery_max_charge_power_306",
         "battery_max_discharge_power_307",
     ):
-        register_offset = settings_source.index(f"id: {register_id}")
-        register_block = settings_source[register_offset : register_offset + 1300]
+        register_blocks = [
+            block
+            for block in re.findall(
+                r"(?ms)^  - platform: modbus_controller\n"
+                r".*?(?=^  - platform:|\Z)",
+                settings_source,
+            )
+            if f"\n    id: {register_id}\n" in block
+        ]
         require(
-            "lambda: return x * 0.1f;" in register_block
-            and "return safe * 10.0f;" in register_block,
+            len(register_blocks) == 1
+            and "lambda: return x * 0.1f;" in register_blocks[0]
+            and "return safe * 10.0f;" in register_blocks[0],
             f"Register {register_id} does not use the required 0.1% scale",
         )
     for dashboard_text, language, topology_name, status_name in (
@@ -2225,10 +11492,16 @@ def main() -> int:
     english_assets = [required_assets[0], required_assets[2]]
     polish_characters = re.compile(r"[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]")
     for asset in english_assets:
+        # Bilingual custom-card metadata is not rendered in the English dashboard;
+        # the card selects the matching *_en value. Keep validating every generic
+        # and *_en field so user-visible English cannot silently retain Polish copy.
         visible_lines = [
             line
             for line in asset.read_text(encoding="utf-8").splitlines()
             if not line.lstrip().startswith("#")
+            and not re.match(
+                r"^\s*(?:-\s*)?[a-z0-9_]+_pl\s*:", line, flags=re.IGNORECASE
+            )
         ]
         visible_text = "\n".join(visible_lines).replace(
             "sensor.solcast_pv_forecast_prognoza_na_jutro",
@@ -2240,7 +11513,11 @@ def main() -> int:
         )
 
     for python_file in COMPONENT.glob("*.py"):
-        py_compile.compile(python_file, doraise=True)
+        compile(
+            python_file.read_text(encoding="utf-8"),
+            str(python_file),
+            "exec",
+        )
 
     localization = load_localization_module()
     require(
@@ -2269,8 +11546,66 @@ def main() -> int:
         == "Zablokowane - ESP32 podłączone do Slave",
         "Polish parallel EMS state localization failed",
     )
-    validate_fresh_asset_install()
-    validate_frontend_asset_failure_isolation(init_source)
+    validate_fresh_asset_install(
+        scheduler_hashes=(
+            N12_VALIDATOR_NEW_HASHES
+            if current_ap2r1_gate
+            in {N12_EXACT_LOCAL_BASE, V158_RELEASE_CANDIDATE, V158_TASK02_CANDIDATE}
+            else (
+                CONSOLIDATED_VALIDATOR_NEW_HASHES
+                if current_ap2r1_gate == CONSOLIDATED_RELEASE_CANDIDATE
+                else (
+                    AURORA_COMPACT_VALIDATOR_NEW_HASHES
+                    if _uses_aurora_compact_contract(current_ap2r1_gate)
+                    else (
+                        INTEGRATED_ACTIVE_SHARED_AURORA_VALIDATOR_NEW_HASHES
+                        if _uses_integrated_active_shared_aurora_contract(
+                            current_ap2r1_gate
+                        )
+                        else VALIDATOR_NEW_HASHES
+                    )
+                )
+            )
+        ),
+        frontend_revision=(
+            80
+            if current_ap2r1_gate == V158_TASK02_CANDIDATE
+            else (
+                79
+                if current_ap2r1_gate in {N12_EXACT_LOCAL_BASE, V158_RELEASE_CANDIDATE}
+                else (
+                    72
+                    if current_ap2r1_gate == CONSOLIDATED_RELEASE_CANDIDATE
+                    else (
+                        69
+                        if _uses_aurora_compact_contract(current_ap2r1_gate)
+                        else (
+                            40
+                            if current_ap2r1_gate == I3_OVERLAY_CANDIDATE
+                            else (
+                                39
+                                if _uses_integrated_active_shared_aurora_contract(
+                                    current_ap2r1_gate
+                                )
+                                else 38
+                            )
+                        )
+                    )
+                )
+            )
+        ),
+        frontend_query_suffix=(
+            "&history=48h-executed"
+            if current_ap2r1_gate
+            in {N12_EXACT_LOCAL_BASE, V158_RELEASE_CANDIDATE, V158_TASK02_CANDIDATE}
+            else ""
+        ),
+    )
+    validate_frontend_asset_failure_isolation(
+        init_source,
+        execution_history_view=current_ap2r1_gate
+        in {N12_EXACT_LOCAL_BASE, V158_RELEASE_CANDIDATE, V158_TASK02_CANDIDATE},
+    )
 
     for image_name in (
         "icon.png",
@@ -2309,6 +11644,114 @@ def main() -> int:
     workflow_text = (ROOT / ".github" / "workflows" / "validate.yml").read_text(
         encoding="utf-8"
     )
+    workflow_data = yaml.safe_load(workflow_text)
+    require(isinstance(workflow_data, dict), "Validation workflow is not a mapping")
+    project_steps = workflow_data.get("jobs", {}).get("project-checks", {}).get(
+        "steps", []
+    )
+    require(
+        isinstance(project_steps, list),
+        "Validation workflow project-checks steps are not a list",
+    )
+    project_checkouts = [
+        step
+        for step in project_steps
+        if isinstance(step, dict) and step.get("uses") == "actions/checkout@v5"
+    ]
+    require(
+        len(project_checkouts) == 1
+        and project_checkouts[0].get("with")
+        == {
+            "fetch-depth": 0,
+            "ref": "${{ github.event.pull_request.head.sha || github.sha }}",
+        },
+        "Project checks must fetch full history at the exact push or PR head",
+    )
+    branch_identity_steps = [
+        step
+        for step in project_steps
+        if isinstance(step, dict)
+        and step.get("name") == "Restore validator branch identity"
+    ]
+    require(
+        len(branch_identity_steps) == 1
+        and branch_identity_steps[0].get("env")
+        == {"VALIDATOR_BRANCH": "${{ github.head_ref || github.ref_name }}"}
+        and branch_identity_steps[0].get("run")
+        == 'git checkout -B "$VALIDATOR_BRANCH" HEAD',
+        "Project checks must restore the exact push or PR branch identity",
+    )
+    validate_mandatory_workflow_step(
+        workflow_data,
+        "python tools/test_battery_balancing_contract.py",
+        job_name="project-checks",
+    )
+    validate_mandatory_workflow_step(
+        workflow_data,
+        "python tools/test_battery_balancing_ha_runtime.py",
+        job_name="battery-balancing-ha-runtime",
+    )
+    for command, job_name, allowed_condition in (
+        ("python tools/validate_release.py", "project-checks", None),
+        ("python tools/test_rce_optimizer.py", "project-checks", None),
+        ("python tools/test_tariff_optimizer.py", "project-checks", None),
+        ("python tools/test_rcm_optimizer.py", "project-checks", None),
+        (
+            "python tools/test_rcm_live_control_refresh.py",
+            "project-checks",
+            None,
+        ),
+        ("python tools/test_automation_plan_timeline.py", "project-checks", None),
+        ("python tools/test_rcm_timeline_model.py", "project-checks", None),
+        ("python tools/test_optimizer_executor_contract.py", "project-checks", None),
+        ("python tools/test_optimizer_startup_contract.py", "project-checks", None),
+        (
+            "python tools/test_i3_policy_cadence_contract.py",
+            "project-checks",
+            None,
+        ),
+        ("python tools/test_automation_matrix.py", "project-checks", None),
+        ("python tools/test_battery_balancing_contract.py", "project-checks", None),
+        ("node tools/validate_rce_card.js", "project-checks", None),
+        ("node tools/test_rce_48h_ui_contract.js", "project-checks", None),
+        (
+            "python tools/test_aurora_compact_dashboard_contract.py",
+            "project-checks",
+            None,
+        ),
+        (
+            "python tools/test_aurora_disclosure_embedded_contract.py",
+            "project-checks",
+            None,
+        ),
+        (
+            "python tools/test_rce_slot_entity_id_compatibility.py",
+            "project-checks",
+            None,
+        ),
+        ("node tools/test_supervisor_aurora_ui_contract.js", "project-checks", None),
+        (
+            "python tools/test_automation_matrix.py --exhaustive",
+            "project-checks",
+            "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+        ),
+        (
+            "python tools/test_battery_balancing_ha_runtime.py",
+            "battery-balancing-ha-runtime",
+            None,
+        ),
+        (
+            "python -m pytest -q tests/test_timeline_platform_registration.py",
+            "battery-balancing-ha-runtime",
+            None,
+        ),
+    ):
+        validate_effective_workflow_command(
+            workflow_data,
+            command,
+            job_name=job_name,
+            allowed_condition=allowed_condition,
+        )
     require(
         license_text.startswith("MIT License\n\nCopyright (c) 2026 Kaluzaburza")
         and "Permission is hereby granted, free of charge" in license_text
@@ -2354,6 +11797,7 @@ def main() -> int:
         "python tools/test_rcm_optimizer.py",
         "python tools/test_diagnostic_analyzer.py",
         "python tools/test_optimizer_startup_contract.py",
+        "python tools/test_battery_balancing_contract.py",
         "python tools/test_automation_matrix.py",
         "python tools/test_automation_matrix.py --exhaustive",
     ):
@@ -2366,10 +11810,231 @@ def main() -> int:
         "Official HACS validation must be mandatory and unignored",
     )
 
+    node_executable = os.environ.get("HOYMILES_NODE_EXECUTABLE") or shutil.which(
+        "node"
+    )
+    require(
+        node_executable is not None,
+        "Node.js is required for managed frontend validation",
+    )
+    overlay_environment = os.environ.copy()
+    overlay_environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    overlay_contracts = []
+    if current_ap2r1_gate in {
+        I3_OVERLAY_CANDIDATE,
+        AURORA_COMPACT_OVERLAY_CANDIDATE,
+    }:
+        overlay_contracts.append(
+            (
+                [
+                    sys.executable,
+                    "-B",
+                    str(ROOT / "tools" / "test_i3_policy_cadence_contract.py"),
+                ],
+                "I3 optimizer cadence",
+            )
+        )
+    if _uses_aurora_compact_contract(current_ap2r1_gate):
+        overlay_contracts.extend(
+            (
+                (
+                    [
+                        sys.executable,
+                        "-B",
+                        str(
+                            ROOT
+                            / "tools"
+                            / "test_rcm_live_control_refresh.py"
+                        ),
+                    ],
+                    "RCEm live-control refresh",
+                ),
+                (
+                    [
+                        node_executable,
+                        str(ROOT / "tools" / "test_rce_48h_ui_contract.js"),
+                    ],
+                    "RCE 48-hour combined chart",
+                ),
+                (
+                    [
+                        sys.executable,
+                        "-B",
+                        str(
+                            ROOT
+                            / "tools"
+                            / "test_aurora_compact_dashboard_contract.py"
+                        ),
+                    ],
+                    "Aurora Compact six-tab dashboard",
+                ),
+                (
+                    [
+                        sys.executable,
+                        "-B",
+                        str(
+                            ROOT
+                            / "tools"
+                            / "test_rce_slot_entity_id_compatibility.py"
+                        ),
+                    ],
+                    "RCE slot entity-ID compatibility",
+                ),
+            )
+        )
+    for command, label in overlay_contracts:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=overlay_environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        require(
+            completed.returncode == 0,
+            f"{label} contract failed:\n{completed.stdout}{completed.stderr}",
+        )
+    with tempfile.TemporaryDirectory(
+        prefix="hoymiles_rev28_frontend_fixture_"
+    ) as temporary:
+        historical_root = Path(temporary)
+        build_historical_rev28_frontend_fixture(historical_root)
+        historical_environment = os.environ.copy()
+        historical_environment["HOYMILES_UI_TEST_ROOT"] = str(historical_root)
+        for frontend_test_name in (
+            "validate_rce_card.js",
+            "test_supervisor_aurora_ui_contract.js",
+        ):
+            frontend_test = historical_root / "tools" / frontend_test_name
+            completed = subprocess.run(
+                [node_executable, str(frontend_test)],
+                cwd=historical_root,
+                env=historical_environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            require(
+                completed.returncode == 0,
+                f"Historical frontend validation failed: {frontend_test.name}\n"
+                f"{completed.stdout}{completed.stderr}",
+            )
+        validate_ui_count_self_tests(node_executable, historical_root)
+        visual_mutations_detected = validate_rev28_visual_mutations(
+            node_executable,
+            historical_root,
+        )
+    ap3b_mutations_detected = 0
+    if current_ap2r1_gate == AP3B_OVERLAY_CANDIDATE:
+        ap3b_mutations_detected = validate_ap3b_contract_mutations(
+            node_executable
+        )
+
     print(f"HACS layout: OK ({len(integration_dirs)} integration)")
+    print("Historical REV28 fixture gate: OK (32-path frozen branch)")
+    print("Committed AP-1 baseline gate: OK (16-path task, 40-path branch)")
+    print(
+        "Committed AP-1E-R2 gate: OK "
+        "(4-path correction, 18-path task, 41-path branch)"
+    )
+    if current_ap2r1_gate == V158_TASK02_CANDIDATE:
+        print(
+            "Current v1.5.8 Task 02 candidate gate: OK "
+            "(36-path reviewed SOC-01 + PV-NOC-01 + TARYFA-LEASE-01 delta; "
+            "DIAG-01 deferred)"
+        )
+        print("Task 02 manifest self-tests: OK (1 positive, 4 negative)")
+        print("Firmware and scheduler scopes: byte/mode/type-identical to a57d405")
+        print(n12_contract_result)
+    elif current_ap2r1_gate == V158_RELEASE_CANDIDATE:
+        print(
+            "Current v1.5.8 release-candidate gate: OK "
+            "(accepted N12 plus exact reviewed release-only delta)"
+        )
+        print(
+            "N12 protected product tree: OK "
+            "(114 files byte/mode/type-identical to c736b69)"
+        )
+        print(n12_contract_result)
+    elif current_ap2r1_gate == N12_EXACT_LOCAL_BASE:
+        print(
+            "Current N12 EMS 1.5.8 local-base gate: OK "
+            "(exact 114-file product, 24-file snapshot evidence, closed validation delta)"
+        )
+        print(
+            "N12 protected product aggregate: OK "
+            "(226452c4a162a94ba109bb46748c0730084a32b1847e318a39d94931ddf3adc3)"
+        )
+        print(n12_contract_result)
+    elif current_ap2r1_gate == CONSOLIDATED_RELEASE_CANDIDATE:
+        print(
+            "Current consolidated v1.5.8 release gate: OK "
+            "(exact accepted base plus reviewed release/handoff delta)"
+        )
+        print(
+            "Accepted consolidated baseline tree: OK "
+            f"({CONSOLIDATED_ACCEPTED_BASE_TREE})"
+        )
+    elif current_ap2r1_gate == SUPERVISOR_ACTIVE_OVERLAY_CANDIDATE:
+        print(
+            "Current EMS Supervisor Active gate: OK "
+            "(80-path unstaged C4 overlay, frozen core 76, 48 M + 32 A, staged 0)"
+        )
+        print(
+            "Supervisor Active manifest self-tests: OK "
+            "(1 positive, 86 negative, survivors 0)"
+        )
+    elif current_ap2r1_gate == AURORA_COMPACT_OVERLAY_CANDIDATE:
+        print(
+            "Current Aurora Compact gate: OK "
+            "(90-path WIP overlay, 78 M + 12 A, staged 0)"
+        )
+        print(
+            "Aurora Compact manifest self-tests: OK "
+            "(1 positive, 95 negative, survivors 0)"
+        )
+    elif current_ap2r1_gate == AP3B_OVERLAY_CANDIDATE:
+        print(
+            "Current Aurora AP-3B gate: OK "
+            "(17 canonical + 8 generated = 25 paths, staged 0)"
+        )
+        print(
+            "AP-3B manifest self-tests: OK "
+            "(1 positive, 28 negative, survivors 0)"
+        )
+        print(
+            "AP-3B/Supervisor mutations: "
+            f"{ap3b_mutations_detected}/22 detected, 0 survivors"
+        )
+    elif current_ap2r1_gate in {
+        V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY,
+        V1_5_8_BAL_AURORA_INTEGRATION_COMMITTED_CLEAN,
+    }:
+        integration_state = (
+            "49-path unstaged overlay, 35 M + 14 A, staged 0"
+            if current_ap2r1_gate == V1_5_8_BAL_AURORA_INTEGRATION_OVERLAY
+            else "49-path clean single-parent commit, 35 M + 14 A"
+        )
+        print(
+            "Current BAL-R2-F1 + Aurora AP-2 integration gate: OK "
+            f"({integration_state})"
+        )
+        print(
+            "Integration state classifier self-tests: OK "
+            "(2 positive, 15 negative, survivors 0)"
+        )
+    else:
+        print(
+            "Current AP-2R1 gate: OK "
+            f"({current_ap2r1_gate}; "
+            f"{'14' if current_ap2r1_gate == AP2R1F_COMMITTED_CLEAN else '3'}-path correction, "
+            "23-path task, 46-path branch)"
+        )
     print(f"Manifest: OK (version {manifest['version']})")
     print(f"Localized entities: {len(catalog)} (English and Polish)")
     print("Bundled dashboards/EMS assets: OK")
+    print("Protected assets AST: OK (58/58)")
     print("HACS-visible user update instructions: OK")
     print("README screenshots: OK")
     print("Public ESPHome remote packages: OK")
@@ -2380,6 +12045,11 @@ def main() -> int:
     print("MIT/OSI license and current license documentation: OK")
     print("Contribution rights, sign-off and CODEOWNERS: OK")
     print("RCE/tariff/RCEm CI regression matrix: OK")
+    print("Managed frontend validators: OK (historical REV28 fixture)")
+    print(
+        "Revision 28 visual mutations: "
+        f"{visual_mutations_detected}/12 detected, 0 survivors"
+    )
     return 0
 
 

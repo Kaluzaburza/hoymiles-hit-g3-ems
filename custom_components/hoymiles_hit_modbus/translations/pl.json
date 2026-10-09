@@ -101,55 +101,55 @@
         "name": "Backup czynna moc L3"
       },
       "load_active_power_direct": {
-        "name": "Odbiorniki czynna moc (Direct)"
+        "name": "Zużycie domu czynna moc (Direct)"
       },
       "load_energy_use_total": {
-        "name": "Odbiorniki energia Use łącznie"
+        "name": "Zużycie domu — energia łącznie"
       },
       "load_energy_use_l1n_total": {
-        "name": "Odbiorniki energia Use L1n łącznie"
+        "name": "Zużycie domu — energia L1 łącznie"
       },
       "load_energy_use_l2n_total": {
-        "name": "Odbiorniki energia Use L2n łącznie"
+        "name": "Zużycie domu — energia L2 łącznie"
       },
       "load_energy_use_l3n_total": {
-        "name": "Odbiorniki energia Use L3n łącznie"
+        "name": "Zużycie domu — energia L3 łącznie"
       },
       "load_energy_use_today": {
-        "name": "Odbiorniki energia Use dzisiaj"
+        "name": "Zużycie domu — energia dzisiaj"
       },
       "load_energy_use_l1n_today": {
-        "name": "Odbiorniki energia Use L1n dzisiaj"
+        "name": "Zużycie domu — energia L1 dzisiaj"
       },
       "load_energy_use_l2n_today": {
-        "name": "Odbiorniki energia Use L2n dzisiaj"
+        "name": "Zużycie domu — energia L2 dzisiaj"
       },
       "load_energy_use_l3n_today": {
-        "name": "Odbiorniki energia Use L3n dzisiaj"
+        "name": "Zużycie domu — energia L3 dzisiaj"
       },
       "load_power_total": {
-        "name": "Odbiorniki moc łącznie"
+        "name": "Zużycie domu moc łącznie"
       },
       "load_power_l1n": {
-        "name": "Odbiorniki moc L1n"
+        "name": "Zużycie domu moc L1n"
       },
       "load_power_l2n": {
-        "name": "Odbiorniki moc L2n"
+        "name": "Zużycie domu moc L2n"
       },
       "load_power_l3n": {
-        "name": "Odbiorniki moc L3n"
+        "name": "Zużycie domu moc L3n"
       },
       "battery_capacity": {
-        "name": "Bateria pojemność"
+        "name": "Pojemność magazynu energii"
       },
       "total_capacity": {
         "name": "Łącznie pojemność"
       },
       "battery_soc_bms": {
-        "name": "Bateria SOC (BMS)"
+        "name": "SOC baterii (BMS)"
       },
       "battery_soh": {
-        "name": "Bateria SOH"
+        "name": "Stan zdrowia magazynu energii (SOH)"
       },
       "battery_voltage_bms": {
         "name": "Napięcie baterii (BMS)"
@@ -167,10 +167,10 @@
         "name": "Maksymalna rozładowanie prąd"
       },
       "charge_cut_off_voltage": {
-        "name": "Ładowanie Cut-off napięcie"
+        "name": "Napięcie odcięcia ładowania"
       },
       "discharge_cut_off_voltage": {
-        "name": "Rozładowanie Cut-off napięcie"
+        "name": "Napięcie odcięcia rozładowania"
       },
       "cell_max_temperature": {
         "name": "Cell Max temperatura"
@@ -179,13 +179,13 @@
         "name": "Cell Min temperatura"
       },
       "battery_charge_energy_today": {
-        "name": "Bateria ładowanie energia dzisiaj"
+        "name": "Energia ładowania magazynu energii dzisiaj"
       },
       "battery_discharge_energy_today": {
-        "name": "Bateria rozładowanie energia dzisiaj"
+        "name": "Energia rozładowania magazynu energii dzisiaj"
       },
       "battery_total_power_energy_block": {
-        "name": "Bateria łącznie moc (energia Block)"
+        "name": "Magazyn energii — moc łączna (blok pomiarowy)"
       },
       "esp_uptime": {
         "name": "ESP Uptime"
@@ -209,43 +209,43 @@
         "name": "Residual prąd"
       },
       "energy_from_pv_total": {
-        "name": "Energia From PV łącznie"
+        "name": "Energia z PV łącznie"
       },
       "energy_from_battery_total": {
-        "name": "Energia From bateria łącznie"
+        "name": "Energia oddana przez magazyn energii — łącznie"
       },
       "energy_from_grid_total": {
-        "name": "Energia From sieć łącznie"
+        "name": "Energia z sieci łącznie"
       },
       "pv_to_battery_energy_today": {
-        "name": "PV to bateria energia dzisiaj"
+        "name": "PV → magazyn energii — energia dzisiaj"
       },
       "pv_to_load_energy_today": {
-        "name": "PV to odbiorniki energia dzisiaj"
+        "name": "PV → dom — energia dzisiaj"
       },
       "pv_to_grid_energy_today": {
-        "name": "PV to sieć energia dzisiaj"
+        "name": "PV → sieć — energia dzisiaj"
       },
       "energy_from_pv_today": {
-        "name": "Energia From PV dzisiaj"
+        "name": "Energia z PV dzisiaj"
       },
       "energy_from_battery_today": {
-        "name": "Energia From bateria dzisiaj"
+        "name": "Energia oddana przez magazyn energii — dzisiaj"
       },
       "energy_from_grid_today": {
-        "name": "Energia From sieć dzisiaj"
+        "name": "Energia z sieci dzisiaj"
       },
       "pv_to_battery_power": {
-        "name": "PV to bateria moc"
+        "name": "PV → magazyn energii — moc"
       },
       "pv_to_load_power": {
-        "name": "PV to odbiorniki moc"
+        "name": "PV → dom — moc"
       },
       "pv_to_grid_power": {
-        "name": "PV to sieć moc"
+        "name": "PV → sieć — moc"
       },
       "load_from_pv_power": {
-        "name": "Odbiorniki From PV moc"
+        "name": "Dom z PV — moc"
       },
       "generator_voltage_l1": {
         "name": "Generator napięcie L1"
@@ -446,22 +446,22 @@
         "name": "Sieć prąd L3n"
       },
       "meter_grid_frequency": {
-        "name": "Meter sieć częstotliwość"
+        "name": "Licznik sieci — częstotliwość"
       },
       "grid_total_current": {
         "name": "Sieć łącznie prąd"
       },
       "meter_grid_active_power_l1": {
-        "name": "Meter sieć czynna moc L1"
+        "name": "Licznik sieci — moc czynna L1"
       },
       "meter_grid_active_power_l2": {
-        "name": "Meter sieć czynna moc L2"
+        "name": "Licznik sieci — moc czynna L2"
       },
       "meter_grid_active_power_l3": {
-        "name": "Meter sieć czynna moc L3"
+        "name": "Licznik sieci — moc czynna L3"
       },
       "meter_grid_total_active_power": {
-        "name": "Meter sieć łącznie czynna moc"
+        "name": "Licznik sieci — łączna moc czynna"
       },
       "grid_reactive_power_l1n": {
         "name": "Sieć bierna moc L1n"
@@ -476,16 +476,16 @@
         "name": "Sieć łącznie bierna moc"
       },
       "grid_power_factor": {
-        "name": "Sieć moc Factor"
+        "name": "Współczynnik mocy sieci"
       },
       "grid_power_factor_l1n": {
-        "name": "Sieć moc Factor L1n"
+        "name": "Współczynnik mocy sieci — L1"
       },
       "grid_power_factor_l2n": {
-        "name": "Sieć moc Factor L2n"
+        "name": "Współczynnik mocy sieci — L2"
       },
       "grid_power_factor_l3n": {
-        "name": "Sieć moc Factor L3n"
+        "name": "Współczynnik mocy sieci — L3"
       },
       "pv_voltage_l1n": {
         "name": "PV napięcie L1n"
@@ -533,16 +533,16 @@
         "name": "PV łącznie bierna moc"
       },
       "pv_power_factor": {
-        "name": "PV moc Factor"
+        "name": "Współczynnik mocy PV"
       },
       "pv_power_factor_l1n": {
-        "name": "PV moc Factor L1n"
+        "name": "Współczynnik mocy PV — L1"
       },
       "pv_power_factor_l2n": {
-        "name": "PV moc Factor L2n"
+        "name": "Współczynnik mocy PV — L2"
       },
       "pv_power_factor_l3n": {
-        "name": "PV moc Factor L3n"
+        "name": "Współczynnik mocy PV — L3"
       },
       "esp_wifi_signal": {
         "name": "ESP WiFi Signal"
@@ -671,34 +671,34 @@
         "name": "Generacja odczytu sumarycznej mocy układu równoległego"
       },
       "overview_internal_pv_total_power": {
-        "name": "Podgląd łącznej mocy wewnętrznych wejść PV"
+        "name": "Łączna moc wewnętrznych wejść PV"
       },
       "overview_external_pv_total_power": {
-        "name": "Podgląd łącznej mocy zewnętrznych źródeł PV"
+        "name": "Łączna moc zewnętrznych źródeł PV"
       },
       "overview_generator_active_power": {
-        "name": "Podgląd mocy czynnej generatora"
+        "name": "Moc czynna generatora"
       },
       "overview_smart_load_active_power": {
-        "name": "Podgląd mocy czynnej Smart Load"
+        "name": "Moc czynna inteligentnego obciążenia"
       },
       "overview_pv_total_power": {
-        "name": "Podgląd łącznej mocy PV"
+        "name": "Łączna moc PV"
       },
       "overview_inverter_active_power": {
-        "name": "Podgląd mocy czynnej falownika"
+        "name": "Moc czynna falownika"
       },
       "overview_battery_power": {
-        "name": "Podgląd mocy baterii"
+        "name": "Moc magazynu energii"
       },
       "overview_grid_total_active_power": {
-        "name": "Podgląd łącznej mocy czynnej sieci"
+        "name": "Łączna moc czynna sieci"
       },
       "overview_load_active_power": {
-        "name": "Podgląd mocy czynnej odbiorników"
+        "name": "Moc zużycia domu"
       },
       "overview_battery_soc": {
-        "name": "Podgląd stanu naładowania baterii"
+        "name": "Poziom magazynu energii"
       },
       "parallel_topology_readback_generation": {
         "name": "Generacja odczytu topologii równoległej"
@@ -865,13 +865,13 @@
         "name": "PV4 moc (Direct)"
       },
       "battery_total_power_direct": {
-        "name": "Bateria łącznie moc (Direct)"
+        "name": "Magazyn energii — moc łączna bezpośrednia"
       },
       "battery_1_voltage": {
-        "name": "Napięcie baterii (falownik)"
+        "name": "Napięcie magazynu energii (falownik)"
       },
       "battery_current_inverter": {
-        "name": "Prąd baterii (falownik)"
+        "name": "Prąd magazynu energii (falownik)"
       },
       "pv_total_energy": {
         "name": "PV łącznie energia"
@@ -901,13 +901,13 @@
         "name": "Zewnętrzne PV energia L3n"
       },
       "pv_to_battery_energy_total": {
-        "name": "PV to bateria energia łącznie"
+        "name": "PV → magazyn energii — energia łącznie"
       },
       "pv_to_load_energy_total": {
-        "name": "PV to odbiorniki energia łącznie"
+        "name": "PV → dom — energia łącznie"
       },
       "pv_to_grid_energy_total": {
-        "name": "PV to sieć energia łącznie"
+        "name": "PV → sieć — energia łącznie"
       },
       "pv1_today_energy": {
         "name": "PV1 dzisiaj energia"
@@ -966,6 +966,49 @@
       "pv_total_power_energy_block": {
         "name": "PV łącznie moc (energia Block)"
       },
+      "ems_control_lease_state": {
+        "name": "EMS Control Lease State",
+        "state": {
+          "unavailable": "Niedostępne",
+          "power_initialization": "Inicjalizacja zasilania",
+          "standby": "Czuwanie",
+          "grid_test": "Test sieci",
+          "on_grid": "Praca z siecią",
+          "fault": "Awaria",
+          "off_grid": "Praca wyspowa",
+          "bypass": "Bypass",
+          "no_error": "Brak błędu",
+          "no_errors": "Brak błędów",
+          "offline": "Offline",
+          "online": "Online",
+          "hmid_connected": "HMID: połączenie prawidłowe",
+          "hmid_connection_error": "HMID: błąd połączenia",
+          "no_battery": "Brak baterii",
+          "lithium": "Litowa",
+          "lead_acid": "Kwasowo-ołowiowa",
+          "simulated": "Symulowana",
+          "charging": "Ładowanie",
+          "discharging": "Rozładowanie",
+          "single_inverter": "Falownik pojedynczy",
+          "parallel_master": "Master",
+          "parallel_slave": "Slave",
+          "unknown_topology": "Nieznana topologia",
+          "invalid_topology": "Nieprawidłowa topologia",
+          "parallel_ems_ready_direct": "Gotowe - sterowanie bezpośrednie",
+          "parallel_ems_ready_master": "Gotowe - Master steruje siecią równoległą",
+          "parallel_ems_blocked_slave": "Zablokowane - ESP32 podłączone do Slave",
+          "parallel_ems_waiting": "Oczekiwanie na wykrycie sieci",
+          "parallel_ems_waiting_master_mode": "Oczekiwanie na tryb EMS Mastera",
+          "parallel_ems_waiting_slave_confirmation": "Oczekiwanie na potwierdzenie Slave",
+          "parallel_address_error": "Błąd adresów sieci równoległej",
+          "parallel_slave_offline": "Błąd - Slave nie odpowiada",
+          "parallel_slave_ems_mismatch": "Błąd - tryb EMS Slave niezgodny",
+          "parallel_invalid_count": "Nieprawidłowa liczba falowników"
+        }
+      },
+      "ems_safety_lease_protocol_version": {
+        "name": "EMS Safety Lease Protocol Version"
+      },
       "ems_control_readback_generation": {
         "name": "Generacja odczytu sterowania EMS"
       },
@@ -973,7 +1016,7 @@
         "name": "Generacja odczytu sterowania GCF"
       },
       "battery_charge_power_readback_generation": {
-        "name": "Generacja odczytu mocy ładowania baterii"
+        "name": "Generacja odczytu mocy ładowania magazynu energii"
       },
       "ems_mode_readback_code": {
         "name": "Kod odczytanego trybu EMS"
@@ -994,7 +1037,7 @@
         "name": "Odczyt maksymalnego limitu eksportu GCF"
       },
       "battery_max_charge_power_readback": {
-        "name": "Odczyt maksymalnej mocy ładowania baterii"
+        "name": "Odczyt maksymalnej mocy ładowania magazynu energii"
       },
       "ems_maximum_charge_power_readback": {
         "name": "Odczyt maksymalnej mocy ładowania EMS"
@@ -1246,7 +1289,7 @@
         }
       },
       "battery_link_status": {
-        "name": "Stan łącza baterii",
+        "name": "Stan łącza magazynu energii",
         "state": {
           "unavailable": "Niedostępne",
           "power_initialization": "Inicjalizacja zasilania",
@@ -1366,7 +1409,7 @@
         }
       },
       "overview_battery_work_status": {
-        "name": "Podgląd stanu pracy baterii",
+        "name": "Podgląd stanu pracy magazynu energii",
         "state": {
           "unavailable": "Niedostępne",
           "power_initialization": "Inicjalizacja zasilania",
@@ -1446,7 +1489,7 @@
         }
       },
       "overview_battery_faults": {
-        "name": "Podgląd błędów baterii",
+        "name": "Podgląd błędów magazynu energii",
         "state": {
           "unavailable": "Niedostępne",
           "power_initialization": "Inicjalizacja zasilania",
@@ -1691,11 +1734,67 @@
       "tariff_charge_plan": {
         "name": "Plan automatycznego ładowania taryfowego"
       },
+      "tariff_import_price_schedule": {
+        "name": "Harmonogram cen importu taryfowego"
+      },
+      "rce_automation_plan_timeline": {
+        "name": "Oś czasu planu automatyki RCE",
+        "state": {
+          "current": "Aktualna",
+          "pending": "Oczekiwanie na przeliczenie",
+          "unavailable": "Niedostępna"
+        }
+      },
+      "tariff_automation_plan_timeline": {
+        "name": "Oś czasu planu automatyki taryfowej",
+        "state": {
+          "current": "Aktualna",
+          "pending": "Oczekiwanie na przeliczenie",
+          "unavailable": "Niedostępna"
+        }
+      },
+      "rcm_automation_plan_timeline": {
+        "name": "Oś czasu planu automatyki RCEm",
+        "state": {
+          "current": "Aktualna",
+          "pending": "Oczekiwanie na przeliczenie",
+          "unavailable": "Niedostępna"
+        }
+      },
       "rcm_voltage_plan": {
         "name": "Plan RCEm 253 V+"
       },
       "setup_status": {
         "name": "Stan instalacji"
+      },
+      "ems_shared_inputs": {
+        "name": "Wspólne dane EMS",
+        "state": {
+          "partial": "Częściowe",
+          "unavailable": "Niedostępne"
+        }
+      },
+      "ems_baseline_energy_timeline": {
+        "name": "Oś bazowej prognozy energii",
+        "state": {
+          "current": "Aktualna",
+          "partial": "Częściowa",
+          "unavailable": "Niedostępna"
+        }
+      },
+      "ems_supervisor": {
+        "name": "EMS"
+      },
+      "ems_supervisor_canonical_plan": {
+        "name": "Kanoniczny plan wykonawczy EMS",
+        "state": {
+          "current": "Aktualny",
+          "pending": "Oczekiwanie na przeliczenie",
+          "unavailable": "Niedostępny"
+        }
+      },
+      "ems_supervisor_grid_to_battery_energy_v2": {
+        "name": "Energia EMS sieć→magazyn v2"
       }
     },
     "number": {
@@ -1706,10 +1805,10 @@
         "name": "Maksymalny limit eksportu"
       },
       "battery_max_charge_power": {
-        "name": "Maksymalna moc ładowania baterii"
+        "name": "Maksymalna moc ładowania magazynu energii"
       },
       "battery_max_discharge_power": {
-        "name": "Maksymalna moc rozładowania baterii"
+        "name": "Maksymalna moc rozładowania magazynu energii"
       },
       "maximum_soc": {
         "name": "Maksymalna SOC"
@@ -1781,7 +1880,7 @@
         }
       },
       "battery_type_setting": {
-        "name": "Typ baterii",
+        "name": "Typ magazynu energii",
         "state": {
           "no_battery": "Brak baterii",
           "lithium": "Litowo-jonowa",

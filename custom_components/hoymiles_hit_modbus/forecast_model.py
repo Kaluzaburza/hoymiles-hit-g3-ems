@@ -7,9 +7,9 @@ be covered by deterministic tests.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from math import isfinite
 import re
 
@@ -21,8 +21,10 @@ ZERO_EXPORT_FORECAST_FACTOR = 0.80
 _EPSILON = 1e-6
 _PHYSICAL_EXPORT_HISTORY_MIN_VERSION = (1, 5, 2)
 _PACKAGE_VERSION = re.compile(
-    r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:[-+][0-9A-Za-z.-]{1,64})?$"
+    r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:rc[1-9]\d{0,2})?(?:[-+][0-9A-Za-z.-]{1,64})?$"
 )
+CUMULATIVE_DAY_START_TOLERANCE = timedelta(minutes=30)
+_CUMULATIVE_COUNTER_NOISE_KWH = 0.05
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +35,35 @@ class ForecastLearningPolicy:
     mode: str
     excluded_reason: str | None
     factor_override: float | None = None
+
+
+def forecast_policy_for_source(
+    policy: ForecastLearningPolicy,
+    attributes: Mapping[str, object],
+) -> ForecastLearningPolicy:
+    """Give explicitly adapted Solcast data one calibration owner.
+
+    Solcast 4.6 publishes ``dampening_factor`` on its aggregate forecast rows
+    only when automatic dampening is active; pv_estimate/10/90 already include
+    that correction. Undampened totals alone are not evidence of automation.
+    Physical GCF exclusions take precedence. Forecast freshness/coverage is
+    still checked independently by each consumer.
+    """
+    rows = attributes.get("detailedForecast")
+    if not policy.enabled or not isinstance(rows, (list, tuple)) or not rows:
+        return policy
+    for row in rows:
+        if not isinstance(row, Mapping):
+            return policy
+        factor = row.get("dampening_factor")
+        if type(factor) not in {int, float} or not isfinite(factor) or factor < 0:
+            return policy
+    return ForecastLearningPolicy(
+        enabled=False,
+        mode="solcast_adaptive",
+        excluded_reason="upstream_adaptation",
+        factor_override=1.0,
+    )
 
 
 def resolve_forecast_learning_policy(
@@ -172,6 +203,60 @@ def forecast_learning_history_day_eligible(
     return all(_physical_history_version(state) for state in version_intraday)
 
 
+def qualified_cumulative_energy_day(
+    samples: Sequence[tuple[datetime, object]],
+    *,
+    day_start: datetime,
+    day_end: datetime,
+    production_end: datetime,
+) -> float | None:
+    """Return a cumulative daily total only with complete physical evidence.
+
+    Recorder preserves repeated reports, so a report shortly after local
+    midnight proves the daily counter's start and one at/after local sunset
+    proves the end of production.  No unchanged reports are required through
+    the rest of the night.  Invalid values or an intraday reset reject the day
+    instead of being silently removed before learning.
+    """
+
+    if (
+        day_start.tzinfo is None
+        or day_end.tzinfo is None
+        or production_end.tzinfo is None
+        or not day_start < production_end < day_end
+    ):
+        return None
+    normalized: list[tuple[datetime, float]] = []
+    try:
+        for reported_at, raw_value in samples:
+            if reported_at.tzinfo is None:
+                return None
+            local_stamp = reported_at.astimezone(day_start.tzinfo)
+            if not day_start <= local_stamp < day_end:
+                continue
+            value = float(raw_value)
+            if not isfinite(value) or value < 0.0:
+                return None
+            normalized.append((local_stamp, value))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None
+    normalized.sort(key=lambda item: item[0].astimezone(timezone.utc))
+    if len(normalized) < 2:
+        return None
+    if normalized[0][0] > day_start + CUMULATIVE_DAY_START_TOLERANCE:
+        return None
+    if normalized[-1][0] < production_end:
+        return None
+    if any(
+        later + _CUMULATIVE_COUNTER_NOISE_KWH < earlier
+        for (_before_at, earlier), (_after_at, later) in zip(
+            normalized, normalized[1:]
+        )
+    ):
+        return None
+    return max(value for _reported_at, value in normalized)
+
+
 def adaptive_forecast_factor(
     historical_factor: float,
     actual_energy_kwh: float,
@@ -299,3 +384,15 @@ def blend_low_expected(
     low_value = min(max(low, 0.0), expected_value)
     weight = min(max(risk_weight, 0.0), 1.0)
     return expected_value * (1.0 - weight) + low_value * weight
+
+
+def day_uncertainty_weight(expected, low, high, *, history_days, live_confidence):
+    """Qualify one day's P10/P50 and weight it without borrowing another day."""
+    if (type(expected) not in (int, float) or type(low) not in (int, float)
+            or not isfinite(expected) or not isfinite(low) or not 0 < low <= expected):
+        return None
+    weight = uncertainty_risk_weight(history_days=history_days,
+        live_confidence=live_confidence, uncertainty_available=True)
+    spread = (max(high-low, 0.) / expected
+              if type(high) in (int, float) and isfinite(high) else 0.)
+    return min(weight + min(spread, 1.) * .15, .90)

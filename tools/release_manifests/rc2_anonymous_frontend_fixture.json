@@ -1,0 +1,226 @@
+{
+  "schema": 1,
+  "identity": "rc2-anonymous-rev28-frontend-fixture-v1",
+  "archive": "tools/release_fixtures/rev28_frontend_layers.tar.gz",
+  "original_archive_sha256": "c0a02d7637305aa9ac0c1839977d2295168717a63225e9d769a7de7b1151e567",
+  "public_archive_sha256": "be2588b3babcd81c1a805a90831e899e43c60191b6d0ed758d7dd4c316ddbb2c",
+  "scope": "Privacy-only derivative of historical REV28 test layers. Original archive is retained privately. This does not alter historical freeze facts or claim a historical validator PASS.",
+  "changed_members": [
+    "base/tools/test_tariff_optimizer.py"
+  ],
+  "unchanged_members": 34,
+  "members": [
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/__init__.py",
+      "original_sha256": "c47f68bb029f59a82ab928c895017ea3d1870f968f6b082130892a8dfd725548",
+      "public_sha256": "c47f68bb029f59a82ab928c895017ea3d1870f968f6b082130892a8dfd725548",
+      "size_bytes": 14443
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/assets.py",
+      "original_sha256": "3bd6da989d86d06d84fca8b4ec4be3b626a6a025a4151ddc6b4c46dbdd62ff84",
+      "public_sha256": "3bd6da989d86d06d84fca8b4ec4be3b626a6a025a4151ddc6b4c46dbdd62ff84",
+      "size_bytes": 71311
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/const.py",
+      "original_sha256": "eee0ffebe1197f0f74b488bce4c7e51066a33b96255944672f3fee288fc1d956",
+      "public_sha256": "eee0ffebe1197f0f74b488bce4c7e51066a33b96255944672f3fee288fc1d956",
+      "size_bytes": 1496
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+      "original_sha256": "031d0abf8948d24708b960deb6ee71c7fe952fdebecd915ac6fc766596429ca7",
+      "public_sha256": "031d0abf8948d24708b960deb6ee71c7fe952fdebecd915ac6fc766596429ca7",
+      "size_bytes": 61510
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+      "original_sha256": "3df7345f0ee9649a35160b4817d6d3dd9d0c95ecf93eed2bf07ec1fe2633886a",
+      "public_sha256": "3df7345f0ee9649a35160b4817d6d3dd9d0c95ecf93eed2bf07ec1fe2633886a",
+      "size_bytes": 645129
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+      "original_sha256": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+      "public_sha256": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+      "size_bytes": 646488
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/sensor.py",
+      "original_sha256": "fe83d62990150145c3db595e4983f598752751d2488375dd938db961908311bf",
+      "public_sha256": "fe83d62990150145c3db595e4983f598752751d2488375dd938db961908311bf",
+      "size_bytes": 16660
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+      "original_sha256": "12cf54cb8baeb8a161b4a6b49ac19f91daeb46beef3f949d9782f689f3889d7d",
+      "public_sha256": "12cf54cb8baeb8a161b4a6b49ac19f91daeb46beef3f949d9782f689f3889d7d",
+      "size_bytes": 51337
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+      "original_sha256": "1c18ac1eef5d46e2512574ea3dfc7f0c4bd62c58aae6296b2e7b4c479ba743f8",
+      "public_sha256": "1c18ac1eef5d46e2512574ea3dfc7f0c4bd62c58aae6296b2e7b4c479ba743f8",
+      "size_bytes": 56480
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+      "original_sha256": "7a77f3885a9f393179d40777770de5eee4ac1918b84a0dba5433531ccc344459",
+      "public_sha256": "7a77f3885a9f393179d40777770de5eee4ac1918b84a0dba5433531ccc344459",
+      "size_bytes": 82846
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+      "original_sha256": "f90a54afd2e9f001ad466bb55941e480bbb6dc25f0b2b2c37d7c30fbcfe39ff5",
+      "public_sha256": "f90a54afd2e9f001ad466bb55941e480bbb6dc25f0b2b2c37d7c30fbcfe39ff5",
+      "size_bytes": 136828
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/translations/en.json",
+      "original_sha256": "bed5940eb2d7157e2e8454e2ff305fe8a5b9d86fef8de5a23da410df3d18a1a1",
+      "public_sha256": "bed5940eb2d7157e2e8454e2ff305fe8a5b9d86fef8de5a23da410df3d18a1a1",
+      "size_bytes": 69114
+    },
+    {
+      "path": "base/custom_components/hoymiles_hit_modbus/translations/pl.json",
+      "original_sha256": "8fe17a4fa44a052620f51f05bd94b07d2803f13a1e39a23775b4043e806b67fe",
+      "public_sha256": "8fe17a4fa44a052620f51f05bd94b07d2803f13a1e39a23775b4043e806b67fe",
+      "size_bytes": 72126
+    },
+    {
+      "path": "base/home_assistant/hoymiles_ems_scheduler.yaml",
+      "original_sha256": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+      "public_sha256": "b66b591372c654424c491206e61815bc5457eca8514f4c1cffc5f205c7367691",
+      "size_bytes": 646488
+    },
+    {
+      "path": "base/tools/build_hacs_assets.py",
+      "original_sha256": "a117614ac76a88ddd407f50c6795cb2c4aa74ec9863a59070555af7a74eb8089",
+      "public_sha256": "a117614ac76a88ddd407f50c6795cb2c4aa74ec9863a59070555af7a74eb8089",
+      "size_bytes": 171704
+    },
+    {
+      "path": "base/tools/test_ems_supervisor.py",
+      "original_sha256": "381dd972c4e06050bc59f0bc297ddac80cb04f1a13f46058b5e5e60eabfe21c9",
+      "public_sha256": "381dd972c4e06050bc59f0bc297ddac80cb04f1a13f46058b5e5e60eabfe21c9",
+      "size_bytes": 59585
+    },
+    {
+      "path": "base/tools/test_supervisor_helpers_contract.py",
+      "original_sha256": "e62544b243ea25ea836ee554ee75c48375678826dbf7e7fdb310d68104567df9",
+      "public_sha256": "e62544b243ea25ea836ee554ee75c48375678826dbf7e7fdb310d68104567df9",
+      "size_bytes": 118478
+    },
+    {
+      "path": "base/tools/test_supervisor_runtime_contract.py",
+      "original_sha256": "1eb3a3f0ae71255dc61ee8d423443df01fdd353af4b289a6f7fc4bf02250dfbc",
+      "public_sha256": "1eb3a3f0ae71255dc61ee8d423443df01fdd353af4b289a6f7fc4bf02250dfbc",
+      "size_bytes": 59917
+    },
+    {
+      "path": "base/tools/test_supervisor_sensor_contract.py",
+      "original_sha256": "75730448947634ed5e5ccb3112265df5707e72452d255969708b887c3ca22bf2",
+      "public_sha256": "75730448947634ed5e5ccb3112265df5707e72452d255969708b887c3ca22bf2",
+      "size_bytes": 96660
+    },
+    {
+      "path": "base/tools/test_tariff_optimizer.py",
+      "original_sha256": "295ec7c368b4fef03b49d569167bd65b2bacce8252989b27bb472a636a9ff5aa",
+      "public_sha256": "c739728dadbb186c45c06b2cb6f2cfcdd08dc9a225ca498467f0570df021be51",
+      "size_bytes": 84415,
+      "change": "One installation name in a comment; executable Python AST identical",
+      "python_ast_sha256": "e519e72774e88232dfac402f37c17fc356d4e8e9e444186c3d17aa2a455d78ce"
+    },
+    {
+      "path": "base/tools/validate_release.py",
+      "original_sha256": "ae9173c311d9d4cf32dba7340bdb3f3dc96f08237989c5af201b22736b32af9a",
+      "public_sha256": "ae9173c311d9d4cf32dba7340bdb3f3dc96f08237989c5af201b22736b32af9a",
+      "size_bytes": 122425
+    },
+    {
+      "path": "rev28/custom_components/hoymiles_hit_modbus/assets.py",
+      "original_sha256": "82571e5bdf44c089c8e78c59609a3c15a42f8f3aa3332f1147e4a9107b28099a",
+      "public_sha256": "82571e5bdf44c089c8e78c59609a3c15a42f8f3aa3332f1147e4a9107b28099a",
+      "size_bytes": 71311
+    },
+    {
+      "path": "rev28/custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+      "original_sha256": "e56a60f49b407775228d41500fd14cd2bd67a5aba69c53efa513f358ca8bd9c6",
+      "public_sha256": "e56a60f49b407775228d41500fd14cd2bd67a5aba69c53efa513f358ca8bd9c6",
+      "size_bytes": 132440
+    },
+    {
+      "path": "rev28/custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+      "original_sha256": "e8113f54a671591fddb2fce9abb3ee7394fd997cfb87f3a5724c2a3ee875347b",
+      "public_sha256": "e8113f54a671591fddb2fce9abb3ee7394fd997cfb87f3a5724c2a3ee875347b",
+      "size_bytes": 134841
+    },
+    {
+      "path": "rev28/custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+      "original_sha256": "4868d931824557e5e68dca4c9c0f33f2a20bd8636a55b5a98caf8af5f1e72b1c",
+      "public_sha256": "4868d931824557e5e68dca4c9c0f33f2a20bd8636a55b5a98caf8af5f1e72b1c",
+      "size_bytes": 159893
+    },
+    {
+      "path": "rev28/custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+      "original_sha256": "dca8d5ceb63c979b9adfc9b2e9c6d0153593509bfa13227de7bb28e45a41f628",
+      "public_sha256": "dca8d5ceb63c979b9adfc9b2e9c6d0153593509bfa13227de7bb28e45a41f628",
+      "size_bytes": 162290
+    },
+    {
+      "path": "rev28/custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+      "original_sha256": "4270e108516612eb398f5f27ef19c9aed2adaea6d6ed4aac2d66ffde733541d6",
+      "public_sha256": "4270e108516612eb398f5f27ef19c9aed2adaea6d6ed4aac2d66ffde733541d6",
+      "size_bytes": 2706
+    },
+    {
+      "path": "rev28/custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+      "original_sha256": "5b118dfc1cf01bc8d75e70dcce41f15566248fae27fd2f550b27dac7a138c465",
+      "public_sha256": "5b118dfc1cf01bc8d75e70dcce41f15566248fae27fd2f550b27dac7a138c465",
+      "size_bytes": 257799
+    },
+    {
+      "path": "rev28/dashboard_hoymiles.yaml",
+      "original_sha256": "69efcb7b93d1463e29f8f273b45d4c96bca80f7a56dd65d5599164ab5857ee4d",
+      "public_sha256": "69efcb7b93d1463e29f8f273b45d4c96bca80f7a56dd65d5599164ab5857ee4d",
+      "size_bytes": 134829
+    },
+    {
+      "path": "rev28/home_assistant/www/hoymiles-dashboard-strategy.js",
+      "original_sha256": "4270e108516612eb398f5f27ef19c9aed2adaea6d6ed4aac2d66ffde733541d6",
+      "public_sha256": "4270e108516612eb398f5f27ef19c9aed2adaea6d6ed4aac2d66ffde733541d6",
+      "size_bytes": 2706
+    },
+    {
+      "path": "rev28/home_assistant/www/hoymiles-rce-chart-card.js",
+      "original_sha256": "5b118dfc1cf01bc8d75e70dcce41f15566248fae27fd2f550b27dac7a138c465",
+      "public_sha256": "5b118dfc1cf01bc8d75e70dcce41f15566248fae27fd2f550b27dac7a138c465",
+      "size_bytes": 257799
+    },
+    {
+      "path": "rev28/tools/build_hacs_assets.py",
+      "original_sha256": "07b7890d8999d5d115984d4ab0dc1cb9935fcf9e28423fbcebb5f4c10b81060b",
+      "public_sha256": "07b7890d8999d5d115984d4ab0dc1cb9935fcf9e28423fbcebb5f4c10b81060b",
+      "size_bytes": 172016
+    },
+    {
+      "path": "rev28/tools/test_supervisor_aurora_ui_contract.js",
+      "original_sha256": "d344654a8520d040d3e6a40d28fe930e1b296376ec74e4b21deecb609b724388",
+      "public_sha256": "d344654a8520d040d3e6a40d28fe930e1b296376ec74e4b21deecb609b724388",
+      "size_bytes": 94607
+    },
+    {
+      "path": "rev28/tools/validate_rce_card.js",
+      "original_sha256": "2a653fe95d04546a24f5a836ffeddb18283d9bc6bb8048149b38ad564c042e2d",
+      "public_sha256": "2a653fe95d04546a24f5a836ffeddb18283d9bc6bb8048149b38ad564c042e2d",
+      "size_bytes": 71057
+    },
+    {
+      "path": "rev28/tools/validate_release.py",
+      "original_sha256": "33b07a5cbe7de6a2a9a593477ee17644a91c45aa80345ac118c11a04791cf974",
+      "public_sha256": "33b07a5cbe7de6a2a9a593477ee17644a91c45aa80345ac118c11a04791cf974",
+      "size_bytes": 165667
+    }
+  ]
+}

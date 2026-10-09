@@ -966,6 +966,49 @@
       "pv_total_power_energy_block": {
         "name": "PV Total Power (Energy Block)"
       },
+      "ems_control_lease_state": {
+        "name": "EMS Control Lease State",
+        "state": {
+          "unavailable": "Unavailable",
+          "power_initialization": "Power initialization",
+          "standby": "Standby",
+          "grid_test": "Grid test",
+          "on_grid": "On-grid operation",
+          "fault": "Fault",
+          "off_grid": "Off-grid operation",
+          "bypass": "Bypass",
+          "no_error": "No error",
+          "no_errors": "No faults",
+          "offline": "Offline",
+          "online": "Online",
+          "hmid_connected": "HMID: connected",
+          "hmid_connection_error": "HMID: connection error",
+          "no_battery": "No battery",
+          "lithium": "Lithium-ion",
+          "lead_acid": "Lead-acid",
+          "simulated": "Simulated",
+          "charging": "Charging",
+          "discharging": "Discharging",
+          "single_inverter": "Single inverter",
+          "parallel_master": "Master",
+          "parallel_slave": "Slave",
+          "unknown_topology": "Unknown topology",
+          "invalid_topology": "Invalid topology",
+          "parallel_ems_ready_direct": "Ready - direct control",
+          "parallel_ems_ready_master": "Ready - Master controls the parallel network",
+          "parallel_ems_blocked_slave": "Blocked - ESP32 connected to Slave",
+          "parallel_ems_waiting": "Waiting for network detection",
+          "parallel_ems_waiting_master_mode": "Waiting for Master EMS mode",
+          "parallel_ems_waiting_slave_confirmation": "Waiting for Slave confirmation",
+          "parallel_address_error": "Parallel-network address error",
+          "parallel_slave_offline": "Error - Slave is not responding",
+          "parallel_slave_ems_mismatch": "Error - Slave EMS mode mismatch",
+          "parallel_invalid_count": "Invalid inverter count"
+        }
+      },
+      "ems_safety_lease_protocol_version": {
+        "name": "EMS Safety Lease Protocol Version"
+      },
       "ems_control_readback_generation": {
         "name": "EMS Control Readback Generation"
       },
@@ -1691,11 +1734,67 @@
       "tariff_charge_plan": {
         "name": "Automatic tariff charging plan"
       },
+      "tariff_import_price_schedule": {
+        "name": "Tariff import price schedule"
+      },
+      "rce_automation_plan_timeline": {
+        "name": "RCE automation plan timeline",
+        "state": {
+          "current": "Current",
+          "pending": "Recalculation pending",
+          "unavailable": "Unavailable"
+        }
+      },
+      "tariff_automation_plan_timeline": {
+        "name": "Tariff automation plan timeline",
+        "state": {
+          "current": "Current",
+          "pending": "Recalculation pending",
+          "unavailable": "Unavailable"
+        }
+      },
+      "rcm_automation_plan_timeline": {
+        "name": "RCEm automation plan timeline",
+        "state": {
+          "current": "Current",
+          "pending": "Recalculation pending",
+          "unavailable": "Unavailable"
+        }
+      },
       "rcm_voltage_plan": {
         "name": "RCEm 253 V+ plan"
       },
       "setup_status": {
         "name": "Installation status"
+      },
+      "ems_shared_inputs": {
+        "name": "Shared EMS inputs",
+        "state": {
+          "partial": "Partial",
+          "unavailable": "Unavailable"
+        }
+      },
+      "ems_baseline_energy_timeline": {
+        "name": "Baseline energy forecast timeline",
+        "state": {
+          "current": "Current",
+          "partial": "Partial",
+          "unavailable": "Unavailable"
+        }
+      },
+      "ems_supervisor": {
+        "name": "EMS"
+      },
+      "ems_supervisor_canonical_plan": {
+        "name": "EMS canonical execution plan",
+        "state": {
+          "current": "Current",
+          "pending": "Recalculation pending",
+          "unavailable": "Unavailable"
+        }
+      },
+      "ems_supervisor_grid_to_battery_energy_v2": {
+        "name": "EMS grid-to-battery energy v2"
       }
     },
     "number": {

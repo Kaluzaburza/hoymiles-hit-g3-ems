@@ -121,104 +121,94 @@ sensor:
             id(parallel_topology_readback_generation).publish_state(generation);
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 1 (Master Device)"
     id: communication_address_1_master_device_6050
     register_type: holding
     address: 6050
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 2 (Slave Device 1)"
     id: communication_address_2_slave_device_1_6055
     register_type: holding
     address: 6055
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 3 (Slave Device 2)"
     id: communication_address_3_slave_device_2_6060
     register_type: holding
     address: 6060
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 4 (Slave Device 3)"
     id: communication_address_4_slave_device_3_6065
     register_type: holding
     address: 6065
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 5 (Slave Device 4)"
     id: communication_address_5_slave_device_4_6070
     register_type: holding
     address: 6070
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 6 (Slave Device 5)"
     id: communication_address_6_slave_device_5_6075
     register_type: holding
     address: 6075
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 7 (Slave Device 6)"
     id: communication_address7_slave_device_6_6080
     register_type: holding
     address: 6080
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 8 (Slave Device 7)"
     id: communication_address8_slave_device_7_6085
     register_type: holding
     address: 6085
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 9 (Slave Device 8)"
     id: communication_address9_slave_device_8_6090
     register_type: holding
     address: 6090
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_controller_id}
+    modbus_controller_id: ${modbus_slow_controller_id}
     name: "Communication Address 10 (Slave Device 9)"
     id: communication_address10_slave_device_9_6095
     register_type: holding
     address: 6095
     accuracy_decimals: 0
     value_type: U_WORD
-    skip_updates: 9
 
 text_sensor:
   - platform: template

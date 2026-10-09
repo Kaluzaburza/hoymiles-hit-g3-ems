@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import isfinite
 from pathlib import Path
 import re
@@ -65,6 +65,7 @@ def settings(**overrides) -> RCMOptimizerInput:
         "saved_export_limit_percent": 50.0,
         "user_export_cap_percent": 60.0,
         "charge_efficiency_percent": 95.0,
+        "house_discharge_efficiency_percent": 95.0,
     }
     values.update(overrides)
     return RCMOptimizerInput(**values)
@@ -219,6 +220,31 @@ def main() -> None:
     assert emergency_while_learning.live_emergency
     assert emergency_while_learning.emergency_action_ready
     assert emergency_while_learning.recommended_export_limit_percent == 0.0
+    assert emergency_while_learning.action_interval_start == settings().now
+    assert emergency_while_learning.action_interval_end == (
+        settings().now + timedelta(seconds=60)
+    )
+
+    # Instantaneous PV/LOAD are not trajectory prerequisites, but their
+    # freshness remains mandatory for every non-emergency live write.
+    stale_live_power = optimize_rcm(
+        settings(
+            voltage_l1_v=251.2,
+            voltage_l2_v=249.0,
+            voltage_l3_v=248.0,
+            filtered_voltage_v=251.2,
+            rolling_10m_voltage_v=249.0,
+            live_power_data_fresh=False,
+        )
+    )
+    assert stale_live_power.status_code == "controlling"
+    assert stale_live_power.action == "monitor"
+    assert stale_live_power.pv_surplus_power_kw == 0.0
+    assert not stale_live_power.pre_discharge_start_eligible
+    assert not stale_live_power.pre_discharge_transaction_ready
+    assert not stale_live_power.emergency_action_ready
+    assert stale_live_power.recommended_charge_limit_percent == 80.0
+    assert stale_live_power.recommended_export_limit_percent == 50.0
 
     # A missing inverter count/rated-power contract cannot safely convert the
     # shared BMS kW allowance into a percentage. It blocks charge and all
@@ -304,9 +330,10 @@ def main() -> None:
 
     # Isolate the planned battery-discharge contract from coincident PV.  The
     # common export-budget regression below covers PV + BATTERY - LOAD.
+    headroom_settings_now = settings().now.replace(hour=11, minute=0)
     headroom = optimize_rcm(
         settings(
-            now=settings().now.replace(hour=11, minute=0),
+            now=headroom_settings_now,
             pv_power_kw=0.0,
         )
     )
@@ -318,22 +345,29 @@ def main() -> None:
     assert headroom.reserve_soc_percent == 27.0
     assert headroom.protected_minimum_soc_percent == 27.0
     assert headroom.headroom_shortfall_kwh > 1.0
-    assert headroom.target_soc_before_risk_percent == 63.9
+    assert headroom.target_soc_before_risk_percent == 64.0
     assert headroom.expected_natural_headroom_kwh == 0.4
-    assert headroom.planned_grid_discharge_kwh == 0.9
-    assert headroom.pre_discharge_target_soc_percent == 65.8
-    assert headroom.pre_discharge_power_percent == 29.9
+    assert headroom.planned_grid_discharge_kwh == 0.84  # (70%-66%) * 21kWh.
+    assert headroom.pre_discharge_target_soc_percent == 66.0
+    assert headroom.pre_discharge_power_percent == 29.0
     assert headroom.pre_discharge_ready
+    assert headroom.action_interval_start == headroom_settings_now
+    assert headroom.action_interval_end == headroom.pre_discharge_deadline
 
     natural_use_is_enough = optimize_rcm(
         settings(
-            now=settings().now.replace(hour=11, minute=0),
+            now=headroom_settings_now,
             expected_natural_headroom_kwh=2.0,
         )
     )
     assert natural_use_is_enough.status_code == "preparing_headroom"
     assert natural_use_is_enough.planned_grid_discharge_kwh == 0.0
     assert not natural_use_is_enough.pre_discharge_ready
+    assert natural_use_is_enough.action == "preserve_headroom"
+    assert natural_use_is_enough.action_interval_start == headroom_settings_now
+    assert natural_use_is_enough.action_interval_end == (
+        headroom_settings_now + timedelta(minutes=90)
+    )
 
     regulating = optimize_rcm(
         settings(
@@ -386,6 +420,11 @@ def main() -> None:
     assert zero_charge_bms.recommended_charge_limit_percent == 30.0
     assert zero_charge_bms.recommended_export_limit_percent == 0.0
     assert not zero_charge_bms.bms_charge_quantization_limited
+    assert zero_charge_bms.action == "limit_export"
+    assert zero_charge_bms.action_interval_start == settings().now
+    assert zero_charge_bms.action_interval_end == (
+        settings().now + timedelta(seconds=60)
+    )
 
     # Register 306 has a 10% minimum.  A positive BMS allowance below that
     # value must disable the charge path rather than round the command up past
@@ -438,8 +477,46 @@ def main() -> None:
         )
     )
     assert not stale_discharge_bms.bms_discharge_available
+    assert stale_discharge_bms.bms_discharge_dc_power_limit_kw == 0.0
+    assert stale_discharge_bms.bms_discharge_power_limit_kw == 0.0
     assert stale_discharge_bms.pre_discharge_power_kw == 0.0
     assert not stale_discharge_bms.pre_discharge_start_eligible
+
+    zero_discharge_bms = optimize_rcm(
+        settings(
+            now=settings().now.replace(hour=11),
+            bms_max_discharge_current_a=0.0,
+        )
+    )
+    assert not zero_discharge_bms.bms_discharge_available
+    assert zero_discharge_bms.bms_discharge_dc_power_limit_kw == 0.0
+    assert zero_discharge_bms.bms_discharge_power_limit_kw == 0.0
+    assert zero_discharge_bms.pre_discharge_power_kw == 0.0
+
+    # Voltage x current is a DC-side capability. With 80% conversion,
+    # 52 V x 20 A permits at most 0.832 kW of AC inverter output. Both the
+    # public plan and the whole-percent 4306 command stay below that cap.
+    lossy_discharge_bms = optimize_rcm(
+        settings(
+            now=settings().now.replace(hour=11),
+            pv_power_kw=0.0,
+            load_power_kw=0.0,
+            bms_max_discharge_current_a=20.0,
+            charge_efficiency_percent=95.0,
+            house_discharge_efficiency_percent=80.0,
+        )
+    )
+    assert lossy_discharge_bms.bms_discharge_available
+    assert lossy_discharge_bms.bms_discharge_dc_power_limit_kw == 1.04
+    assert lossy_discharge_bms.bms_discharge_power_limit_kw == 0.832
+    assert lossy_discharge_bms.pre_discharge_power_kw <= 0.832 + 1e-9
+    commanded_ac_kw = (
+        lossy_discharge_bms.pre_discharge_power_percent
+        * settings().system_power_kw
+        / 100.0
+    )
+    assert commanded_ac_kw <= 0.832 + 1e-9
+    assert commanded_ac_kw / 0.8 <= 1.04 + 1e-9
 
     power_limited_headroom = optimize_rcm(
         settings(
@@ -588,7 +665,7 @@ def main() -> None:
         * 1.10,
         0.5,
     ) + 1.0
-    assert round(old_load_only_power_kw, 2) == 1.99
+    assert round(old_load_only_power_kw, 2) == 1.96
     assert 5.0 + old_load_only_power_kw - 1.0 > 5.0
     assert gcf_disabled_common_export_budget.pre_discharge_power_kw == 0.0
     projected_common_export_kw = (
@@ -747,7 +824,7 @@ def main() -> None:
     assert minimum_floor.unavoidable_minimum_charge_kwh == 0.95
     assert minimum_floor.required_headroom_kwh == 3.8
     assert minimum_floor.risk_window_plans[0].required_headroom_kwh == 3.8
-    assert minimum_floor.planned_grid_discharge_kwh == 1.7
+    assert minimum_floor.planned_grid_discharge_kwh == 1.68
 
     exact_minimum_floor = optimize_rcm(
         settings(
@@ -784,7 +861,7 @@ def main() -> None:
     assert two_windows.risk_window_plans[1].projected_headroom_before_kwh == 0.7
     assert two_windows.risk_window_plans[1].cumulative_headroom_shortfall_kwh == 1.2
     assert two_windows.required_headroom_kwh == 3.3
-    assert two_windows.planned_grid_discharge_kwh == 1.2
+    assert two_windows.planned_grid_discharge_kwh == 1.05
 
     replenished_between_windows = optimize_rcm(
         settings(
@@ -799,7 +876,7 @@ def main() -> None:
     )
     assert replenished_between_windows.required_headroom_kwh == 1.9
     assert replenished_between_windows.headroom_shortfall_kwh == 0.85
-    assert replenished_between_windows.planned_grid_discharge_kwh == 0.85
+    assert replenished_between_windows.planned_grid_discharge_kwh == 0.84
 
     # Chronology matters for the transient home buffer: earlier PV can fund a
     # later load, but later PV cannot retroactively fund an earlier load.
@@ -885,8 +962,8 @@ def main() -> None:
     )
     assert not post_plan_stress_guard.stress_reserve_energy_critical
     assert post_plan_stress_guard.stress_discharge_limited
-    assert post_plan_stress_guard.planned_grid_discharge_kwh == 1.4
-    assert post_plan_stress_guard.pre_discharge_target_soc_percent == 58.6
+    assert post_plan_stress_guard.planned_grid_discharge_kwh == 1.0
+    assert post_plan_stress_guard.pre_discharge_target_soc_percent == 59.0
     assert post_plan_stress_guard.pre_discharge_start_eligible
 
     low_pv_branch = optimize_rcm(
@@ -1131,19 +1208,31 @@ def main() -> None:
     assert "bms_discharge_current_fresh" in bms_discharge_freshness_block
 
     # Arbitrary forecast entities selected through input_text participate in
-    # both event invalidation and the executor publication fingerprint.
+    # the full-plan publication fingerprint, but their value events enter the
+    # forecast-cohort callback instead of the generic immediate listener. Fast
+    # 15-second live control telemetry is intentionally excluded from that
+    # expensive forecast/risk rebuild snapshot.
     assert "def _configured_forecast_entities(" in sensor_source
     assert "def _refresh_dynamic_forecast_listener(" in sensor_source
     assert "self._refresh_dynamic_forecast_listener()" in sensor_source
     fingerprint_block = sensor_source.split(
         "def _current_input_fingerprint(", 1
     )[1].split("\n    @callback", 1)[0]
-    assert "self._watched_rcm_entities()" in fingerprint_block
+    assert "self._full_plan_input_entities()" in fingerprint_block
+    full_recalculation_block = sensor_source.split(
+        "async def _recalculate_locked(self) -> bool:", 1
+    )[1].split("\n    def _retain_last_complete_plan(", 1)[0]
+    assert "self._append_voltage_sample" not in full_recalculation_block
+    assert "A full-plan run must consume, but never mutate" in full_recalculation_block
+    assert "RCM_FULL_PLAN_INTERVAL = timedelta(minutes=10)" in sensor_source
+    assert "self._async_full_plan_timer" in sensor_source
+    assert "RCM_FULL_PLAN_INTERVAL" in sensor_source
     dynamic_listener_block = sensor_source.split(
         "def _refresh_dynamic_forecast_listener(", 1
     )[1].split("\n    @callback", 1)[0]
     assert "async_track_state_change_event(" in dynamic_listener_block
-    assert "self._async_input_changed" in dynamic_listener_block
+    assert "self._async_forecast_value_changed" in dynamic_listener_block
+    assert "self._async_input_changed" not in dynamic_listener_block
     rcm_class = next(
         node
         for node in sensor_tree.body
@@ -1153,6 +1242,7 @@ def main() -> None:
     dynamic_method_names = {
         "_configured_forecast_entities",
         "_watched_rcm_entities",
+        "_full_plan_input_entities",
         "_remove_dynamic_forecast_listener",
         "_refresh_dynamic_forecast_listener",
         "_current_input_fingerprint",
@@ -1186,6 +1276,9 @@ def main() -> None:
         "_FORECAST_ENTITY_ID": re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$"),
         "RCE_LOAD_BROKER_ATTRIBUTES": (),
         "WATCHED_RCM_ENTITIES": {"sensor.static_forecast"},
+        "RCM_LIVE_CONTROL_ENTITIES": frozenset({"sensor.live_voltage"}),
+        "_shared_inputs_snapshot": lambda _runtime: None,
+        "_rcm_voltage_samples_signature": lambda samples: tuple(samples),
         "_state_text": lambda hass, entity_id: hass.get(entity_id, ""),
         "async_track_state_change_event": track_dynamic,
         "callback": lambda function: function,
@@ -1222,9 +1315,10 @@ def main() -> None:
             "sensor.static_forecast"
         ),
     }
-    dynamic_probe._async_input_changed = object()
+    dynamic_probe._async_forecast_value_changed = object()
     dynamic_probe._dynamic_forecast_listener_entities = frozenset()
     dynamic_probe._dynamic_forecast_listener_unsub = None
+    dynamic_probe._samples = ()
     # A malformed helper pointing back at the optimizer output must not create
     # a publish -> invalidate -> publish loop or enter the certification
     # fingerprint.
@@ -1267,7 +1361,8 @@ def main() -> None:
     forecast_fresh_block = sensor_source.split(
         "forecast_data_fresh = bool(", 1
     )[1].split(")", 1)[0]
-    assert "source_forecast_fresh" in forecast_fresh_block
+    assert "forecast_usefulness.usable" in forecast_fresh_block
+    assert "source_forecast_fresh" not in forecast_fresh_block
     assert "rce_plan_fresh" not in forecast_fresh_block
     for attribute in (
         "pv_profile_source",
@@ -1315,6 +1410,41 @@ def main() -> None:
         "data_age_seconds",
     ):
         assert f'"{attribute}"' in sensor_source
+
+    # AP-2R1 observes the already committed result and cannot become another
+    # optimizer path or feed its output back into the optimizer/executor.
+    timeline_model_source = (
+        ROOT
+        / "custom_components"
+        / "hoymiles_hit_modbus"
+        / "rcm_timeline_model.py"
+    ).read_text(encoding="utf-8")
+    optimizer_source = (
+        ROOT
+        / "custom_components"
+        / "hoymiles_hit_modbus"
+        / "rcm_optimizer.py"
+    ).read_text(encoding="utf-8")
+    assert sum(
+        isinstance(node, ast.Name) and node.id == "optimize_rcm"
+        for node in ast.walk(ast.parse(sensor_source))
+    ) == 1
+    assert "optimize_rcm" not in timeline_model_source
+    assert "rcm_timeline_model" not in optimizer_source
+    assert "timeline_trace_as_optimizer_input" not in sensor_source
+    optimize_call = sensor_source.index(
+        "optimize_rcm,", sensor_source.index("async_add_executor_job(")
+    )
+    assert optimize_call < sensor_source.index(
+        "build_rcm_timeline_trace(", optimize_call
+    )
+    timeline_block = sensor_source.split(
+        "try:\n                timeline_input = RCMTimelineModelInput(",
+        1,
+    )[1].split("            risk_window_details = [", 1)[0]
+    assert "except RCMTimelineModelError" in timeline_block
+    assert "except Exception" in timeline_block
+    assert "result =" not in timeline_block
 
     print("RCEm optimizer: safety, headroom and BMS-limit scenarios passed")
 

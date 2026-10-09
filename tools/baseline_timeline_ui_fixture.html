@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>A0 baseline timeline fixture</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --primary-text-color: #eef7ff;
+        --secondary-text-color: #9eb3c7;
+        --card-background-color: #102233;
+        --ha-card-background: #102233;
+        --divider-color: #385064;
+        --success-color: #2de083;
+        --warning-color: #ffc857;
+        --error-color: #ff5d73;
+        background: #07131f;
+        font: 15px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --primary-text-color: #102235;
+        --secondary-text-color: #53687b;
+        --card-background-color: #ffffff;
+        --ha-card-background: #ffffff;
+        --divider-color: #cad8e3;
+        --success-color: #087f45;
+        --warning-color: #9c6100;
+        --error-color: #b42318;
+        background: #edf4f8;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: clamp(8px, 2vw, 28px); color: var(--primary-text-color); }
+      main { width: min(1420px, 100%); margin: 0 auto; display: grid; gap: 12px; }
+      .fixture-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      .fixture-head p { margin: 0; color: var(--secondary-text-color); }
+      .fixture-head button {
+        border: 1px solid var(--divider-color); border-radius: 999px; padding: 7px 12px;
+        color: var(--primary-text-color); background: var(--card-background-color); cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="fixture-head">
+        <p>A0 · isolated baseline/canonical fixture · no live Home Assistant connection</p>
+        <button id="baseline-only" type="button">Baseline only</button>
+        <button id="with-canonical" type="button">Baseline + canonical</button>
+      </div>
+      <div id="planner"></div>
+    </main>
+    <script type="module">
+      const params = new URLSearchParams(location.search);
+      const language = params.get("lang") === "en" ? "en" : "pl";
+      const theme = params.get("theme") === "light" ? "light" : "dark";
+      let canonicalCurrent = params.get("canonical") === "current";
+      document.documentElement.lang = language;
+      document.documentElement.dataset.theme = theme;
+      window.customCards = [];
+      window.customStrategies = [];
+      await import("../home_assistant/www/hoymiles-rce-chart-card.js");
+
+      const BASELINE_ENTITY = "sensor.hoymiles_ems_baseline_energy_timeline";
+      const CANONICAL_ENTITY = "sensor.hoymiles_hit_ems_supervisor_canonical_plan";
+      const SUPERVISOR_ENTITY = "sensor.hoymiles_hit_ems_supervisor";
+      const BASE = Date.parse("2026-09-01T08:00:00Z");
+      const intervalMs = 30 * 60 * 1000;
+      const iso = (index) => new Date(BASE + index * intervalMs).toISOString();
+      const source = Object.freeze({
+        pv: "sensor.fixture_forecast_today",
+        load: "recorder_load_model",
+        shared_inputs: "sensor.hoymiles_hit_ems_shared_inputs",
+        soc: "sensor.hoymiles_hit_overview_battery_soc",
+        capacity: "sensor.fixture_physical_capacity",
+        reserve: "number.fixture_self_use_reserve",
+        hardware_minimum_soc: "sensor.fixture_hw_min_soc",
+        hardware_maximum_soc: "sensor.fixture_hw_max_soc",
+        pv_to_battery_efficiency: "input_number.fixture_charge_efficiency",
+        battery_to_home_efficiency: "input_number.fixture_discharge_efficiency",
+        bms_charge_limit: "sensor.fixture_voltage|sensor.fixture_charge_current",
+        bms_discharge_limit: "sensor.fixture_voltage|sensor.fixture_discharge_current",
+        gcf_readback: "sensor.fixture_gcf_generation|sensor.fixture_gcf_enable|sensor.fixture_gcf_limit",
+      });
+      const provenance = Object.freeze({
+        pv: "detailed_forecast_p50",
+        load: "average_profile_30m_kwh",
+        battery: "backend_self_use_model_v1",
+        shared_inputs_revision: "entry_local_snapshot_revision:42",
+        soc: "physical_fc03",
+        capacity: "physical_fc03",
+        reserve: "shared_helper",
+        hardware_minimum_soc: "physical_fc03",
+        hardware_maximum_soc: "physical_fc03",
+        pv_to_battery_efficiency: "shared_helper",
+        battery_to_home_efficiency: "shared_helper",
+        bms_charge_limit: "physical_bms_product",
+        bms_discharge_limit: "physical_bms_product",
+        gcf_readback: "confirmed_zero_export|physical_fc03",
+      });
+      const pv = [0.5, 2.0, 0.5, 1.0, 3.2, 2.4, 0.8, 0.1];
+      const load = [1.0, 1.0, 1.5, 0.5, 1.2, 1.4, 1.1, 1.3];
+      const battery = [-0.5, 1.0, -1.0, 0.5, 2.0, 1.0, -0.3, -1.2];
+      const baselineSoc = [50, 48.6, 51.0, 48.2, 49.4, 54.2, 56.6, 55.8, 52.5];
+      const baselinePoints = pv.map((pvKw, index) => ({
+        start: iso(index),
+        end: iso(index + 1),
+        pv_kw: pvKw,
+        load_kw: load[index],
+        battery_kw: battery[index],
+        grid_import_kw: Number(
+          Math.max(load[index] - pvKw + battery[index], 0).toFixed(6)
+        ),
+        grid_export_kw: 0,
+        soc_start_percent: baselineSoc[index],
+        soc_end_percent: baselineSoc[index + 1],
+        reserve_soc_percent: 20,
+        quality: "current",
+        blocker_code: null,
+        source: { ...source },
+        provenance: { ...provenance },
+      }));
+      const baselineEntity = {
+        state: "current",
+        attributes: {
+          schema_version: "1.0",
+          timeline_kind: "baseline_self_use",
+          output_only: true,
+          authority: false,
+          supervisor_candidate: false,
+          current: true,
+          generated_at: iso(0),
+          config_entry_id: "fixture-entry-a0",
+          shared_inputs_revision: 42,
+          quality: "current",
+          blocker_code: null,
+          point_count: baselinePoints.length,
+          interval_minutes: 30,
+          battery_sign_convention: "positive_charge",
+          current_actual_soc_percent: 50,
+          effective_reserve_soc_percent: 20,
+          effective_maximum_soc_percent: 100,
+          zero_export_confirmed: true,
+          source: {
+            shared_inputs: source.shared_inputs,
+            soc: source.soc,
+            capacity: source.capacity,
+            reserve: source.reserve,
+            bms_charge_limit: source.bms_charge_limit,
+            bms_discharge_limit: source.bms_discharge_limit,
+            gcf_readback: source.gcf_readback,
+          },
+          provenance: {
+            shared_inputs: "entry_local_snapshot",
+            soc: provenance.soc,
+            capacity: provenance.capacity,
+            reserve: provenance.reserve,
+            bms_charge_limit: provenance.bms_charge_limit,
+            bms_discharge_limit: provenance.bms_discharge_limit,
+            gcf_readback: provenance.gcf_readback,
+          },
+          points: baselinePoints,
+        },
+      };
+
+      const candidate = (policyId, requestedAction, revision, target) => ({
+        policy_id: policyId,
+        requested_action: requestedAction,
+        input_revision: revision,
+        candidate_revision: revision,
+        eligible: true,
+        start_eligibility: "eligible",
+        rejected_reasons: [],
+        target_soc_percent: target,
+      });
+      const slot = ({
+        index, policy = "none", action = "none", pvKwh, loadKwh,
+        batteryKwh, gridKwh, socStart, socEnd, flows, target = null,
+      }) => {
+        const active = policy !== "none";
+        const values = active ? { mode_code: action } : {};
+        const physicalExpectation = action === "tariff_battery_charge"
+          ? "grid_import_and_battery_charge"
+          : action === "rce_export"
+            ? "grid_export_and_battery_discharge"
+            : "none";
+        return {
+          slot_id: `fixture-${index}`,
+          starts_at: iso(index),
+          ends_at: iso(index + 1),
+          selected_policy: policy,
+          selected_action: action,
+          start_eligibility: active ? "eligible" : "not_applicable",
+          owner: active ? "supervisor" : "none",
+          policy_candidates: active
+            ? [candidate(policy, action, 100 + index, target)]
+            : [],
+          rejected_reasons: [],
+          planned: {
+            pv_kwh: pvKwh,
+            load_kwh: loadKwh,
+            battery_kwh: batteryKwh,
+            grid_kwh_import_positive: gridKwh,
+          },
+          soc_equation: {
+            soc_start_percent: socStart,
+            soc_end_percent: socEnd,
+            pv_to_battery_kwh: flows.pvToBattery,
+            grid_to_battery_kwh: flows.gridToBattery,
+            battery_to_load_kwh: flows.batteryToLoad,
+            battery_to_grid_kwh: flows.batteryToGrid,
+            losses_kwh: 0,
+            energy_balance_residual_kwh: 0,
+            continuity_residual_percent: 0,
+            system_balance_residual_kwh: 0,
+          },
+          protected_reserve: {
+            percent: 20,
+            margin_end_percent: socEnd - 20,
+            respected: true,
+          },
+          command_expectation: {
+            target: active ? "ems_block_4300_4306" : "none",
+            values,
+            source_generation: active ? 77 + index : null,
+          },
+          readback_expectation: {
+            target: active ? "ems_block_4300_4306" : "none",
+            values: { ...values },
+            newer_than_source_generation: active,
+            physical_expectation: physicalExpectation,
+          },
+        };
+      };
+      const canonicalSlots = [
+        slot({
+          index: 0, policy: "tariff", action: "tariff_battery_charge",
+          pvKwh: 0.25, loadKwh: 0.5, batteryKwh: 0.5, gridKwh: 0.75,
+          socStart: 50, socEnd: 55, target: 60,
+          flows: { pvToBattery: 0, gridToBattery: 0.5, batteryToLoad: 0, batteryToGrid: 0 },
+        }),
+        slot({
+          index: 1, pvKwh: 1, loadKwh: 0.5, batteryKwh: 0.5, gridKwh: 0,
+          socStart: 55, socEnd: 60,
+          flows: { pvToBattery: 0.5, gridToBattery: 0, batteryToLoad: 0, batteryToGrid: 0 },
+        }),
+        slot({
+          index: 2, pvKwh: 0.25, loadKwh: 0.75, batteryKwh: -0.25, gridKwh: 0.25,
+          socStart: 60, socEnd: 57.5,
+          flows: { pvToBattery: 0, gridToBattery: 0, batteryToLoad: 0.25, batteryToGrid: 0 },
+        }),
+        slot({
+          index: 3, policy: "rce", action: "rce_export",
+          pvKwh: 0.25, loadKwh: 0.25, batteryKwh: -0.5, gridKwh: -0.5,
+          socStart: 57.5, socEnd: 52.5, target: 50,
+          flows: { pvToBattery: 0, gridToBattery: 0, batteryToLoad: 0, batteryToGrid: 0.5 },
+        }),
+      ];
+      const canonicalEntity = {
+        state: "current",
+        attributes: {
+          schema_version: 1,
+          output_only: true,
+          built_at: iso(0),
+          arbitration_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          ledger_revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          usable_capacity_kwh: 10,
+          initial_soc_percent: 50,
+          final_soc_percent: 52.5,
+          slots: canonicalSlots,
+          audit: {
+            max_continuity_residual_percent: 0,
+            max_energy_balance_residual_kwh: 0,
+            max_system_balance_residual_kwh: 0,
+            reserve_violation_count: 0,
+          },
+        },
+      };
+
+      const card = document.createElement("hoymiles-automation-planner-card");
+      card.setConfig({ language });
+      document.querySelector("#planner").append(card);
+
+      const state = (value, attributes = {}, extra = {}) => ({
+        state: value, attributes, ...extra,
+      });
+      const states = {
+        [BASELINE_ENTITY]: baselineEntity,
+        [SUPERVISOR_ENTITY]: state("active_idle", {
+          supervisor_mode: "active",
+          owner: "none",
+          selected_policy: null,
+          selected_action: "none",
+          execution_phase: "idle",
+          candidate_summaries: [],
+        }),
+        "sensor.hoymiles_ems_hardware_mode": state("self_use"),
+        "binary_sensor.hoymiles_ems_control_conflict": state("off"),
+        "sensor.hoymiles_hit_overview_battery_soc": state("50", {}, {
+          last_updated: iso(0), last_changed: iso(0),
+        }),
+        "sensor.hoymiles_hit_overview_pv_total_power": state("0.5"),
+        "sensor.hoymiles_actual_load_power": state("1.0"),
+        "sensor.hoymiles_hit_overview_battery_power": state("-0.5"),
+        "sensor.hoymiles_hit_overview_grid_total_active_power": state("0.5"),
+        "sensor.hoymiles_hit_grid_voltage_l1": state("230.2"),
+        "sensor.hoymiles_hit_grid_voltage_l2": state("230.8"),
+        "sensor.hoymiles_hit_grid_voltage_l3": state("231.1"),
+      };
+      for (const entityId of [
+        "input_boolean.hoymiles_rce_discharge_enabled",
+        "input_boolean.hoymiles_rce_discharge_active",
+        "input_boolean.hoymiles_rce_advanced_view",
+        "input_boolean.hoymiles_tariff_charge_enabled",
+        "input_boolean.hoymiles_tariff_charge_active",
+        "input_boolean.hoymiles_tariff_advanced_view",
+        "input_boolean.hoymiles_rcm_enabled",
+        "input_boolean.hoymiles_rcm_active",
+        "input_boolean.hoymiles_rcm_export_control_active",
+        "input_boolean.hoymiles_rcm_pre_discharge_active",
+        "input_boolean.hoymiles_rcm_advanced_view",
+      ]) states[entityId] = state("off");
+      states["input_text.hoymiles_tariff_active_action"] = state("none");
+
+      const render = () => {
+        states[CANONICAL_ENTITY] = canonicalCurrent
+          ? canonicalEntity
+          : state("unavailable", {});
+        card.hass = {
+          language,
+          locale: { language },
+          states,
+          selectedTheme: theme,
+          themes: { darkMode: theme === "dark" },
+          async callService() {},
+        };
+        window.setTimeout(() => {
+          const point = card._renderedPlanModel?.baselineTimeline?.points?.[0];
+          if (point) card._selectPoint(point.key);
+        }, 350);
+      };
+      document.querySelector("#baseline-only").addEventListener("click", () => {
+        canonicalCurrent = false;
+        render();
+      });
+      document.querySelector("#with-canonical").addEventListener("click", () => {
+        canonicalCurrent = true;
+        render();
+      });
+      render();
+    </script>
+  </body>
+</html>

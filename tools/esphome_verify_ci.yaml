@@ -20,8 +20,7 @@ substitutions:
   wifi_ssid: "ci-placeholder-network"
   wifi_password: "ci-placeholder-password"
   fallback_password: "ci-placeholder-fallback"
-  api_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-  ota_password: "ci-placeholder-ota"
+  api_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 
 esp32:
   board: ${board}

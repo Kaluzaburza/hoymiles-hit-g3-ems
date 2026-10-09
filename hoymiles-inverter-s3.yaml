@@ -1,0 +1,95 @@
+# Public ESP32-S3 DevKitC-1 WROOM-1 N16R8 entry point (16 MB flash / 8 MB PSRAM).
+# For a new device or changed partition layout, flash by USB first.
+# Do not upload this image to a classic ESP32. See docs/ESP32_VARIANTS.md.
+# This file is self-contained: ESPHome downloads all register packages from
+# the versioned GitHub release. Only this file and the required secrets need
+# to be copied to the user's ESPHome configuration directory.
+#
+# Wiring: use a 3.3 V logic-compatible UART/TTL <-> RS485 converter.
+# Automatic-direction converters need TX, RX and GND. MAX3485/MAX485 modules
+# with DE and /RE use hoymiles-inverter-flow-control.yaml instead.
+# Parallel EMS control additionally requires this same external RS485 A/B bus
+# to reach the Master and every Slave; a cable ending at the Master cannot
+# deliver Modbus address-0 broadcasts to a disconnected Slave.
+# Protocol: Modbus RTU, 115200 8N1. FC03 read holding, FC04 read input, FC06/FC10 write.
+
+substitutions:
+  name: "hoymiles-inverter"
+  friendly_name: "Hoymiles Inverter"
+  device_description: "Hoymiles Energy Storage Inverter (Modbus V2.4)"
+
+  modbus_controller_id: hoymiles_modbus
+  modbus_fast_controller_id: hoymiles_modbus_fast
+  modbus_control_controller_id: hoymiles_modbus_control
+  modbus_settings_controller_id: hoymiles_modbus_settings
+  modbus_inverter_address: "1"      # Modbus slave/unit address of the inverter
+  baud_rate: "115200"
+  # Keep these polling intervals: faster full-map polling can fill the queue.
+  fast_update_interval: "13s"
+  control_update_interval: "5s"
+  settings_update_interval: "20s"
+  update_interval: "150s"
+
+  # RS485 UART pins (adjust to your board)
+  uart_tx_pin: "GPIO17"
+  uart_rx_pin: "GPIO16"
+  # Read the README before wiring: TX goes to the converter input (DI/RXD),
+  # RX goes to its output (RO/TXD). Manual-direction modules also need DE+/RE.
+
+  board: "esp32-s3-devkitc-1"
+
+  # Secrets (create secrets.yaml from secrets.yaml.example)
+  wifi_ssid: !secret wifi_ssid
+  wifi_password: !secret wifi_password
+  fallback_password: !secret fallback_password
+  api_key: !secret api_key
+
+esp32:
+  board: ${board}
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# ESPHome can recognize and adopt the complete public configuration from its
+# dashboard. Firmware changes still require an explicit build and upload.
+# Secrets remain local and are never downloaded from or uploaded to GitHub.
+dashboard_import:
+  package_import_url: github://Kaluzaburza/hoymiles-hit-g3-ems/hoymiles-inverter-s3.yaml@v1.5.8RC2
+  import_full_config: true
+
+# Keep API/network INFO logs while limiting verbose Modbus messages.
+# Package merging preserves `baud_rate: 0` from packages/core.yaml.
+logger:
+  level: INFO
+  logs:
+    modbus: WARN
+    modbus_controller: WARN
+
+packages:
+  hoymiles_hit_g3:
+    url: https://github.com/Kaluzaburza/hoymiles-hit-g3-ems
+    ref: v1.5.8RC2
+    refresh: 1d
+    files:
+      - packages/core.yaml
+      - packages/network.yaml
+      - packages/modbus_connection.yaml
+      - packages/parallel_network.yaml
+      - packages/settings.yaml
+      - packages/system.yaml
+      - packages/states_alarms.yaml
+      - packages/inverter.yaml
+      - packages/grid.yaml
+      - packages/backup_load.yaml
+      - packages/generator.yaml
+      - packages/pv.yaml
+      - packages/battery.yaml
+      - packages/energy_flow.yaml
+      - packages/meters.yaml
+      - packages/overview.yaml
+      - packages/diagnostics.yaml

@@ -9,18 +9,22 @@ uart:
   rx_pin: ${uart_rx_pin}
   # Konwerter z automatycznym kierunkiem nie wymaga dodatkowego pinu.
   # Dla modułu MAX3485/MAX485 z liniami DE i /RE połącz DE+/RE z GPIO
-  # i rozszerz ten UART w głównym pliku urządzenia:
+  # i uzupełnij ten UART w głównym pliku urządzenia (blok, nie lista):
   #
   # uart:
-  #   - id: !extend modbus_uart
-  #     flow_control_pin:
-  #       number: GPIO4
-  #       inverted: false
+  #   id: modbus_uart
+  #   flow_control_pin:
+  #     number: GPIO4
+  #     inverted: false
+  # Gotowy wariant: hoymiles-inverter-flow-control.yaml (GPIO4 to przykład).
 
 modbus:
   id: modbus_1
   uart_id: modbus_uart
   send_wait_time: 250ms
+  # Odstęp po odebranej odpowiedzi, nie czas odpowiedzi falownika.
+  # Wspólny hub steruje odstępami wszystkich pięciu kontrolerów.
+  turnaround_time: 100ms
 
 modbus_controller:
   - id: ${modbus_controller_id}
@@ -28,12 +32,11 @@ modbus_controller:
     modbus_id: modbus_1
     setup_priority: -10
     update_interval: ${update_interval}
-    command_throttle: 100ms
     max_cmd_retries: 1
     offline_skip_updates: 3
 
   # Krótkie bloki operacyjne używane przez dashboard są odpytywane osobno:
-  # 46-49 (bateria z toru falownika), 62-66 (sieć falownika), 1909 (SOC BMS),
+  # 46-49 (bateria falownika), 62-66 (sieć), 1909 (SOC), 1914-1915 (moc BMS),
   # 1801-1815
   # (licznik sieci), 2150, 2162 i 2169-2172 (sumy systemowe) oraz
   # 30001-30020 (przepływ pojedynczego falownika). Pozostałe rejestry
@@ -43,7 +46,6 @@ modbus_controller:
     modbus_id: modbus_1
     setup_priority: -10
     update_interval: ${fast_update_interval}
-    command_throttle: 100ms
     max_cmd_retries: 1
     offline_skip_updates: 3
 
@@ -55,7 +57,6 @@ modbus_controller:
     modbus_id: modbus_1
     setup_priority: -10
     update_interval: ${control_update_interval}
-    command_throttle: 100ms
     max_cmd_retries: 1
     offline_skip_updates: 3
 
@@ -67,6 +68,15 @@ modbus_controller:
     modbus_id: modbus_1
     setup_priority: -10
     update_interval: ${settings_update_interval}
-    command_throttle: 100ms
+    max_cmd_retries: 1
+    offline_skip_updates: 3
+
+  # Static internal addresses 6050/6055/... are diagnostics, not fresh topology
+  # qualification. Registers 6048-6049 stay on the 20 s settings controller.
+  - id: ${modbus_slow_controller_id}
+    address: ${modbus_inverter_address}
+    modbus_id: modbus_1
+    setup_priority: -10
+    update_interval: ${slow_update_interval}
     max_cmd_retries: 1
     offline_skip_updates: 3

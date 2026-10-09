@@ -1,0 +1,1325 @@
+{
+  "schema": 1,
+  "identity": "ems-1.5.8-n12-exact-local-base-v1",
+  "source": {
+    "base_commit": "effa628403a54564e7a7b596713bc72edbf0db6d",
+    "base_parent": "059e845fe38a35e16a18aa04ad54eccd96f22d4a",
+    "base_tree": "61f9788c69be9d37c14461caf5783336a318402f",
+    "base_subject": "fix: reconcile N07 publishing contracts",
+    "candidate_diff_git_hash": "48a4e3dca3b93c722ad81ef6f7444b2e53afb86f",
+    "candidate_diff_sha256": "bc87566fa77872b360a7ebe449845b233fec238d69884f73927e30e4ed282b17",
+    "candidate_snapshot_aggregate_sha256": "ec2d4a79d8c8961077f0e5b6f26f313aab28426f58b13c6106dbecc66952e2ce",
+    "reconstructed_candidate_commit": "96fc91b7bc6c4b258e654958c2ecf2400438ae74"
+  },
+  "protected_scopes": [
+    "custom_components/hoymiles_hit_modbus",
+    "packages",
+    "home_assistant",
+    "examples/esphome",
+    "hoymiles-inverter.yaml",
+    "dashboard_hoymiles.yaml"
+  ],
+  "counts": {
+    "product_files": 114,
+    "snapshot_files": 24,
+    "protected_unique_files": 123,
+    "byte_match_checkout": 123,
+    "eol_only_checkout": 0
+  },
+  "protected_aggregate_sha256": "226452c4a162a94ba109bb46748c0730084a32b1847e318a39d94931ddf3adc3",
+  "candidate_delta": [
+    {
+      "status": "M",
+      "paths": [
+        "custom_components/hoymiles_hit_modbus/rce_optimizer.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "custom_components/hoymiles_hit_modbus/rce_self_consumption_shadow.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "custom_components/hoymiles_hit_modbus/rce_sensor.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "custom_components/hoymiles_hit_modbus/supervisor_executor.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "custom_components/hoymiles_hit_modbus/tariff_optimizer.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "home_assistant/hoymiles_ems_scheduler.yaml"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "home_assistant/www/hoymiles-rce-chart-card.js"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/build_hacs_assets.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/test_aurora_compact_dashboard_contract.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/test_aurora_mobile_ems_playwright.js"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/test_automation_matrix.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/test_rce_self_consumption_filter.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/test_rce_self_consumption_shadow.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/test_supervisor_executor.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/test_supervisor_sensor_contract.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/test_tariff_optimizer.py"
+      ]
+    }
+  ],
+  "validation_delta": [
+    {
+      "status": "M",
+      "paths": [
+        "CHANGELOG.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/WORK_STATE.MD"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tools/release_manifests/n12_v1_5_8.json"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tools/test_n12_release_contract.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tools/validate_release.py"
+      ]
+    }
+  ],
+  "validation_file_sha256": {
+    "CHANGELOG.md": "98b3557db50d789fe8393ee7b4162a07fa450a000c30abd3c1bf75bb9e6d5062",
+    "docs/WORK_STATE.MD": "7840f8ad675330192fee29fe026b0fa76d357912d084ac670cddc873eda39175"
+  },
+  "entries": [
+    {
+      "path": "custom_components/hoymiles_hit_modbus/__init__.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "ada164d99a23c9138eaa0edef8781216027455ccdc49b700c80dfa937947aea7",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/assets.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "43ef0bd2a5cacf35a6a9aff2d23af77b93e5b37f33b6dee3d83a11d4b758b1e0",
+      "roles": [
+        "product",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/automation_plan_timeline.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "4c2061b7d22755192b80eb798d7e937e90933845938f9415ddc2da3aca5cfa7a",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/baseline_energy_timeline.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "d6c6037574653becef466970a2faa27b82750c444e53c16945bf0dd30c27d932",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/baseline_energy_timeline_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "e45415b99cda7957bb5c9d35b5ea8d6c755b731790c6476251c65ab45bc2c46a",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/bounded_history.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "b6971f8dc637722ea56c78aa672f13a11a2baf5f2479fe89282f949449b0065a",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/dark_icon.png",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "f4548b5d481ace4f9353b6e367f09c15d7fc576a45d5375cbc96a0541da00b57",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/dark_icon@2x.png",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "c03db4ea5c099ed0a2299d4a2b0b653bc65041eb6d1cf2e17ca4692028f9d85e",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/dark_logo.png",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "fdcd6d8af11e28ec0b76d638dfda0aa0799b521b1e93159e40352533e7554b60",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/icon.png",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "1be414d984605d2a43c240f73ea2925015b1c3c785ea324040c4a8c2d9d44089",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/icon@2x.png",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "17d118acd6b1262897a4caad4c09f5910acfa7c1aa00724bdef1395bdb8b71e8",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/brand/logo.png",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "2ddec7e9354e74e5d9b4b4c4735062813b7ff9b68a4270fe5b0184e676c106fc",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/button.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "3055918ff1d575e0933e07a2b6c910c519806f309b4fad0fba2a2b178bc3e4ae",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/catalog.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "cc6fb9219b2a7fd7893cb5e46cf9e1e8fb352c8d8b9f23cb48dd7c7cd775dfed",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/collect_diagnostics.sh",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "e98aa120bf242df00e53ad4a038646852502b6f89be9459b11aeb79099093c6f",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/config_flow.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "c701d81755c6516ee81a880c58304ed8b0240ea359dee4fcd42c18b313d11067",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/const.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "91ca1bf0e16adf369811e68a8b89b06c1d9886f2478a261cd8003af464698899",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/diagnostic_bundle.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "293055b3967f3602ab9e2d0030ea2d35d0643c4214c2fc130e32992aaa9dba4c",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/diagnostic_redaction.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "d93dfc2ebc58c0d39360b28752fec883fef7e918c16a41890a09d7d8cb511edf",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/diagnostics.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "b98feb39269147c8d4210dd14bf07bc611e8b3031bde44b79945282bba853b2c",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_initial_defaults.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "ae5c709cac19f1ad892f887f3d01a74051f9cee3119fe838843bd194e833c866",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_notifications.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "bbf131d42d960729cf1a75f822c4851779b6f2f09caaa082a345432835a7906e",
+      "roles": [
+        "product",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_shared_input_migration.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "207208b3fc64d85752544b08246f1e4c404a92c47877d9f476b41883cdee872f",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_shared_inputs.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "6f5f3164e349a28ed016a88e3907f6e8a6495885e309977f28ee8ea192b9b1da",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/ems_supervisor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "e47de96db1a53b3972cc6187d99b59d34f7340f3874fa97cfc12d8e84cdc9492",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/energy_data.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "6d89670a1030240e7be99ba47474cb6b4f42fd6e84386629e1b9ce6a487c902d",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/entity.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "70cbc34673e6763c3e8d63ca073bf5dd0aff95ad004738184eaba82d193bda2c",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/entity_catalog.json",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "a2dacc1d45a0cde36fb25dc8c9b3774c7fd5328d217c11154782897ff2e4c5b4",
+      "roles": [
+        "product",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/execution_history.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "0234c151b0436bc2944eeeffe17baa4213684868170a8fead36638c35b14c998",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/execution_history_http.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "7a7d26a9dc27e8da51635d725582c7d67294149e0bd661ffa15b8f2b771d0bf1",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/forecast_model.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "b573d83c80891cbec15aca2c6a29f11f07d4423d734d6f4e60286a0bd825648e",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/installation_identity.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "8692f0b35a28990b790490aef21971cac40b3e2a616e8ed848ebfb3a64d2a7df",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/load_model.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "2ab050d186f53c2eac3edbc0c5ce25045723ddce9c1a9c4cad6570931ce20e97",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/localization.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "f20453177562ed5e1f20e5deb2d1f4e428d36a97bfd70d5a28dc6d7e22033934",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/manifest.json",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "15425ceac7588471508cb66dd29e899ddc8d83a03cac0d99949149999c6d2a57",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/models.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "957fb2f97dd190782fb4a73e48463703d2abeff9fc22e0acf1b4f67966d1ff45",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/number.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "21520becd87e12396e78b342e9264561a730414941608b44664bcb306b508412",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/optimizer_revision.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "5ad0741a0ba903d906d122d1773e19ace82328aee8881101c1df8044fed0e99b",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/power_balance.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "96296bf61821934fb18e1eb9afebc228a0e670bdd27071a67444c860d9b5b26f",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rce_history.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "4b6aa62ea2c12884c9c97bbbf7c073fe21e300de08987c60b448c106b9a37b70",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rce_optimizer.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "0407f49c504db2819c9e511a4237a0bb276e6fd57e1473ab95ee9dc00d2c29ab",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rce_self_consumption_shadow.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "822580e4b1772d23beb50a3b6eda943eb007ede97e6d41a6b5a3bf7b7c2203a7",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rce_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "5aeefbc83d14fda6c4c4f6e6def922692bf92d8c269baf64db7fad844a3b3ec8",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rcm_history.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "ced44e11e9b1347ece3be950897792156fb61b0dd8697984d25106eb6de82433",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rcm_optimizer.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "b874a5e189b1fdb57ba8c41b03dcce56c2e88a35501f8066f4864edb664140dc",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rcm_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "bf2c2eb8663e6a861ab76ccdceb86974e00f56686b1651626212c7bcf6ed6a03",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/rcm_timeline_model.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "c41eaa85e502ed0f5b729377f7d720b41254ba9e3fd0a4b71dcc70c69fb8481a",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_en.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "02cddcbf89f28acf1baa37edd0b5d66791e02a45cd03331448ac032b2129c276",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/dashboard_hoymiles_pl.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "50f883eb517043bb572ab9e998db1a98e219c0d52c8cccd33399c200970020f5",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_scheduler.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "f374d2d4ecf5a2efbc7e7b605bbd711d6f9d2cf8cd2741eeccdbc527d26019e2",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/home_assistant/en/hoymiles_ems_shared_inputs.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "6ed352665655e5ae2e7e0740d9eca26a686bdf11080044a9ff9b3a60e614694f",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_scheduler.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "c9a1c03c5098fc91a9e9e9a2bbbe7d61029c787ca66be6e2b9a8ef7face9fe46",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/home_assistant/pl/hoymiles_ems_shared_inputs.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "f1ed1379b4fe2140b020cb8e5b3772ea5f10d9116d28ea635f35b49176330120",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_en.json",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "797b561aecd7ff194dac797bd92bd1b7168ae31373b860fd75f9aea4cb5a3fba",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/dashboard_hoymiles_pl.json",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "675763f526b7700edbc6248d9ff43e002dbb7a9a6873152d2e3ce447d582bc4f",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-dashboard-strategy.js",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "1a6ccfd11a51380639dd25c5bc55705f3b3461717ce0864fc794ff3671de52a6",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-inverter.png",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "4531e85081e78cf94dee82dbde75b2f931860886457ce9800f546afb4a3b3d15",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/resources/www/hoymiles-rce-chart-card.js",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "0ff19fd40375949315109556a9c0ed95689f9fa6965a81cdb5da4ae3f71737e8",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/select.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "40b1e706638c420c2e3dc232485cbe0e2af0e3eeefaee34c66dfdf5ec8e7048b",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "34afbf2d634aad574096527d87524f4c0c72293078bf7c6d61fbcb1ebe182099",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/services.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "996a8938dcff68d8e76becc4a00e53e1f34509a624fcc3ace11f44cbc9c9e8cb",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/source_device.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "b0e3f570dfb0c727ca4840635448303693c751cc350b1999cd0438fc3a1819ff",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_accounting_runtime.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "75441f1645745c41f45eae112490713e54508fa12d52a52b5767f54759aa7992",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_accounting_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "ec77c86dc643da2c547bdc143c6a886ac5474ecb3084347023ddb78a1a3d79c2",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_accounting_v2.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "1dbb6e60edc115f60f323c97a381c169d36c08934ec1a07b8ceea78ab2f77aac",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_active_bridge.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "4fcf82f92ae1f41d6c2401bdeb3e3147831160e6239172304b1db16da1119936",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_active_controller.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "855945610e7a819c275f933035c3b0e5e749e84504de44089163d79ef31c6fdf",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_canonical_ledger.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "9d2e1affe4667a8abf5a51434af522b7ba7188aaec377969a6049a06634c0a5f",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_canonical_runtime.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "65e75bf0a24df46624635e850b0ece821ac378d511fc1a3ff02024e11d6759d4",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_canonical_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "1f24a6c32a11efa6e79cc0a6d129ca61e7baad1b14348df8e3db039f7b4f2b7e",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_control_lease.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "d31fa6cc49fc9d4daf8dd1d0b22feb9a3355db698d5bd6442c0a531494ee2ec1",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_executor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "0c0fed4e8062df6ef918563288029b43527c82d36d30df83173ffde5874cde9f",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_executor_codec.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "6c5ff0fe08b9db388df00611f8643052c50bb1a84a2eff965a75e4257393f05b",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_ledger.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "e922b373db6e3b1d944c327bf6a82809eb4b1b43818e9401b4a49d8f8403c196",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_runtime.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "8136eeee6bbebedd4e7842170b8a03aed0563dd7c34f3e1086efb1f483eb4421",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/supervisor_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "b0cb89480e36bd700af99bad1029827c15f5eba1570f4d4358142c789fc062bc",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/support_http.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "209298f940741721bf31de597d95d9f2d806869533680aa85b5a872431ba012c",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_optimizer.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "055fe683bd82b04e008505ceeb4ca48869530ae579da25422ff44e68f09b73eb",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_price_schedule.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "73463c03e597947049d837e05b1a690d94bd7f416a718f5041ce77e8a9e889e8",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_price_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "f672484918982fb1ac797f89ddf4af661a5393f7393419f3bac24fc8ccc508ee",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_profiles.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "2ec9166344463dd4250e0d4f14943ac562caf46fb28602bea8a2bfd8373dfa20",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/tariff_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "0fc6359818e88c5765f8bec07a681e0daf9e30ce96f3c07b9dc9183ea4d0bf33",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/timeline_sensor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "404dbb8f8ef09cdc377809f7cba8e7610b682f152976b0996b29551b6a4bb9dc",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/translations/en.json",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "044ad5ccfaa3c53a8f6abd29688e28b9f63c89d5eeff1abb5d0d54ba2dc964c5",
+      "roles": [
+        "product",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "custom_components/hoymiles_hit_modbus/translations/pl.json",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "5052640dedf387347575f3c15f5753371295054838fbb001617bfc385227ab35",
+      "roles": [
+        "product",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "dashboard_hoymiles.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "479391402d530705dc94c0c46e6920ab19d9bce4f7e716502d57a964ffb1bbde",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "examples/esphome/hoymiles-hit-g3.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "c52cfd86c85d329f9202f3dbbc5b3353c98e59a3a0a3fb4aa11a34126dd1c377",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "home_assistant/README.md",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "3b2dc1c0ca9df734c84d25eb267406fc51185f6319703ba02e8783704e853898",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "home_assistant/hoymiles_ems_scheduler.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "c9a1c03c5098fc91a9e9e9a2bbbe7d61029c787ca66be6e2b9a8ef7face9fe46",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "home_assistant/hoymiles_ems_shared_inputs.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "f1ed1379b4fe2140b020cb8e5b3772ea5f10d9116d28ea635f35b49176330120",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "home_assistant/www/hoymiles-dashboard-strategy.js",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "1a6ccfd11a51380639dd25c5bc55705f3b3461717ce0864fc794ff3671de52a6",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "home_assistant/www/hoymiles-inverter.png",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "4531e85081e78cf94dee82dbde75b2f931860886457ce9800f546afb4a3b3d15",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "home_assistant/www/hoymiles-rce-chart-card.js",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "0ff19fd40375949315109556a9c0ed95689f9fa6965a81cdb5da4ae3f71737e8",
+      "roles": [
+        "product",
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "hoymiles-inverter.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "72e046a65c35c09d6eec311ed50dbe6d139890ccdd0f7afc048fcd59b4f3eca1",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/README.md",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "8dcd5ae8c1f1102a8809b3cf5d521551349cfeceac161e6013bf7faa66544b44",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/backup_load.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "639c6ffb559b5bd0fb997fa215306bb06dcd93d5312bfb03dd203828384fc0bc",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/battery.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "a7d91190187c8721aded9f8349a846f5fd9d18806432b3a201176ef48c33b18b",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/core.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "839872b3805ee89a7016f5c7636bf9bf1d188d63080f655f2098d0be6de2eee4",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/diagnostics.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "93aeafc809607f364ddde0d42f0b932adeffba099982d0012421613381fdd7c1",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/energy_flow.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "c23e4b5331c47515b2961a0e0903fb8a115aa008943a81c46f5f591cbfeeaf13",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/generator.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "01a2dbbe8d819e320524be211c2da590584cc1544a9c30301dc5df8ca27e3f4f",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/grid.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "eebf1d81f4c747d1b7ec028e775901e9bdeb201b3e2ed1ced1cdd9659a4c0423",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/inverter.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "56f81d58f94f7c8734353d7e3beecca4ab4976ec5d94bee64e40633e4b125005",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/meters.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "adfdfad9915e11710ad94c6d3ef6ed1d9ddc1ffd3ec6af351051551603e36d49",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/modbus_connection.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "66152552adbe19935ac3726abb45b473d74d74faac8876b64f9809d38c95f14b",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/network.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "9f9866b0080672aafb163b6a9665fa243f488f8ea8f8db1087180345618b220b",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/optional_battery_legacy.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "e49ce509580b7a54136bebcee267e0091682c792b471b96410d3d18fceaede95",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/optional_battery_pack_diagnostics.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "89814d6f4d6dbc00ff131b41e9c829f14c6abd4c74e584b91875b2be96367652",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/overview.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "aeb4ffeb9f9252ef550df9dd78d00078a256b2a15b2cbbb8c0fe462bb72066c6",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/parallel_network.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "16bb7f462e512245760e4c6d86ca8723e9e366bef04e570e752fdc4380af0fa1",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/pv.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "d8f629073b11a47a0f471791feaed8f07c704315fe73d1838fe13ffd020df2e1",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/settings.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "c0912cab28c9ddc97c618de25ead09de8f3d087d2d665f44e42164a9e0fa09d8",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/states_alarms.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "9a9f23180ba0e9cbb81668b2684b23a18aae28a1ec74927369958e6140b562bd",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "packages/system.yaml",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "5623bb4227919eb1d848f4fb24b95cbf164def374adfe32fb2899d8ce50c994d",
+      "roles": [
+        "product"
+      ]
+    },
+    {
+      "path": "tools/build_hacs_assets.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "531b04caf68537f9297b0d1042a3dcbcbc4df1c699501603585a8c2038f56347",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "tools/test_aurora_compact_dashboard_contract.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "da2d837df91fde9bf3033a5e3cce87680b85cb7e84ea172a3b764d03266bd017",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "tools/test_aurora_mobile_ems_playwright.js",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "8a17cdc38e2bb05f35da0ea2024162e17ed6b1c6a2617d49746826d22b19282e",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "tools/test_automation_matrix.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "418a8d851606b2b0d3466cb4a1aa5325b3c18a8a662893a192fdb61f3a7ef919",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "tools/test_rce_self_consumption_filter.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "ac4ede812d7a2bab0333a0804773316dd604a13676e6c869a22b5e859690fa06",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "tools/test_rce_self_consumption_shadow.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "0e7b0a362a513d5e5ab1afa4bc6083aa254ddda553501490f9d58d58d30fbf20",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "tools/test_supervisor_executor.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "973a7c3187768e0236dbb91c215c85d6022844218d0734009e5e282fda25e062",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "tools/test_supervisor_sensor_contract.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "7663ddfe042838d94b98967ba24956c5831ccbafd1f0daf09186733f2d082edb",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    },
+    {
+      "path": "tools/test_tariff_optimizer.py",
+      "type": "regular",
+      "mode": "100644",
+      "sha256": "a7c11e58a11a82149c9dd65a5c56da6a1f9b806e09bbaa5d78d6befdb2ffc146",
+      "roles": [
+        "candidate_diff",
+        "n12_snapshot"
+      ]
+    }
+  ]
+}

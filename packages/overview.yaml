@@ -23,6 +23,9 @@ globals:
     restore_value: no
     initial_value: "0"
 
+# The single-inverter Overview FC04 block 30001-30020 uses the existing 5 s
+# control poll. Its physical BAT/GRID/PV/LOAD evidence must fit the unchanged
+# 15 s execution freshness budget even when slower read ranges share the bus.
 sensor:
   # Monotonic evidence counter for the parallel-system power balance.  It is
   # deliberately event-driven: backup_load.yaml advances it only after a real
@@ -37,7 +40,7 @@ sensor:
     entity_category: diagnostic
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     id: pv_total_power_master_30001
     internal: true
     register_type: read
@@ -67,7 +70,7 @@ sensor:
             }
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     name: "Overview Internal PV Total Power"
     id: internal_pv_total_power_30003
     register_type: read
@@ -80,7 +83,7 @@ sensor:
     value_type: U_DWORD
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     name: "Overview External PV Total Power"
     id: external_pv_total_power_30005
     register_type: read
@@ -93,7 +96,7 @@ sensor:
     value_type: U_DWORD
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     id: inv_active_power_master_30007
     internal: true
     register_type: read
@@ -120,7 +123,7 @@ sensor:
             }
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     id: battery_power_master_30009
     internal: true
     register_type: read
@@ -147,7 +150,7 @@ sensor:
             }
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     id: grid_total_active_power_master_30011
     internal: true
     register_type: read
@@ -174,7 +177,7 @@ sensor:
             }
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     name: "Overview Generator Active Power"
     id: generator_active_power_30013
     register_type: read
@@ -187,7 +190,7 @@ sensor:
     value_type: S_DWORD
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     id: load_active_power_master_30015
     internal: true
     register_type: read
@@ -214,7 +217,7 @@ sensor:
             }
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     name: "Overview Smart Load Active Power"
     id: smart_load_active_power_30017
     register_type: read
@@ -226,10 +229,9 @@ sensor:
     accuracy_decimals: 0
     # Ten model zwraca rejestr 30017 z młodszym słowem jako pierwszym.
     value_type: S_DWORD_R
-    register_count: 3
 
   - platform: modbus_controller
-    modbus_controller_id: ${modbus_fast_controller_id}
+    modbus_controller_id: ${modbus_control_controller_id}
     id: battery_soc_master_30020
     internal: true
     register_type: read
@@ -239,6 +241,9 @@ sensor:
     state_class: measurement
     accuracy_decimals: 0
     value_type: U_WORD
+    # Zachowaj jeden FC04 30001–30020; 30019 jest odczytany jako luka i
+    # ignorowany w tym zakresie, a własną encję ma w states_alarms.yaml.
+    reuse_previous_range: true
     force_update: true
     on_value:
       then:

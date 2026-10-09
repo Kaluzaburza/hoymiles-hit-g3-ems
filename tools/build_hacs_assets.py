@@ -23,6 +23,42 @@ COMPONENT = ROOT / "custom_components" / "hoymiles_hit_modbus"
 TRANSLATIONS = COMPONENT / "translations"
 RESOURCES = COMPONENT / "resources"
 
+DASHBOARD_VIEW_PATHS = (
+    "start",
+    "plan-automatyki",
+    "ems-supervisor",
+    "ustawienia-ems",
+    "ustawienia-balansowania",
+    "automatyka-ems",
+    "ladowanie-taryfowe",
+    "rcem-253v",
+    "produkcja-pv",
+    "pv",
+    "bateria",
+    "load-eps",
+    "zyski",
+    "siec",
+    "przeplywy",
+    "falownik",
+    "generator",
+    "liczniki",
+    "sterowanie",
+    "stany-alarmy",
+    "diagnostyka",
+)
+DASHBOARD_TOP_LEVEL_PATHS = (
+    "start",
+    "plan-automatyki",
+    "ustawienia-ems",
+    "pv",
+    "bateria",
+    "load-eps",
+    "zyski",
+)
+ROUTE_BEARING_KEYS = frozenset(
+    {"path", "navigation_path", "details_path", "settings_path"}
+)
+
 SUPPORTED_SOURCE_DOMAINS = {
     "button",
     "sensor",
@@ -40,34 +76,84 @@ SPECIAL_NAMES = {
 }
 
 PHRASE_TRANSLATIONS = {
-    "Overview Internal PV Total Power": "Podgląd łącznej mocy wewnętrznych wejść PV",
-    "Overview External PV Total Power": "Podgląd łącznej mocy zewnętrznych źródeł PV",
-    "Overview Grid Total Active Power": "Podgląd łącznej mocy czynnej sieci",
-    "Overview Generator Active Power": "Podgląd mocy czynnej generatora",
-    "Overview Load Active Power": "Podgląd mocy czynnej odbiorników",
-    "Overview Smart Load Active Power": "Podgląd mocy czynnej Smart Load",
-    "Overview Battery Power": "Podgląd mocy baterii",
-    "Overview Battery SOC": "Podgląd stanu naładowania baterii",
-    "Overview Inverter Active Power": "Podgląd mocy czynnej falownika",
-    "Overview PV Total Power": "Podgląd łącznej mocy PV",
+    "Overview Internal PV Total Power": "Łączna moc wewnętrznych wejść PV",
+    "Overview External PV Total Power": "Łączna moc zewnętrznych źródeł PV",
+    "Overview Grid Total Active Power": "Łączna moc czynna sieci",
+    "Overview Generator Active Power": "Moc czynna generatora",
+    "Overview Load Active Power": "Moc zużycia domu",
+    "Overview Smart Load Active Power": "Moc czynna inteligentnego obciążenia",
+    "Overview Battery Power": "Moc magazynu energii",
+    "Overview Battery SOC": "Poziom magazynu energii",
+    "Overview Inverter Active Power": "Moc czynna falownika",
+    "Overview PV Total Power": "Łączna moc PV",
+    "Load Energy Use Total": "Zużycie domu — energia łącznie",
+    "Load Energy Use L1n Total": "Zużycie domu — energia L1 łącznie",
+    "Load Energy Use L2n Total": "Zużycie domu — energia L2 łącznie",
+    "Load Energy Use L3n Total": "Zużycie domu — energia L3 łącznie",
+    "Load Energy Use Today": "Zużycie domu — energia dzisiaj",
+    "Load Energy Use L1n Today": "Zużycie domu — energia L1 dzisiaj",
+    "Load Energy Use L2n Today": "Zużycie domu — energia L2 dzisiaj",
+    "Load Energy Use L3n Today": "Zużycie domu — energia L3 dzisiaj",
+    "Charge Cut-off Voltage": "Napięcie odcięcia ładowania",
+    "Discharge Cut-off Voltage": "Napięcie odcięcia rozładowania",
+    "Energy From PV Total": "Energia z PV łącznie",
+    "Energy From Battery Total": "Energia oddana przez magazyn energii — łącznie",
+    "Energy From Grid Total": "Energia z sieci łącznie",
+    "Energy From PV Today": "Energia z PV dzisiaj",
+    "Energy From Battery Today": "Energia oddana przez magazyn energii — dzisiaj",
+    "Energy From Grid Today": "Energia z sieci dzisiaj",
+    "PV to Battery Energy Today": "PV → magazyn energii — energia dzisiaj",
+    "PV to Load Energy Today": "PV → dom — energia dzisiaj",
+    "PV to Grid Energy Today": "PV → sieć — energia dzisiaj",
+    "PV to Battery Energy Total": "PV → magazyn energii — energia łącznie",
+    "PV to Load Energy Total": "PV → dom — energia łącznie",
+    "PV to Grid Energy Total": "PV → sieć — energia łącznie",
+    "PV to Battery Power": "PV → magazyn energii — moc",
+    "PV to Load Power": "PV → dom — moc",
+    "PV to Grid Power": "PV → sieć — moc",
+    "Load From PV Power": "Dom z PV — moc",
+    "Meter Grid Frequency": "Licznik sieci — częstotliwość",
+    "Meter Grid Active Power L1": "Licznik sieci — moc czynna L1",
+    "Meter Grid Active Power L2": "Licznik sieci — moc czynna L2",
+    "Meter Grid Active Power L3": "Licznik sieci — moc czynna L3",
+    "Meter Grid Total Active Power": "Licznik sieci — łączna moc czynna",
+    "Grid Power Factor": "Współczynnik mocy sieci",
+    "Grid Power Factor L1n": "Współczynnik mocy sieci — L1",
+    "Grid Power Factor L2n": "Współczynnik mocy sieci — L2",
+    "Grid Power Factor L3n": "Współczynnik mocy sieci — L3",
+    "PV Power Factor": "Współczynnik mocy PV",
+    "PV Power Factor L1n": "Współczynnik mocy PV — L1",
+    "PV Power Factor L2n": "Współczynnik mocy PV — L2",
+    "PV Power Factor L3n": "Współczynnik mocy PV — L3",
     "Generation Control Function": "Funkcja ograniczania eksportu (GCF)",
     "Maximum Export Power Limit": "Maksymalny limit eksportu",
     "GEN Port Mode": "Tryb złącza GEN",
     "SOC Start Charge From Grid": "SOC rozpoczęcia ładowania z sieci",
     "Low SOC Grid Charge Power": "Moc ładowania z sieci przy niskim SOC",
-    "Battery Max Charge Power": "Maksymalna moc ładowania baterii",
-    "Battery Max Discharge Power": "Maksymalna moc rozładowania baterii",
+    "Battery Max Charge Power": "Maksymalna moc ładowania magazynu energii",
+    "Battery Max Discharge Power": "Maksymalna moc rozładowania magazynu energii",
+    "Battery Capacity": "Pojemność magazynu energii",
+    "Battery SOH": "Stan zdrowia magazynu energii (SOH)",
+    "Battery Charge Energy Today": "Energia ładowania magazynu energii dzisiaj",
+    "Battery Discharge Energy Today": (
+        "Energia rozładowania magazynu energii dzisiaj"
+    ),
+    "Battery Total Power (Energy Block)": (
+        "Magazyn energii — moc łączna (blok pomiarowy)"
+    ),
+    "Battery Total Power (Direct)": "Magazyn energii — moc łączna bezpośrednia",
     "Battery Current (BMS)": "Prąd baterii (BMS)",
     "Battery Power (BMS)": "Moc baterii (BMS)",
     "Battery Voltage (BMS)": "Napięcie baterii (BMS)",
-    "Battery Current (Inverter)": "Prąd baterii (falownik)",
-    "Battery 1 Voltage": "Napięcie baterii (falownik)",
+    "Battery SOC (BMS)": "SOC baterii (BMS)",
+    "Battery Current (Inverter)": "Prąd magazynu energii (falownik)",
+    "Battery 1 Voltage": "Napięcie magazynu energii (falownik)",
     "Maximum Charge Power": "Maksymalna moc ładowania z sieci",
     "Maximum Discharge Power": "Maksymalna moc rozładowania do sieci",
     "Force Charge SOC": "Docelowy SOC ładowania z sieci",
     "Force Discharge SOC": "Minimalny SOC rozładowania do sieci",
     "Self-Use SOC": "Rezerwa SOC dla autokonsumpcji",
-    "Battery Type Setting": "Typ baterii",
+    "Battery Type Setting": "Typ magazynu energii",
     "BMS Type Setting": "Typ BMS",
     "Parallel Networking Command": "Polecenie sieci równoległej",
     "Parallel Topology": "Topologia sieci równoległej",
@@ -82,7 +168,9 @@ PHRASE_TRANSLATIONS = {
     ),
     "EMS Control Readback Generation": "Generacja odczytu sterowania EMS",
     "GCF Control Readback Generation": "Generacja odczytu sterowania GCF",
-    "Battery Charge Power Readback Generation": "Generacja odczytu mocy ładowania baterii",
+    "Battery Charge Power Readback Generation": (
+        "Generacja odczytu mocy ładowania magazynu energii"
+    ),
     "EMS Mode Readback Code": "Kod odczytanego trybu EMS",
     "EMS Self-Use SOC Readback": "Odczyt rezerwy SOC autokonsumpcji EMS",
     "EMS Backup SOC Readback": "Odczyt rezerwy SOC Backup EMS",
@@ -95,7 +183,9 @@ PHRASE_TRANSLATIONS = {
     "EMS Maximum Discharge Power Readback": "Odczyt maksymalnej mocy rozładowania EMS",
     "GCF Enable Readback Code": "Kod odczytanego stanu GCF",
     "GCF Maximum Export Power Readback": "Odczyt maksymalnego limitu eksportu GCF",
-    "Battery Max Charge Power Readback": "Odczyt maksymalnej mocy ładowania baterii",
+    "Battery Max Charge Power Readback": (
+        "Odczyt maksymalnej mocy ładowania magazynu energii"
+    ),
     "Machines Type": "Rola urządzenia w sieci równoległej",
     "Number of Machines (Master and Slave)": "Liczba falowników (Master i Slave)",
     "Communication Address 1 (Master Device)": "Adres komunikacyjny 1 (Master)",
@@ -111,14 +201,14 @@ PHRASE_TRANSLATIONS = {
     "System Operation": "Praca systemu",
     "Inverter Work Status": "Stan pracy falownika",
     "Overview System Work Status": "Podgląd stanu pracy systemu",
-    "Overview Battery Work Status": "Podgląd stanu pracy baterii",
+    "Overview Battery Work Status": "Podgląd stanu pracy magazynu energii",
     "Battery Work Status (BMS)": "Stan pracy baterii (BMS)",
-    "Battery Link Status": "Stan łącza baterii",
+    "Battery Link Status": "Stan łącza magazynu energii",
     "PV Link Status": "Stan łącza PV",
     "Meter Link Status": "Stan łącza licznika",
     "Battery Type (BMS)": "Typ baterii (BMS)",
     "Battery Fault Code (BMS)": "Kod błędu baterii (BMS)",
-    "Overview Battery Faults": "Podgląd błędów baterii",
+    "Overview Battery Faults": "Podgląd błędów magazynu energii",
     "Overview DSP Power Faults": "Podgląd błędów DSP mocy",
     "DSP Safety Faults": "Błędy DSP zabezpieczeń",
     "ARM Communication Faults": "Błędy komunikacji ARM",
@@ -133,7 +223,7 @@ WORD_TRANSLATIONS = {
     "Active": "czynna",
     "Address": "adres",
     "Apparent": "pozorna",
-    "Battery": "bateria",
+    "Battery": "magazyn energii",
     "BMS": "BMS",
     "Bus": "magistrala",
     "Buy": "pobór",
@@ -142,6 +232,7 @@ WORD_TRANSLATIONS = {
     "Charging": "ładowanie",
     "Communication": "komunikacja",
     "Current": "prąd",
+    "Cut": "odcięcia",
     "Daily": "dzienna",
     "Day": "dzień",
     "Discharge": "rozładowanie",
@@ -149,15 +240,18 @@ WORD_TRANSLATIONS = {
     "External": "zewnętrzne",
     "Fault": "błąd",
     "Faults": "błędy",
+    "Factor": "współczynnik",
     "Frequency": "częstotliwość",
+    "From": "z",
     "Generator": "generator",
     "Grid": "sieć",
     "Input": "wejście",
     "Internal": "wewnętrzne",
     "Inverter": "falownik",
     "Link": "łącze",
-    "Load": "odbiorniki",
+    "Load": "zużycie domu",
     "Maximum": "maksymalna",
+    "Meter": "licznik",
     "Minimum": "minimalna",
     "Mode": "tryb",
     "Operation": "praca",
@@ -171,8 +265,10 @@ WORD_TRANSLATIONS = {
     "Status": "stan",
     "Temperature": "temperatura",
     "Today": "dzisiaj",
+    "to": "do",
     "Total": "łącznie",
     "Type": "typ",
+    "Use": "zużycie",
     "Voltage": "napięcie",
     "Work": "pracy",
 }
@@ -285,6 +381,146 @@ TEXT_STATE_TRANSLATIONS = {
 }
 
 ENGLISH_REPLACEMENTS = {
+    "  - title: Przegląd\n": "  - title: Overview\n",
+    "  - title: Automatyka EMS\n": "  - title: EMS automation\n",
+    "  - title: Ustawienia EMS\n": "  - title: EMS settings\n",
+    "  - title: Sprzedaż energii\n": "  - title: Energy sales\n",
+    "Opóźnienie ładowania PV — profil": "PV charge delay — profile",
+    "Zachowawczy, Zrównoważony lub Maksymalny. Mniejszy zapas prognozy pozwala planować więcej eksportu, ale zwiększa ryzyko niedoładowania.": "Conservative, Balanced or Maximum. A smaller forecast margin allows more planned export but increases the risk of incomplete charging.",
+    "Sprzedaż dynamiczna — ceny i plan": "Dynamic export — prices and plan",
+    "Sprzedaż dynamiczna — szczegóły i diagnostyka": "Dynamic export — details and diagnostics",
+    "Sprzedaż dynamiczna": "Dynamic export",
+    "Opóźnienie ładowania z PV": "Delay PV charging",
+    "Samochód EV — filtr modelu domu": "EV — household model filter",
+    "Samochód EV — czujnik mocy": "EV — power sensor",
+    "Samochód EV — typowa moc ładowania": "EV — typical charging power",
+    "Sprzedaje poranną nadwyżkę PV i odkłada ładowanie na tańsze godziny, jeśli później wystarczy energii dla magazynu i domu.": "Exports morning PV surplus and delays charging to cheaper hours when enough energy remains for the battery and home.",
+    "Szacowana dodatkowa korzyść": "Estimated additional benefit",
+    "Plan oczekuje na potwierdzenie działania falownika.": "Plan awaits verification of inverter operation.",
+    "Brak opłacalnego okna z pewnym uzupełnieniem magazynu.": "No profitable window with sufficient battery refill.",
+    "Dostawca cen sprzedaży": "Export price provider",
+    "Pstryk łączy zakup i sprzedaż według publicznej ceny godzinowej netto.": "Pstryk binds purchase and export to the public hourly net price.",
+    "Pstryk netto": "Pstryk net",
+
+    "  - title: Tania energia\n": "  - title: Low-cost energy\n",
+    "  - title: Ochrona przed wysokim napięciem\n": (
+        "  - title: High-voltage protection\n"
+    ),
+    "  - title: Wyniki sprzedaży\n": "  - title: Sales results\n",
+    "  - title: Produkcja PV\n": "  - title: PV production\n",
+    "  - title: Energia\n": "  - title: Energy\n",
+    "  - title: Magazyn\n": "  - title: Battery storage\n",
+    "  - title: Sieć\n": "  - title: Grid\n",
+    "  - title: Przepływy energii\n": "  - title: Energy flows\n",
+    "  - title: Falownik\n": "  - title: Inverter\n",
+    "  - title: Liczniki energii\n": "  - title: Energy meters\n",
+    "  - title: Sterowanie\n": "  - title: Controls\n",
+    "  - title: Stany i alarmy\n": "  - title: Status and alarms\n",
+    "  - title: Diagnostyka\n": "  - title: Diagnostics\n",
+    (
+        "  # Osobny zatrzask zwykłej pauzy. Zachowuje wybór polityk, ale blokuje\n"
+        "  # Supervisor i wszystkie ścieżki legacy do czasu świadomego wznowienia."
+    ): (
+        "  # Separate normal-pause latch. It preserves policy choices while blocking\n"
+        "  # the Supervisor and every legacy path until an explicit resume."
+    ),
+    (
+        "  # Preferencje przetrwają MASTER STOP, który nadal czyści wszystkie helpery\n"
+        "  # wykonawcze. Integracja odtwarza je dopiero po świadomym wznowieniu."
+    ): (
+        "  # Preferences survive MASTER STOP, which still clears every execution helper.\n"
+        "  # The integration restores them only after an explicit resume."
+    ),
+    (
+        "  # Pozwala EMS uwzględniać plan RCE jako kandydata. Sam przełącznik\n"
+        "  # nie udziela prawa do zapisu; fizyczne wykonanie należy wyłącznie do Active."
+    ): (
+        "  # Allows EMS to consider the RCE plan as a candidate. The switch\n"
+        "  # does not grant write authority; physical execution belongs only to Active."
+    ),
+    (
+        "  # Pozwala EMS uwzględniać ładowanie taryfowe jako kandydata. Sam\n"
+        "  # przełącznik nie zmienia planera ani nie udziela prawa do fizycznego zapisu."
+    ): (
+        "  # Allows EMS to consider tariff charging as a candidate. The\n"
+        "  # switch does not change the planner or grant physical write authority."
+    ),
+    (
+        "  # Pozwala EMS uwzględniać ochronę napięciową jako kandydata. Sam przełącznik\n"
+        "  # nie włącza RCEm i nie udziela prawa do fizycznego zapisu."
+    ): (
+        "  # Allows EMS to consider voltage management as a candidate. The switch does\n"
+        "  # not enable RCEm or grant physical write authority."
+    ),
+    (
+        "  # Off blokuje wykonanie. Active prowadzi arbitraż i jest jedynym właścicielem\n"
+        "  # transakcyjnych zapisów; samo włączenie planera nie daje write authority."
+    ): (
+        "  # Off blocks execution. Active performs arbitration and is the sole owner\n"
+        "  # of transactional writes; enabling a planner does not grant write authority."
+    ),
+    (
+        "  # Profil wpływa wyłącznie na deterministyczny arbitraż; nie omija bramek\n"
+        "  # ownera, readbacku, fizycznego potwierdzenia ani rollbacku."
+    ): (
+        "  # The profile affects deterministic arbitration only; it does not bypass\n"
+        "  # owner, readback, physical-confirmation, or rollback gates."
+    ),
+    '"EMS — ładowanie taryfowe"': (
+        '"EMS — tariff charging"'
+    ),
+    '"EMS — wstrzymane"': '"EMS — paused"',
+    '"EMS — zapamiętana polityka RCE"': '"EMS — remembered RCE policy"',
+    '"EMS — zapamiętana polityka taryfowa"': '"EMS — remembered tariff policy"',
+    '"EMS — zapamiętana ochrona napięciowa"': (
+        '"EMS — remembered voltage management"'
+    ),
+    '"EMS — zapamiętane balansowanie"': '"EMS — remembered balancing"',
+    '"EMS — uwzględniaj RCE"': '"EMS — consider RCE"',
+    '"EMS — ochrona napięciowa"': '"EMS — voltage management"',
+    '"EMS — profil"': '"EMS — profile"',
+    '"EMS — tryb"': '"EMS — mode"',
+    '"EMS — MASTER STOP"': '"EMS — MASTER STOP"',
+    "EMS — ustawienia ręczne i praca wyspowa": (
+        "EMS — manual settings and off-grid operation"
+    ),
+    (
+        "          **Stan automatyki:**\n"
+        "          {% if status in ['unknown', 'unavailable', 'none', ''] %}\n"
+        "          Dane niedostępne\n"
+        "          {% elif 'Wyłączona' in status or 'Disabled' in status %}\n"
+        "          Wyłączona w Nadzorcy\n"
+        "          {% elif 'Włączona' in status or 'Enabled' in status %}\n"
+        "          Włączona\n"
+        "          {% else %}\n"
+        "          {{ status | replace('plan działa poglądowo', 'bez fizycznego wykonania') }}\n"
+        "          {% endif %}"
+    ): (
+        "          **Automation status:**\n"
+        "          {% if status in ['unknown', 'unavailable', 'none', ''] %}\n"
+        "          Data unavailable\n"
+        "          {% elif 'Disabled' in status %}\n"
+        "          Disabled in Supervisor\n"
+        "          {% elif 'Enabled' in status %}\n"
+        "          Enabled\n"
+        "          {% else %}\n"
+        "          {{ status | replace('the plan remains available for preview', 'without physical execution') }}\n"
+        "          {% endif %}"
+    ),
+    (
+        "          **Tryb:** planowanie dla Nadzorcy EMS; fizyczne wykonanie wyłącznie\n"
+        "          w trybie Active po przyznaniu właściciela<br>"
+    ): (
+        "          **Mode:** planning for EMS Supervisor; physical execution only\n"
+        "          in Active mode after ownership is granted<br>"
+    ),
+    (
+        "          **Tryb:** planowanie dla Nadzorcy EMS; fizyczne wykonanie wyłącznie\n"
+        "          w trybie wykonawczym po przyznaniu właściciela<br>"
+    ): (
+        "          **Mode:** planning for EMS Supervisor; physical execution only\n"
+        "          in execution mode after ownership is granted<br>"
+    ),
     "EMS — potwierdź zbiorczą reakcję mocy po Grid Discharge": (
         "EMS — verify aggregate power response after Grid Discharge"
     ),
@@ -364,8 +600,14 @@ ENGLISH_REPLACEMENTS = {
     "Energia taniego ładowania — ostatnie 30 dni": (
         "Low-cost charging energy — last 30 days"
     ),
+    "Szacowana energia taniego ładowania — ostatnie 30 dni": (
+        "Estimated low-cost charging energy — last 30 days"
+    ),
     "Oszczędność taryfowa — ostatnie 30 dni": (
         "Tariff savings — last 30 days"
+    ),
+    "Szacowana oszczędność taryfowa — ostatnie 30 dni": (
+        "Estimated tariff savings — last 30 days"
     ),
     "Automatyczne ładowanie taryfowe — ustawienia": (
         "Automatic tariff charging — settings"
@@ -426,8 +668,8 @@ ENGLISH_REPLACEMENTS = {
     "Taryfa — łączna cena w strefie drogiej": (
         "Tariff — total price in the peak period"
     ),
-    "EMS taryfowy — limit mocy Grid Charge (dom i bateria)": (
-        "Tariff EMS — Grid Charge power limit (home and battery)"
+    "EMS taryfowy — zadana moc ładowania baterii": (
+        "Tariff EMS — target battery charging power"
     ),
     "EMS taryfowy — wewnętrzne działanie aktywnego bloku": (
         "Tariff EMS — internal active-slot action"
@@ -445,13 +687,13 @@ ENGLISH_REPLACEMENTS = {
     "EMS taryfowy — minimalna różnica ceny względem G11": (
         "Tariff EMS — minimum price difference versus G11"
     ),
-    "EMS taryfowy — korekta bezpieczeństwa SOC": (
-        "Tariff EMS — SOC safety correction"
+    "EMS taryfowy — margines zapotrzebowania energii": (
+        "Tariff EMS — energy-demand margin"
     ),
     "EMS taryfowy — maksymalny SOC po ładowaniu": (
         "Tariff EMS — maximum SOC after charging"
     ),
-    "Wyrównywanie magazynu — automatyka włączona": (
+    "Balansowanie magazynu — automatyka włączona": (
         "Battery balancing — automation enabled"
     ),
     "Wyrównywanie magazynu — trwa cykl serwisowy": (
@@ -490,77 +732,23 @@ ENGLISH_REPLACEMENTS = {
     "Wyrównywanie magazynu — sterowanie cyklem": (
         "Battery balancing — cycle control"
     ),
+    "Wyrównywanie magazynu — odzyskaj cykl po restarcie Home Assistant": (
+        "Battery balancing — restore cycle after Home Assistant restart"
+    ),
     "Wyrównywanie magazynu — ustawienia i stan": (
         "Battery balancing — settings and status"
     ),
     "Wyrównywanie magazynu": "Battery balancing",
-    "Ładowanie z PV — oczekiwanie na zachód słońca": (
-        "Charging from PV — waiting for sunset"
-    ),
-    "Dobijanie z sieci do 99% SOC": "Grid top-up to 99% SOC",
-    "Wolne ładowanie 2 kW od 99% do 100% SOC": (
-        "Slow 2 kW charging from 99% to 100% SOC"
-    ),
-    "Wyrównywanie ogniw przy 100% SOC": "Cell balancing at 100% SOC",
     "Aktywny cykl serwisowy": "Service cycle active",
     "Oczekiwanie na najbliższy okres produkcji PV": (
         "Waiting for the next PV production period"
     ),
     "Zaplanowane": "Scheduled",
-    "Procent wspólnego limitu Grid Charge zapewniający około 2 kW dla": (
-        "Shared Grid Charge limit percentage providing about 2 kW for the"
-    ),
-    "baterii po odjęciu bieżącego obciążenia domu.": (
-        "battery after subtracting the current home load."
-    ),
-    "Zawiesza wszystkie pozostałe plany EMS, pozostawia falownik w Self-Use": (
-        "Suspends all other EMS plans and keeps the inverter in Self-Use"
-    ),
-    "podczas produkcji PV i przygotowuje bezpieczny cykl ładowania do 100%.": (
-        "during PV production while preparing a safe charge cycle to 100%."
-    ),
-    "Wraca do Self-Use, odtwarza ustawienia ładowania i zwalnia blokadę": (
-        "Returns to Self-Use, restores charge settings, and releases the lock"
-    ),
-    "pozostałych planów EMS. Zakończony poprawnie cykl zapisuje swoją datę.": (
-        "on other EMS plans. A successfully completed cycle stores its date."
-    ),
-    "Czy cykl osiągnął 100% SOC i zakończył czas wyrównywania": (
-        "Whether the cycle reached 100% SOC and completed its balancing time"
-    ),
-    "Uruchamia cykl co zadaną liczbę dni. Najpierw wykorzystuje PV w Self-Use,": (
-        "Runs the cycle at the configured day interval. It first uses PV in Self-Use,"
-    ),
-    "po zachodzie doładowuje magazyn z sieci, od 99% ogranicza ładowanie": (
-        "tops up the battery from the grid after sunset, and from 99% limits"
-    ),
-    "baterii do około 2 kW i odmierza czas wyrównywania dopiero przy 100% SOC.": (
-        "battery charging to about 2 kW; balancing time starts only at 100% SOC."
-    ),
     "Okresowy cykl serwisowy dla magazynów LiFePO4. W dniu wykonania": (
         "A periodic service cycle for LiFePO4 batteries. On the scheduled day it"
     ),
-    "najpierw wykorzystuje produkcję PV, po zachodzie doładowuje magazyn": (
-        "first uses PV production and tops up the battery from the grid after"
-    ),
-    "z sieci do 100%, a od 99% ogranicza rzeczywistą moc ładowania baterii": (
-        "sunset to 100%. From 99% it limits actual battery charging power"
-    ),
-    "do około 2 kW. Zadany czas wyrównywania jest liczony dopiero od": (
-        "to about 2 kW. The configured balancing duration starts only after"
-    ),
-    "osiągnięcia 100% SOC.": "reaching 100% SOC.",
     "Podczas cyklu RCE, ładowanie taryfowe i ręczne harmonogramy EMS są": (
         "During the cycle, RCE, tariff charging, and manual EMS schedules are"
-    ),
-    "zawieszone. Ich ustawienia pozostają zapamiętane i wracają do pracy": (
-        "suspended. Their settings are preserved and resume operation"
-    ),
-    "po zakończeniu. Wyłączenie przełącznika przerywa cykl i przywraca": (
-        "after completion. Turning the switch off aborts the cycle and restores"
-    ),
-    "Self-Use. Funkcji używaj zgodnie z zaleceniami producenta baterii.": (
-        "Self-Use. Follow the battery manufacturer's recommendations."
     ),
     "Włącz automatyczne wyrównywanie": "Enable automatic balancing",
     "Wykonuj co określoną liczbę dni": "Run every specified number of days",
@@ -586,6 +774,7 @@ ENGLISH_REPLACEMENTS = {
     ),
     "Maksymalny SOC po doładowaniu": "Maximum SOC after charging",
     "Dodatkowy zapas SOC": "Additional SOC reserve",
+    "Dodatkowa ochrona przed sprzedażą": "Additional protection from sale",
     "Strefy i ceny energii": "Energy periods and prices",
     "Wybrany profil — podgląd": "Selected profile — overview",
     "Tryb ręczny — strefy i ceny energii": (
@@ -623,16 +812,41 @@ ENGLISH_REPLACEMENTS = {
     "Aktualny SOC magazynu": "Current battery SOC",
     "Plan taniego doładowania": "Low-cost top-up plan",
     "Wynik rzeczywisty": "Actual result",
+    "Rozliczenie — pomiar fizyczny niezweryfikowany": (
+        "Accounting — physical measurement unverified"
+    ),
     "Energia doładowania dzisiaj": "Top-up energy today",
+    "Szacowana energia doładowania dzisiaj": (
+        "Estimated top-up energy today"
+    ),
     "Oszczędność dzisiaj względem G11": "Savings today versus G11",
+    "Szacowana oszczędność dzisiaj względem G11": (
+        "Estimated savings today versus G11"
+    ),
     "Energia doładowania w tym miesiącu": "Top-up energy this month",
+    "Szacowana energia doładowania w tym miesiącu": (
+        "Estimated top-up energy this month"
+    ),
     "Oszczędność w tym miesiącu względem G11": (
         "Savings this month versus G11"
     ),
+    "Szacowana oszczędność w tym miesiącu względem G11": (
+        "Estimated savings this month versus G11"
+    ),
     "Energia doładowania w tym roku": "Top-up energy this year",
+    "Szacowana energia doładowania w tym roku": (
+        "Estimated top-up energy this year"
+    ),
     "Oszczędność w tym roku względem G11": "Savings this year versus G11",
+    "Szacowana oszczędność w tym roku względem G11": (
+        "Estimated savings this year versus G11"
+    ),
     "Energia z sieci [kWh]": "Grid energy [kWh]",
+    "Szacowana energia z sieci [kWh]": "Estimated grid energy [kWh]",
     "Oszczędność względem G11 [PLN]": "Savings versus G11 [PLN]",
+    "Szacowana oszczędność względem G11 [PLN]": (
+        "Estimated savings versus G11 [PLN]"
+    ),
     "Ustawienia zaawansowane": "Advanced settings",
     "Minimalna różnica ceny względem G11": "Minimum price difference versus G11",
     "Sprawność ładowania": "Charge efficiency",
@@ -676,7 +890,16 @@ ENGLISH_REPLACEMENTS = {
         "**Estimated savings versus G11:**"
     ),
     "**Model obciążenia:**": "**Load model:**",
-    "**Rezerwa planowania:**": "**Planning reserve:**",
+    "**Fizyczna rezerwa Self-Use:**": "**Physical Self-Use reserve:**",
+    "**Chronione zapotrzebowanie / margines:**": (
+        "**Protected demand / margin:**"
+    ),
+    "**Wykonalny / niewykonalny zapas:**": (
+        "**Feasible / infeasible headroom:**"
+    ),
+    "**Cel energii wymagany / wykonalny:**": (
+        "**Requested / feasible energy target:**"
+    ),
     "**Historyczna korekta prognozy PV:**": (
         "**Historical PV forecast correction:**"
     ),
@@ -691,6 +914,20 @@ ENGLISH_REPLACEMENTS = {
         "**Automatic PV forecast correction:**"
     ),
     "dni historii": "history days",
+    "energia {{ plan.attributes.recorder_load_accepted_energy_days": (
+        "energy {{ plan.attributes.recorder_load_accepted_energy_days"
+    ),
+    "profile {{ plan.attributes.recorder_load_accepted_profile_days": (
+        "profiles {{ plan.attributes.recorder_load_accepted_profile_days"
+    ),
+    "noce {{ plan.attributes.recorder_night_completed_windows": (
+        "nights {{ plan.attributes.recorder_night_completed_windows"
+    ),
+    "próbki bieżące {{ plan.attributes.recorder_load_current_sample_count": (
+        "current samples {{ plan.attributes.recorder_load_current_sample_count"
+    ),
+    "dane zachowane po przerwie": "data retained after outage",
+    "kwalifikacja:": "qualification:",
     "**Przewidywany SOC na końcu horyzontu:**": (
         "**Forecast SOC at the end of the horizon:**"
     ),
@@ -742,17 +979,23 @@ ENGLISH_REPLACEMENTS = {
         "SOC and uses the grid for the home load — it does not try to charge"
     ),
     "baterii ponad ten poziom.": "the battery above that level.",
-    "Rezerwa planowania jest zawsze liczona z aktualnego progu awaryjnego": (
-        "The planning reserve is always calculated from the current emergency"
+    "Fizyczna rezerwa planowania jest zawsze równa aktualnemu progowi": (
+        "The physical planning reserve always equals the current"
     ),
-    "**Self-Use + dodatkowego zapasu SOC**. Nie ma stałej wartości 27%.": (
-        "**Self-Use threshold plus the additional SOC margin**. There is no fixed 27% value."
+    "**rezerwy autokonsumpcji**. Osobny margines zapotrzebowania jest": (
+        "**Self-Use reserve**. The separate demand margin is"
     ),
-    "Jeżeli magazyn pozostaje poniżej tego progu, automat uzupełnia tylko": (
-        "If the battery remains below that threshold, the automation restores only"
+    "procentem bazowego deficytu energii w następnym chronionym okresie:": (
+        "a percentage of the base energy deficit in the next protected period:"
     ),
-    "brakującą energię w taniej strefie, o ile PV nie odbuduje jej wcześniej.": (
-        "the missing energy in a low-price period unless PV restores it earlier."
+    "może zostać zużyty przez dom i nie podnosi progu Self-Use. Najpierw": (
+        "it may be consumed by the home and does not raise the Self-Use floor. First"
+    ),
+    "pokrywany jest bazowy deficyt, a dopiero potem margines; ograniczenia": (
+        "the base deficit is covered, followed by the margin; power, time and"
+    ),
+    "mocy, czasu i maksymalnego SOC są pokazane jako niewykonalna część.": (
+        "maximum-SOC constraints are exposed as the infeasible portion."
     ),
     "Po zebraniu wiarygodnej porcji produkcji dziennej automat porównuje": (
         "After collecting a reliable amount of daytime production, the automation compares"
@@ -788,11 +1031,14 @@ ENGLISH_REPLACEMENTS = {
     "obliczeniach. Marginalne przesunięcie energii jest odrzucane, jeżeli": (
         "the calculation. A marginal energy shift is rejected when"
     ),
-    "RCE i ładowanie taryfowe są teraz rozdzielone. Włączenie jednego": (
-        "RCE and tariff charging are currently separate. Enabling one"
+    "RCE, ładowanie taryfowe i RCEm mogą być włączone jednocześnie.": (
+        "RCE, tariff charging and RCEm can be enabled at the same time."
     ),
-    "automatu wyłącza drugi. Ręczne harmonogramy EMS mają pierwszeństwo.": (
-        "automation disables the other. Manual EMS schedules take priority."
+    "Nadzorca wybiera jedną bezpieczną akcję wykonawczą; ręczne": (
+        "The Supervisor selects one safe execution action; manual EMS"
+    ),
+    "harmonogramy EMS zachowują pierwszeństwo.": (
+        "schedules retain priority."
     ),
     "Domyślne ceny są tylko przykładem opartym na średniej cenie sprzedaży": (
         "Default prices are examples based on the average regulated sale price"
@@ -857,6 +1103,9 @@ ENGLISH_REPLACEMENTS = {
     "Energia pobrana z sieci — diagnostycznie": (
         "Energy imported from grid — diagnostic"
     ),
+    "Szacowana energia sieć → dom — bilans diagnostyczny": (
+        "Estimated grid → home energy — diagnostic balance"
+    ),
     "EMS — powiadomienia push o zmianach statusu": (
         "EMS — push notifications for status changes"
     ),
@@ -877,6 +1126,12 @@ ENGLISH_REPLACEMENTS = {
     "Telefon (encja notify)": "Phone (notify entity)",
     "Stan powiadomień": "Notification status",
     "Brak poprawnej encji notify": "No valid notify entity",
+    "Brak poprawnej mocy polecenia ładowania": (
+        "No valid charging command power"
+    ),
+    "Bieżący limit BMS jest niższy od mocy polecenia ładowania": (
+        "The current BMS limit is lower than the charging command power"
+    ),
     "Hoymiles — zmiana statusu": "Hoymiles — status change",
     "Tryb EMS:": "EMS mode:",
     "Stan falownika:": "Inverter status:",
@@ -904,6 +1159,7 @@ ENGLISH_REPLACEMENTS = {
         "your energy more effectively, you can support its continued development:"
     ),
     "☕ Postaw kawę autorowi": "☕ Support the author",
+    "Jeśli EMS Ci pomaga, wesprzyj jego dalszy rozwój.": "If EMS helps you, support its continued development.",
     "Najważniejsze dane do codziennej obsługi falownika. Szczegółowe": (
         "The most important values for everyday inverter operation. Detailed"
     ),
@@ -991,7 +1247,6 @@ ENGLISH_REPLACEMENTS = {
         "A 5% buffer protects against changes in voltage and the BMS limit."
     ),
     "Automatyka RCE — ustawienia": "RCE automation — settings",
-    "Automatyka EMS": "EMS automation",
     "RCE i Wyniki": "RCE and Results",
     "Wyniki sprzedaży — archiwum": "Sales results — archive",
     "Automatyka RCE — konfiguracja wymagana": (
@@ -1102,6 +1357,9 @@ ENGLISH_REPLACEMENTS = {
     ),
     "Moc znamionowa jednego falownika": "Rated power of one inverter",
     "Moc rozładowania do sieci": "Grid discharge power",
+    "EMS RCE — minimalny planowany eksport netto": "EMS RCE — minimum planned net export",
+    "Minimalny planowany eksport netto": "Minimum planned net export",
+    "Minimum po zużyciu domu. Zbyt małe bloki pozostawiają energię na autokonsumpcję; chwilowy spadek eksportu nie wyzwala STOP.": "Minimum after household consumption. Blocks that are too small leave energy for self-consumption; a temporary export drop does not trigger STOP.",
     "EMS RCE — żądana moc rozładowania do sieci": (
         "EMS RCE — requested grid discharge power"
     ),
@@ -1279,7 +1537,8 @@ ENGLISH_REPLACEMENTS = {
     "Odbiór — moc L2": "Load power L2",
     "Odbiór — moc L3": "Load power L3",
     "Odbiorniki — moc łącznie": "Loads — total power",
-    "title: Zyski": "title: Profits",
+    "title: Zyski": "title: Earnings",
+    "Zyski — podstawa ręcznych cen zakupu": "Earnings — manual purchase price basis",
     "title: Produkcja PV": "title: PV Production",
     "Instalacja pracuje na Twój wynik": "Your installation is working for you",
     "Dzisiaj sieć przyjęła": "Today the grid received",
@@ -1313,8 +1572,8 @@ ENGLISH_REPLACEMENTS = {
     "Bieżący rok": "Current year",
     "Poprzedni rok": "Previous year",
     "Dwa lata temu": "Two years ago",
-    "Produkcja dzienna — ostatnie 90 dni": (
-        "Daily production — last 90 days"
+    "Produkcja dzienna · zakres do 90 dni": (
+        "Daily production · range up to 90 days"
     ),
     "Produkcja tygodniowa — ostatnie 52 tygodnie": (
         "Weekly production — last 52 weeks"
@@ -1417,6 +1676,9 @@ ENGLISH_REPLACEMENTS = {
     "Śr. dobowe zużycie domu": "Avg. daily home use",
     "name: Dom": "name: Load",
     "name: Sieć": "name: Grid",
+    "name: Integracja": "name: Integration",
+    "name: Licznik": "name: Meter",
+    "name: Magazyn": "name: Battery storage",
     "name: Bateria (A)": "name: Battery (A)",
     "name: Bateria": "name: Battery",
     "Napięcie baterii (falownik)": "Battery voltage (inverter)",
@@ -1498,12 +1760,19 @@ ENGLISH_REPLACEMENTS = {
     "Napięcie PP": "PP voltage",
     "Prąd różnicowy": "Residual current",
     "Moc stringów PV — ostatnie 24 godziny [W]": "PV string power — last 24 hours [W]",
-    "Napięcie": "Voltage",
-    "Prąd": "Current",
-    "PV — moc z bloku energii i źródła zewnętrzne": "PV — energy-block and external-source power",
-    "Sieć": "Grid",
-    "Przepływy": "Flows",
-    "Przepływy — moc": "Flows — power",
+        "Napięcie": "Voltage",
+        "Prąd": "Current",
+        "PV — moc z bloku energii i źródła zewnętrzne": "PV — energy-block and external-source power",
+        "Alarmy": "Alarms",
+        "Sterowanie": "Controls",
+        "Falownik": "Inverter",
+        "Sieć": "Grid",
+        "Przepływy": "Flows",
+        "Źródła": "Sources",
+        "Liczniki": "Meters",
+        "Wyniki": "Results",
+        "Archiwum PV": "PV archive",
+        "Przepływy — moc": "Flows — power",
     "Przepływy — energia dzisiaj": "Flows — energy today",
     "Przepływy — energia całkowita": "Flows — total energy",
     "Licznik zewnętrznego PV": "External PV meter",
@@ -1658,7 +1927,9 @@ ENGLISH_REPLACEMENTS = {
     "wymuś": "enforce",
     "sterowanie": "control",
     "według ceny": "by price",
-    "odzyskaj cykl po restarcie Home Assistant": "restore cycle after Home Assistant restart",
+    "bezpiecznie zakończ ręczny cykl po restarcie Home Assistant": (
+        "safely finish manual cycle after Home Assistant restart"
+    ),
     "EMS — trwa cykl rozładowania": "EMS — discharge cycle active",
     "EMS — trwa cykl ładowania": "EMS — charge cycle active",
     "EMS — blokada sprzedaży w wybranych godzinach": "EMS — export lockout in selected hours",
@@ -1720,6 +1991,7 @@ ENGLISH_REPLACEMENTS = {
     "EMS RCE — korekta bezpieczeństwa SOC": (
         "EMS RCE — SOC safety correction"
     ),
+    "EMS — dodatkowa ochrona przed sprzedażą": "EMS — additional protection from sale",
     "EMS RCE — ustaw domyślną encję Solcast": (
         "EMS RCE — set default Solcast entity"
     ),
@@ -1900,8 +2172,19 @@ ENGLISH_REPLACEMENTS = {
     "ładowania i rozładowania mają pierwszeństwo.": (
         "discharge timers take priority."
     ),
-    "Wznawia aktywny cykl albo wraca do Self-Use, jeśli timer upłynął podczas wyłączenia HA.": (
-        "Restores an active cycle or returns to Self-Use if its timer expired while HA was offline."
+    (
+        "Nigdy nie wznawia ręcznego cyklu po restarcie. Anuluje przywrócone\n"
+        "      timery i potwierdza Self-Use albo zachowany Off-Grid przed zwolnieniem\n"
+        "      właściciela."
+    ): (
+        "Never resumes a manual cycle after restart. Cancels restored timers and\n"
+        "      confirms Self-Use or preserved Off-Grid before releasing the owner."
+    ),
+    "Nigdy nie wznawia ręcznego cyklu po restarcie. Anuluje przywrócone timery i potwierdza Self-Use albo zachowany Off-Grid przed zwolnieniem właściciela.": (
+        "Never resumes a manual cycle after restart. Cancels restored timers and confirms Self-Use or preserved Off-Grid before releasing the owner."
+    ),
+    "Przywrócony ręczny cykl zakończony bez wznowienia": (
+        "Restored manual cycle finished without resuming"
     ),
     "Brak okresów powyżej progu poza blokadą sprzedaży.": (
         "No periods above the threshold outside the export lockout."
@@ -1912,7 +2195,6 @@ ENGLISH_REPLACEMENTS = {
     "RCEm 253 V+ — pokaż dane zaawansowane": (
         "RCEm 253 V+ — show advanced data"
     ),
-    "RCEm 253 V+ — tylko obserwacja": "RCEm 253 V+ — observation only",
     "RCEm 253 V+ — trwa aktywna regulacja": "RCEm 253 V+ — active control in progress",
     "RCEm 253 V+ — korekta bezpieczeństwa SOC": "RCEm 253 V+ — SOC safety correction",
     "RCEm 253 V+ — sprawność ładowania magazynu": "RCEm 253 V+ — battery charging efficiency",
@@ -1920,12 +2202,10 @@ ENGLISH_REPLACEMENTS = {
     "EMS — blokada równoczesnej automatyki RCE, taryfowej i RCEm": "EMS — interlock for RCE, tariff and RCEm automation",
     "RCEm 253 V+ — płynna regulacja ładowania baterii z PV": "RCEm 253 V+ — variable PV-to-battery charging control",
     "Wyłączona — plan działa poglądowo": "Disabled — the plan remains available for preview",
-    "Obserwacja — bez zapisu do falownika": "Observation — no inverter writes",
     "Zablokowana — trwa wyrównywanie magazynu": "Blocked — battery balancing is in progress",
     "Aktywna —": "Active —",
     "Automatyka RCEm 253 V+ — ustawienia": "RCEm 253 V+ automation — settings",
     "Włącz automatykę ochrony eksportu": "Enable voltage-aware export protection",
-    "Tylko obserwacja — bez zapisu do falownika": "Observation only — no inverter writes",
     "Stan planera napięcia": "Voltage planner status",
     "Napięcie sieci — sterowanie według najwyższej fazy": "Grid voltage — controlled by the highest phase",
     "Maksimum": "Maximum",
@@ -1950,14 +2230,10 @@ ENGLISH_REPLACEMENTS = {
     "Rzeczywisty globalny limit ładowania baterii": "Actual global battery charging limit",
     "Maksymalny prąd ładowania BMS": "Maximum BMS charging current",
     "Zasady bezpieczeństwa": "Safety rules",
-    "Tryb obserwacji jest domyślny i nie zapisuje niczego do falownika.": "Observation mode is the default and does not write anything to the inverter.",
     "Regulator może zmieniać wyłącznie globalny limit ładowania baterii": "The controller may change only the global battery charging limit",
     "Nie zmienia limitu eksportu GCF, asymetrii trójfazowej, Q(U), P(U), cos φ ani progów ochrony.": "It never changes the GCF export limit, three-phase unbalance, Q(U), P(U), power factor or protection thresholds.",
-    "RCEm, RCE i ładowanie taryfowe są wzajemnie wykluczane.": "RCEm, RCE and tariff charging are mutually exclusive.",
     "Wyrównywanie magazynu i ręczne cykle EMS mają pierwszeństwo.": "Battery balancing and manual EMS cycles have priority.",
     "Instalacja zero-export nadaje się do sprawdzenia obliczeń, historii i blokad, ale nie do potwierdzenia reakcji napięcia na eksport.": "A zero-export installation can verify calculations, history and interlocks, but cannot validate the voltage response to export.",
-    "obserwacja — brak zapisów do falownika": "observation — no inverter writes",
-    "aktywna regulacja globalnej mocy ładowania baterii": "active control of the global battery charging power",
     "Bieżące działanie": "Current action",
     "**Tryb:**": "**Mode:**",
     "Najwyższe napięcie": "Highest voltage",
@@ -1975,19 +2251,6 @@ ENGLISH_REPLACEMENTS = {
     "Nie zmienia GCF, maksymalnego limitu eksportu, asymetrii trójfazowej,": "It does not change GCF, maximum export limit, three-phase unbalance,",
     "Q(U), P(U), współczynnika mocy ani progów zabezpieczeń. Najwyższa z": "Q(U), P(U), power factor or protection thresholds. The highest",
     "faz L1/L2/L3 zawsze ma pierwszeństwo.": "L1/L2/L3 phase always has priority.",
-    "RCE, ładowanie taryfowe i RCEm 253 V+ wzajemnie się wykluczają.": "RCE, tariff charging and RCEm 253 V+ are mutually exclusive.",
-    "Wyrównywanie magazynu oraz ręczne plany EMS mają pierwszeństwo.": "Battery balancing and manual EMS plans have priority.",
-    "Podczas pierwszych testów pozostaw przełącznik **Tylko obserwacja**": "During initial testing, leave **Observation only** enabled.",
-    "włączony. Wyłączenie go pozwala regulatorowi zapisywać globalny limit": "Disabling it allows the controller to write the global charging limit",
-    "ładowania z krokiem najwyżej 10 punktów procentowych na minutę.": "in steps of no more than 10 percentage points per minute.",
-    "Wyjątkiem jest przekroczenie 253 V — wtedy od razu używany jest pełny": "The exception is a voltage above 253 V, which immediately applies the full",
-    "bezpieczny limit wynikający z BMS.": "BMS-safe limit.",
-    "Pozwala działać tylko jednemu automatowi. RCE, ładowanie taryfowe i RCEm": "Allows only one automation to run. RCE, tariff charging and RCEm",
-    "253 V+ wzajemnie się wykluczają. Po restarcie pierwszeństwo ma RCE,": "253 V+ are mutually exclusive. After restart, RCE has priority,",
-    "następnie automat taryfowy, a na końcu RCEm.": "followed by tariff charging and then RCEm.",
-    "Co minutę stosuje rekomendację planera napięcia do globalnego limitu": "Applies the voltage planner recommendation to the global limit every minute",
-    "Battery Max Charge Power. Tryb obserwacyjny nigdy nie zapisuje falownika.": "Battery Max Charge Power. Observation mode never writes to the inverter.",
-    "Automatyka nie używa Grid Charge, GCF, asymetrii ani nastaw zabezpieczeń.": "The automation does not use Grid Charge, GCF, unbalance or protection settings.",
     "RCEm 253 V+ — płynna regulacja limitu eksportu": "RCEm 253 V+ — variable export-limit control",
     "RCEm 253 V+ — trwa regulacja limitu eksportu": "RCEm 253 V+ — export-limit control active",
     "RCEm 253 V+ — poranne rozładowanie przygotowujące miejsce": "RCEm 253 V+ — morning headroom-preparation discharge",
@@ -2037,16 +2300,17 @@ ENGLISH_REPLACEMENTS = {
     "Cykl kończy się po osiągnięciu docelowego SOC albo wcześniej, gdy": "The cycle ends at the target SOC or earlier if",
     "najwyższa faza wzrośnie do 248,4 V lub średnia 10-minutowa do 249,2 V.": "the highest phase reaches 248.4 V or the 10-minute average reaches 249.2 V.",
     "Nigdy nie schodzi poniżej chronionego SOC domu i rezerwy.": "It never discharges below the protected home-and-outage-reserve SOC.",
-    "Funkcja porannego rozładowania wymaga aktywnego GCF, rzeczywistego": "Morning discharge requires active GCF, an actual",
-    "limitu eksportu większego od 0%, braku blokady sprzedaży i wyłączonego": "export limit above 0%, no export lockout and disabled",
-    "trybu obserwacyjnego. Nie zmienia GCF ani **Maximum Export Power Limit**;": "observation mode. It changes neither GCF nor **Maximum Export Power Limit**;",
-    "korzysta z wartości zastanej i limitu zgodnego ze zgłoszeniem. Po": "it uses the existing value and grid-agreement cap. After",
-    "zakończeniu odtwarza wcześniejszą maksymalną moc rozładowania, próg SOC": "completion it restores the previous maximum discharge power, SOC threshold",
-    "oraz tryb Self-Use.": "and Self-Use mode.",
     "Przed przewidywanym szczytem RCEm nadal ogranicza **Battery Max Charge": "Before the predicted peak RCEm still limits **Battery Max Charge",
     "Power**, aby nie napełnić magazynu za wcześnie. Jeżeli poranne": "Power** to avoid filling the battery too early. If morning",
     "rozładowanie pozostaje wyłączone lub eksport ma limit 0%, pole": "discharge remains disabled or export is capped at 0%, the",
     "**Zaplanowane poranne rozładowanie** działa wyłącznie poglądowo.": "**Planned morning discharge** field is informational only.",
+    (
+        "**Zaplanowane poranne rozładowanie** pozostaje informacją planistyczną\n"
+        "          i nie potwierdza fizycznego wykonania."
+    ): (
+        "**Planned morning discharge** remains planning information\n"
+        "          and does not confirm physical execution."
+    ),
     "Przed dzisiejszym oknem podwyższonego napięcia rozładowuje do sieci tylko": "Before today's high-voltage window, it discharges to the grid only",
     "energię, której nie zużyje wcześniej dom i która jest potrzebna jako": "the energy that the home will not consume beforehand and that is required as",
     "miejsce na prognozowaną nadwyżkę PV. Moc dobierana jest do ilości energii": "headroom for the forecast PV surplus. Power is selected from the energy amount",
@@ -2064,15 +2328,48 @@ ENGLISH_REPLACEMENTS = {
     "zgłoszeniem**. Przykład: falownik 20 kW i limit 50% oznacza maksymalnie": "grid agreement**. Example: a 20 kW inverter with a 50% cap can export at most",
     "10 kW eksportu. RCEm nie włącza GCF — użytkownik robi to świadomie w": "10 kW. RCEm does not enable GCF; the user enables it deliberately in",
     "ustawieniach falownika.": "the inverter settings.",
+    "Funkcja porannego rozładowania wymaga trybu Nadzorcy **Active**, zgody": (
+        "Morning discharge requires EMS Supervisor **Active** mode, RCEm"
+    ),
+    "Funkcja porannego rozładowania wymaga trybu wykonawczego Nadzorcy, zgody": (
+        "Morning discharge requires EMS Supervisor execution mode, RCEm"
+    ),
+    "na RCEm, aktywnego GCF, rzeczywistego limitu eksportu większego od 0%": (
+        "permission, active GCF, an actual export limit above 0%,"
+    ),
+    "i braku blokady sprzedaży. Planer sam nie zapisuje falownika. Po": (
+        "and no export lockout. The planner never writes the inverter itself. After"
+    ),
+    "zakończeniu Nadzorca odtwarza dokładny snapshot sprzed transakcji.": (
+        "completion, the Supervisor restores the exact pre-transaction snapshot."
+    ),
     "Nie zmienia asymetrii trójfazowej, Q(U), P(U), współczynnika mocy ani": "It does not change three-phase unbalance, Q(U), P(U), power factor or",
     "progów zabezpieczeń. Najwyższa z faz L1/L2/L3 zawsze ma pierwszeństwo.": "protection thresholds. The highest L1/L2/L3 phase always has priority.",
-    "włączony. Wyłączenie go pozwala regulatorowi zmieniać limit ładowania": "enabled. Disabling it allows the controller to change the charging limit",
-    "najwyżej o 10 punktów procentowych na minutę, a limit eksportu o 5–15": "by at most 10 percentage points per minute and the export limit by 5–15",
-    "punktów zależnie od napięcia. Przy 253 V eksport może zostać natychmiast": "points depending on voltage. At 253 V export may be immediately",
-    "ograniczony do 0%, a magazyn użyje pełnego bezpiecznego limitu BMS.": "reduced to 0%, while the battery uses the full BMS-safe limit.",
-    "Battery Max Charge Power oraz — po osobnym włączeniu — do maksymalnego": "Battery Max Charge Power and, when separately enabled, the maximum",
-    "limitu eksportu. Tryb obserwacyjny nigdy nie zapisuje falownika. RCEm nie": "export limit. Observation mode never writes to the inverter. RCEm does not",
-    "przełącza GCF, Grid Charge, asymetrii ani nastaw zabezpieczeń.": "switch GCF, Grid Charge, unbalance or protection settings.",
+    "Planery RCE, ładowania taryfowego i RCEm 253 V+ mogą być włączone": (
+        "RCE, tariff-charging, and RCEm 253 V+ planners may be enabled"
+    ),
+    "jednocześnie. Nadzorca wybiera jedną akcję i utrzymuje dokładnie jednego": (
+        "at the same time. The Supervisor selects one action and keeps exactly one"
+    ),
+    "właściciela; wyrównywanie magazynu i ręczne plany EMS zachowują własne": (
+        "owner; battery balancing and manual EMS plans retain their own"
+    ),
+    "bramki pierwszeństwa.": "priority gates.",
+    "Tryb **Active** pozwala jedynemu executorowi zmieniać limit ładowania najwyżej": (
+        "**Active** mode lets the sole executor change the charging limit by at most"
+    ),
+    "Tryb wykonawczy pozwala jedynemu wykonawcy zmieniać limit ładowania najwyżej": (
+        "Execution mode lets the sole executor change the charging limit by at most"
+    ),
+    "o 10 punktów procentowych na minutę, a limit eksportu o 5–15 punktów": (
+        "10 percentage points per minute and the export limit by 5–15 points"
+    ),
+    "zależnie od napięcia. Przy 253 V eksport może zostać natychmiast": (
+        "depending on voltage. At 253 V export may be immediately"
+    ),
+    "ograniczony do 0%, a magazyn użyje pełnego bezpiecznego limitu BMS.": (
+        "reduced to 0%, while the battery uses the full BMS-safe limit."
+    ),
     "Steruje teraz": "Current controller",
     "Konflikt sterowania": "Control conflict",
     "EMS RCE — pokaż dane zaawansowane": "EMS RCE — show advanced data",
@@ -2126,6 +2423,27 @@ ENGLISH_REPLACEMENTS = {
     ),
     "brak danych o przyczynie": "reason unavailable",
     "Dane sterujące taryfy są nieświeże:": "Tariff control data is stale:",
+    "BMS nie potwierdza dostępnej mocy rozładowania": (
+        "BMS does not confirm available discharge power"
+    ),
+    "SOC lub fizyczny próg rozładowania są nieświeże": (
+        "Battery SOC or the physical discharge floor is stale"
+    ),
+    "Magazyn nie ma zapasu ponad bieżącym progiem SOC": (
+        "Battery storage has no reserve above the current SOC floor"
+    ),
+    "Bieżący limit BMS jest niższy od mocy planu RCE": (
+        "The current BMS limit is lower than the RCE plan power"
+    ),
+    "BMS nie potwierdza dostępnej mocy ładowania": (
+        "BMS does not confirm available charging power"
+    ),
+    "Bieżący SOC magazynu jest nieświeży": (
+        "The current battery-storage SOC is stale"
+    ),
+    "Bieżący limit BMS jest niższy od limitu użytego w planie": (
+        "The current BMS limit is lower than the limit used in the plan"
+    ),
     "brak danych": "data unavailable",
     "Dom zasilany z taniej sieci — bateria zachowana": (
         "Home powered from the low-cost grid — battery preserved"
@@ -2163,9 +2481,19 @@ ENGLISH_REPLACEMENTS = {
     "Aktywne RCE utraciło autoryzację przed zapisem progu SOC": (
         "Active RCE lost authorization before writing the SOC threshold"
     ),
-    "RCE przelicza plan; aktywny zatwierdzony cykl pozostaje bez zmian": (
-        "RCE is recalculating; the accepted active cycle remains unchanged"
+    "RCE synchronizuje kohortę planu; aktywny zatwierdzony cykl pozostaje bez zmian": (
+        "RCE is synchronizing the plan cohort; the accepted active cycle remains unchanged"
     ),
+    "RCE zachowuje świeżo potwierdzony niższy limit 4306;": (
+        "RCE keeps the freshly confirmed lower 4306 limit;"
+    ),
+    "aktualizacja zostanie ponowiona przy kolejnym wyzwoleniu": (
+        "the update will be retried on the next trigger"
+    ),
+    "RCE wycofano po niepotwierdzonej lub niebezpiecznej": (
+        "RCE was rolled back after an unconfirmed or unsafe"
+    ),
+    "aktualizacji limitu 4306": "4306 limit update",
     "Decyzja optymalizatora": "Optimizer decision",
     "Cena RCE teraz": "Current RCE price",
     "Cena graniczna planu": "Plan price floor",
@@ -2282,11 +2610,14 @@ ENGLISH_REPLACEMENTS = {
     "wybiera najtańsze dostępne bloki i ładuje tylko tyle, ile rzeczywiście": (
         "it selects the cheapest available slots and charges only as much as"
     ),
-    "potrzeba. Chroni ustawioną rezerwę SOC, uwzględnia straty oraz nie": (
-        "is actually needed. It protects the configured SOC reserve, accounts for losses,"
+    "potrzeba. Chroni ustawioną rezerwę SOC i uwzględnia straty. Planery": (
+        "is actually needed. It protects the configured SOC reserve and accounts for losses."
     ),
-    "uruchamia się równocześnie z RCE ani inną automatyką EMS.": (
-        "and never runs together with RCE or another EMS automation."
+    "mogą być włączone jednocześnie; Nadzorca wybiera tylko jedną bezpieczną": (
+        "The planners can be enabled at the same time; the Supervisor selects only one safe"
+    ),
+    "akcję wykonawczą.": (
+        "execution action."
     ),
     "Pojemność ustawiona w falowniku": "Capacity configured in the inverter",
     "Pojemność efektywna (awaryjne źródło BMS)": (
@@ -2314,8 +2645,11 @@ ENGLISH_REPLACEMENTS = {
     "Aktywne — ładowanie z sieci": "Active — grid charging",
     "Aktywne — sterowanie taryfowe": "Active — tariff control",
     "Niedostępne — trwa inicjalizacja": "Unavailable — initializing",
-    "Włączone — zablokowane: włączona polityka RCE": (
-        "Enabled — blocked: RCE policy is enabled"
+    "Niedostępne — trwa inicjalizacja EMS": (
+        "Unavailable — EMS is initializing"
+    ),
+    "Tryb zgodności — taryfa zablokowana: włączona polityka RCE": (
+        "Compatibility mode — tariff blocked: RCE policy is enabled"
     ),
     "Włączone — zablokowane: plan niedostępny": (
         "Enabled — blocked: plan unavailable"
@@ -2579,6 +2913,10 @@ ENGLISH_REPLACEMENTS = {
 # safety messages.
 ENGLISH_REPLACEMENTS.update(
     {
+        " · Wymagane w trybie ręcznym": " · Required in Manual mode",
+        " · Wymagane dla G13": " · Required for G13",
+        " · Wymagane": " · Required",
+        " · Opcjonalne": " · Optional",
         "EMS taryfowy — zapamiętany limit mocy ładowania": (
             "Tariff EMS — saved charging-power limit"
         ),
@@ -2673,15 +3011,6 @@ ENGLISH_REPLACEMENTS.update(
         "Własność pozostaje aktywna, dopóki wszystkie odczyty nie są zgodne.": (
             "Ownership remains active until every readback matches."
         ),
-        "Pozwala działać tylko jednemu automatowi wykonawczemu. RCE, ładowanie": (
-            "Allows only one execution automation to run. RCE, tariff charging"
-        ),
-        "taryfowe i aktywne sterowanie RCEm 253 V+ wzajemnie się wykluczają.": (
-            "and active RCEm 253 V+ control are mutually exclusive."
-        ),
-        "RCEm w trybie podglądu może równolegle zbierać dane bez przejmowania EMS.": (
-            "RCEm can collect data in observation mode without taking ownership of EMS."
-        ),
         "Falownik nie potwierdził limitu rozładowania RCE": (
             "The inverter did not confirm the RCE discharging limit"
         ),
@@ -2700,6 +3029,2312 @@ ENGLISH_REPLACEMENTS.update(
         "albo restarcie Home Assistant, nie zwalniając wcześniej własności.": (
             "or a Home Assistant restart without releasing ownership early."
         ),
+    }
+)
+
+# I2 keeps every legacy route and entity while replacing mixed-language labels
+# with natural PL/EN presentation.  These are exact display-string mappings;
+# entity IDs and route-bearing values remain protected and unchanged.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "Backup napięcie L1": "Backup voltage L1",
+        "Backup napięcie L2": "Backup voltage L2",
+        "Backup napięcie L3": "Backup voltage L3",
+        "Backup prąd L1": "Backup current L1",
+        "Backup prąd L2": "Backup current L2",
+        "Backup prąd L3": "Backup current L3",
+        "Docelowy SOC ładowania z sieci": "Grid-charge target SOC",
+        "Energia pobrana z sieci łącznie — faza L1": "Total grid-import energy — phase L1",
+        "Energia pobrana z sieci łącznie — faza L2": "Total grid-import energy — phase L2",
+        "Energia pobrana z sieci łącznie — faza L3": "Total grid-import energy — phase L3",
+        "Energia oddana do sieci łącznie — faza L1": "Total grid-export energy — phase L1",
+        "Energia oddana do sieci łącznie — faza L2": "Total grid-export energy — phase L2",
+        "Energia oddana do sieci łącznie — faza L3": "Total grid-export energy — phase L3",
+        "Energia ładowania magazynu dzisiaj": "Battery-storage charging energy today",
+        "Energia rozładowania magazynu dzisiaj": "Battery-storage discharging energy today",
+        "Energia w zaplanowanych przedziałach ładowania z sieci": "Energy in planned grid-charging intervals",
+        "Energia z PV łącznie": "Total energy from PV",
+        "Energia z magazynu łącznie": "Total energy from battery storage",
+        "Energia z sieci łącznie": "Total energy from the grid",
+        "Energia zewnętrznego PV dzisiaj — faza L1": "External-PV energy today — phase L1",
+        "Energia zewnętrznego PV dzisiaj — faza L2": "External-PV energy today — phase L2",
+        "Energia zewnętrznego PV dzisiaj — faza L3": "External-PV energy today — phase L3",
+        "Energia zewnętrznego PV łącznie — faza L1": "Total external-PV energy — phase L1",
+        "Energia zewnętrznego PV łącznie — faza L2": "Total external-PV energy — phase L2",
+        "Energia zewnętrznego PV łącznie — faza L3": "Total external-PV energy — phase L3",
+        "Falownik napięcie L1": "Inverter voltage L1",
+        "Falownik napięcie L2": "Inverter voltage L2",
+        "Falownik napięcie L3": "Inverter voltage L3",
+        "Falownik prąd L1": "Inverter current L1",
+        "Falownik prąd L2": "Inverter current L2",
+        "Falownik prąd L3": "Inverter current L3",
+        "Falownik sieć częstotliwość": "Inverter grid frequency",
+        "Generator — energia łącznie, faza L1": "Generator — total energy, phase L1",
+        "Generator — energia łącznie, faza L2": "Generator — total energy, phase L2",
+        "Generator — energia łącznie, faza L3": "Generator — total energy, phase L3",
+        "Sieć energia oddawanie łącznie": "Total grid-export energy",
+        "Sieć energia pobór dzisiaj": "Grid-import energy today",
+        "Sieć energia pobór łącznie": "Total grid-import energy",
+        "Licznik sieci — częstotliwość": "Grid meter — frequency",
+        "Licznik sieci — łączna moc czynna": "Grid meter — total active power",
+        "Sieć napięcie L1": "Grid voltage L1",
+        "Sieć napięcie L2": "Grid voltage L2",
+        "Sieć napięcie L3": "Grid voltage L3",
+        "Sieć łącznie bierna moc": "Total grid reactive power",
+        "Magazyn — moc łączna (blok pomiarowy)": "Battery storage — total power (metering block)",
+        "Magistrala napięcie": "Bus voltage",
+        "Maksymalna ładowanie prąd": "Maximum charging current",
+        "Maksymalna rozładowanie prąd": "Maximum discharging current",
+        "Maksymalna moc ładowania baterii": "Maximum battery charging power",
+        "Maksymalna moc rozładowania baterii": "Maximum battery discharging power",
+        "Maksymalna moc ładowania z sieci": "Maximum grid-charging power",
+        "Maksymalna moc rozładowania do sieci": "Maximum grid-discharging power",
+        "Maksymalna moc ładowania z sieci (dom i magazyn)": "Maximum grid-charging power (home and battery storage)",
+        "Minimalny SOC rozładowania do sieci": "Minimum grid-discharge SOC",
+        "Moc czynna inteligentnego obciążenia": "Smart-load active power",
+        "Moc ładowania z sieci przy niskim SOC": "Grid-charging power at low SOC",
+        "Odbiorniki moc łącznie": "Total home-load power",
+        "PV częstotliwość": "PV frequency",
+        "PV łącznie bierna moc": "Total PV reactive power",
+        "PV łącznie czynna moc": "Total PV active power",
+        "PV łącznie energia": "Total PV energy",
+        "PV łącznie energia dzisiaj": "PV energy today",
+        "PV — moc łączna (blok pomiarowy)": "PV — total power (metering block)",
+        "PV → dom — energia łącznie": "PV → home — total energy",
+        "PV → magazyn — energia łącznie": "PV → battery storage — total energy",
+        "PV → sieć — energia dzisiaj": "PV → grid — energy today",
+        "PV → sieć — energia łącznie": "PV → grid — total energy",
+        "PV → sieć — moc": "PV → grid — power",
+        "PV1 łącznie energia": "PV1 total energy",
+        "PV2 łącznie energia": "PV2 total energy",
+        "PV3 łącznie energia": "PV3 total energy",
+        "PV4 łącznie energia": "PV4 total energy",
+        "Podgląd mocy baterii": "Battery-power monitor",
+        "Podgląd mocy czynnej falownika": "Inverter active-power monitor",
+        "Podgląd mocy czynnej generatora": "Generator active-power monitor",
+        "Podgląd mocy czynnej odbiorników": "Home-load active-power monitor",
+        "Podgląd stanu naładowania baterii": "Battery SOC monitor",
+        "Podgląd łącznej mocy PV": "Total PV-power monitor",
+        "Podgląd łącznej mocy czynnej sieci": "Total grid active-power monitor",
+        "Podgląd łącznej mocy wewnętrznych wejść PV": "Internal-PV total-power monitor",
+        "Podgląd łącznej mocy zewnętrznych źródeł PV": "External-PV total-power monitor",
+        "SOC rozpoczęcia ładowania z sieci": "Grid-charging start SOC",
+        "Napięcie graniczne ładowania": "Charging cut-off voltage",
+        "Napięcie graniczne rozładowania": "Discharging cut-off voltage",
+        "Współczynnik mocy PV": "PV power factor",
+        "Współczynnik mocy PV — faza L1": "PV power factor — phase L1",
+        "Współczynnik mocy PV — faza L2": "PV power factor — phase L2",
+        "Współczynnik mocy PV — faza L3": "PV power factor — phase L3",
+        "Współczynnik mocy sieci": "Grid power factor",
+        "Współczynnik mocy sieci — faza L1": "Grid power factor — phase L1",
+        "Współczynnik mocy sieci — faza L2": "Grid power factor — phase L2",
+        "Współczynnik mocy sieci — faza L3": "Grid power factor — phase L3",
+        "Zewnętrzne PV energia łącznie": "Total external-PV energy",
+        "Zewnętrzne PV łącznie energia dzisiaj": "External-PV energy today",
+        "Zewnętrzne PV — moc fazy L1": "External-PV power — phase L1",
+        "Zewnętrzne PV — moc fazy L2": "External-PV power — phase L2",
+        "Zewnętrzne PV — moc fazy L3": "External-PV power — phase L3",
+        "Zewnętrzne PV — moc łączna (blok pomiarowy)": "External PV — total power (metering block)",
+        "Zużycie domu — energia dzisiaj": "Home consumption — energy today",
+        "Zużycie domu — energia dzisiaj, faza L1": "Home consumption — energy today, phase L1",
+        "Zużycie domu — energia dzisiaj, faza L2": "Home consumption — energy today, phase L2",
+        "Zużycie domu — energia dzisiaj, faza L3": "Home consumption — energy today, phase L3",
+        "Zużycie domu — energia łącznie": "Home consumption — total energy",
+        "Zużycie domu — energia łącznie, faza L1": "Home consumption — total energy, phase L1",
+        "Zużycie domu — energia łącznie, faza L2": "Home consumption — total energy, phase L2",
+        "Zużycie domu — energia łącznie, faza L3": "Home consumption — total energy, phase L3",
+        "Zużycie domu — moc fazy L1": "Home consumption — power, phase L1",
+        "Zużycie domu — moc fazy L2": "Home consumption — power, phase L2",
+        "Zużycie domu — moc fazy L3": "Home consumption — power, phase L3",
+        "Błędy magazynu": "Battery-storage faults",
+        "Maksymalna moc ładowania magazynu": "Maximum battery-storage charging power",
+        "Maksymalna moc rozładowania magazynu": "Maximum battery-storage discharging power",
+        "Rzeczywisty globalny limit ładowania magazynu": "Actual global battery-storage charging limit",
+        "Łącze magazynu": "Battery-storage link",
+        "Jak działa tania energia": "How lower-price energy automation works",
+    }
+)
+
+# Shared EMS input helpers live in a package separate from the scheduler.  Keep
+# the canonical package Polish and render the bundled English copy through the
+# same deterministic asset pipeline.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "EMS — encja prognozy PV na dzisiaj": "EMS — PV forecast entity for today",
+        "EMS — encja prognozy PV na jutro": "EMS — PV forecast entity for tomorrow",
+        "EMS — encja prognozy PV na trzeci dzień": "EMS — PV forecast entity for day 3",
+        "EMS — zastępcze dobowe zużycie domu": "EMS — fallback daily home load",
+        "EMS — moc znamionowa jednego falownika": "EMS — rated power of one inverter",
+        '"Automatycznie"': '"Automatic"',
+    }
+)
+
+# v1.5.8 keeps the battery-balancing package bilingual while preserving the
+# localized physical text-state values used by each managed scheduler variant.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "EMS — Powiadomienia EMS": "EMS — EMS notifications",
+        "Wyrównywanie magazynu — data porannej zapowiedzi": (
+            "Battery balancing — morning reminder date"
+        ),
+        "Wyrównywanie magazynu — poranna zapowiedź cyklu": (
+            "Battery balancing — morning cycle reminder"
+        ),
+        "Najwyżej raz w lokalnym dniu planu o 07:00, z ograniczonym odrobieniem": (
+            "At most once on the local scheduled day at 07:00, with bounded catch-up"
+        ),
+        "po restarcie do 09:00. Nie uruchamia ani nie zmienia cyklu.": (
+            "after restart until 09:00. It does not start or change the cycle."
+        ),
+        "Dziś trwa balansowanie magazynu.": (
+            "Battery balancing is running today."
+        ),
+        "Dziś zaplanowano balansowanie magazynu.": (
+            "Battery balancing is scheduled today."
+        ),
+        "Balansowanie magazynu zakończone.": "Battery balancing completed.",
+        "Nie zakończono poprawnie balansowania magazynu —": (
+            "Battery balancing did not finish correctly —"
+        ),
+        "Balansowanie magazynu przerwane —": "Battery balancing stopped —",
+        "EMS — niezależne alarmy falownika i sieci": (
+            "EMS — independent inverter and grid alarms"
+        ),
+        "Zachowuje alarmy falownika i zaniku sieci poza grupowaniem przebiegu EMS.": (
+            "Keeps inverter and grid-loss alarms separate from EMS run grouping."
+        ),
+        "Świadomie wybrana, zgodna praca Off-Grid nie jest alarmem.": (
+            "Intentional, consistent Off-Grid operation is not an alarm."
+        ),
+        "Hoymiles — alarm falownika": "Hoymiles — inverter alarm",
+        "Wyrównywanie magazynu — stan transakcji (zgodność)": (
+            "Battery balancing — transaction state (compatibility)"
+        ),
+        "Wyrównywanie magazynu — transakcyjny stan cyklu b2": (
+            "Battery balancing — transactional b2 cycle state"
+        ),
+        "Wyrównywanie magazynu — terminy i generacje transakcji": (
+            "Battery balancing — transaction deadlines and generations"
+        ),
+        "Wyrównywanie magazynu — trwałe żądanie bezpiecznego przerwania": (
+            "Battery balancing — durable safe-abort request"
+        ),
+        "Wyrównywanie magazynu — trwała kolejka powiadomień": (
+            "Battery balancing — durable notification outbox"
+        ),
+        "Wyrównywanie magazynu — trwały licznik transakcji": (
+            "Battery balancing — durable transaction counter"
+        ),
+        "Wyrównywanie magazynu — zapisz kanoniczny rekord b2": (
+            "Battery balancing — write canonical b2 record"
+        ),
+        "Wyrównywanie magazynu — zapisz kanoniczne terminy t1": (
+            "Battery balancing — write canonical t1 deadlines"
+        ),
+        "Wyrównywanie magazynu — zapisz kanoniczne żądanie a1": (
+            "Battery balancing — write canonical a1 request"
+        ),
+        "Wyrównywanie magazynu — zapisz kanoniczną kolejkę o1": (
+            "Battery balancing — write canonical o1 outbox"
+        ),
+        "Wyrównywanie magazynu — zapisz zdarzenie do trwałej kolejki": (
+            "Battery balancing — enqueue durable event"
+        ),
+        "Wyrównywanie magazynu — aktualizuj dostarczenie kolejki": (
+            "Battery balancing — update outbox delivery"
+        ),
+        "Wyrównywanie magazynu — niezależny dispatcher powiadomień": (
+            "Battery balancing — independent notification dispatcher"
+        ),
+        "Wyrównywanie magazynu — trwale przechwyć hard-stop": (
+            "Battery balancing — durably capture hard stop"
+        ),
+        "Wyrównywanie magazynu — zgodny wrapper przerwania": (
+            "Battery balancing — compatibility abort wrapper"
+        ),
+        "Wyrównywanie magazynu — trwały strażnik miękkiej luki": (
+            "Battery balancing — durable soft-gap guard"
+        ),
+        "Wyrównywanie magazynu — strażnik generacji utrzymania": (
+            "Battery balancing — hold-generation guard"
+        ),
+        "Wyrównywanie magazynu — wejdź w ręczne odzyskanie": (
+            "Battery balancing — enter manual recovery"
+        ),
+        "Wyrównywanie magazynu — inicjalizuj bezczynne rekordy": (
+            "Battery balancing — initialize idle records"
+        ),
+        "Wyrównywanie magazynu — przejście rekordu b2": (
+            "Battery balancing — b2 record transition"
+        ),
+        "Wyrównywanie magazynu — zleć uzgodnienie celu": (
+            "Battery balancing — request target reconciliation"
+        ),
+        "Wyrównywanie magazynu — zleć bezpieczny start": (
+            "Battery balancing — request safe start"
+        ),
+        "Wyrównywanie magazynu — zleć bezpieczne odtworzenie": (
+            "Battery balancing — request safe restoration"
+        ),
+        "Wyrównywanie magazynu — serializowany worker fizyczny": (
+            "Battery balancing — serialized physical worker"
+        ),
+        "Wyrównywanie magazynu — niezależne przechwycenie hard-stop": (
+            "Battery balancing — independent hard-stop capture"
+        ),
+        "Wyrównywanie magazynu — krótki kontroler transakcji": (
+            "Battery balancing — short transaction controller"
+        ),
+        "Wyrównywanie magazynu — dostarcz trwałe powiadomienia": (
+            "Battery balancing — deliver durable notifications"
+        ),
+        "Wyrównywanie magazynu — trwały stan cyklu": (
+            "Battery balancing — durable cycle state"
+        ),
+        "Wyrównywanie magazynu — powiadomienie cyklu": (
+            "Battery balancing — lifecycle notification"
+        ),
+        "Wyrównywanie magazynu — przerwij lub wstrzymaj zapis": (
+            "Battery balancing — abort or pause the write"
+        ),
+        "Wyrównywanie magazynu — limit miękkiej luki danych": (
+            "Battery balancing — soft data-gap limit"
+        ),
+        "Wyrównywanie magazynu — zastosuj zweryfikowany cel": (
+            "Battery balancing — apply verified target"
+        ),
+        "Wymagane ręczne odzyskanie — brak zaufanej migawki": (
+            "Manual recovery required — no trusted snapshot"
+        ),
+        "Błąd odtwarzania — własność pozostaje zablokowana": (
+            "Restoration failed — ownership remains locked"
+        ),
+        "Wymagane ręczne odzyskanie — nieprawidłowy stan transakcji": (
+            "Manual recovery required — invalid transaction state"
+        ),
+        "Stosowanie transakcyjnego celu ładowania": (
+            "Applying transactional charging target"
+        ),
+        "Uzbrajanie czasu wyrównywania przy 100% SOC": (
+            "Arming balancing hold at 100% SOC"
+        ),
+        "Przyjęto żądanie bezpiecznego przerwania": (
+            "Safe-abort request accepted"
+        ),
+        "Jedyny serializer cyklu. Odrzuca niekanoniczne pola i każdą wartość": (
+            "The sole cycle serializer. It rejects non-canonical fields and every value"
+        ),
+        "dłuższą niż 255 znaków przed wywołaniem usługi input_text.": (
+            "longer than 255 characters before calling the input_text service."
+        ),
+        "Jedyny serializer terminu miękkiej luki i dwufazowego utrzymania.": (
+            "The sole serializer for the soft gap and two-phase hold deadlines."
+        ),
+        "Jedyny serializer trwałego żądania hard-stop.": (
+            "The sole serializer for the durable hard-stop request."
+        ),
+        "Jedyny serializer dwóch trwałych zdarzeń telefonu; zawsze sprawdza": (
+            "The sole serializer for two durable phone events; it always checks"
+        ),
+        "granicę 255 znaków przed usługą helpera.": (
+            "the 255-character boundary before calling the helper service."
+        ),
+        "Tworzy najwyżej jeden rekord danego rodzaju dla cyklu. Nie wywołuje": (
+            "Creates at most one event of each kind per cycle. It does not call"
+        ),
+        "usługi telefonu i nie należy do fizycznej ścieżki odtwarzania.": (
+            "the phone service and is not part of the physical restore path."
+        ),
+        "Zmienia tylko stan dokładnie wskazanego zdarzenia.": (
+            "Changes only the exactly selected event state."
+        ),
+        "Dostarcza PENDING poza transakcją fizyczną. Próba jest zapisana przed": (
+            "Delivers PENDING outside the physical transaction. The attempt is stored before"
+        ),
+        "usługą telefonu; niejednoznaczny wynik kończy się bez ponowienia.": (
+            "the phone service; an ambiguous result ends without retrying."
+        ),
+        "Id zdarzenia: {{ leased_tag }}": "Event ID: {{ leased_tag }}",
+        "Id zdarzenia: {{ selected_tag }}": "Event ID: {{ selected_tag }}",
+        "Krótka niezależna ścieżka bez zapisu Modbus. Zachowuje pierwszy powód": (
+            "A short independent path without a Modbus write. It retains the first reason"
+        ),
+        "o najwyższym priorytecie i uruchamia jeden serializowany worker fizyczny.": (
+            "at the highest priority and starts one serialized physical worker."
+        ),
+        "Zgodność starszych wywołań. Miękka luka jest obsługiwana przez trwały": (
+            "Compatibility for older calls. The soft gap is handled by a durable"
+        ),
+        "termin t1; każdy powód przekazany tutaj staje się trwałym hard-stop.": (
+            "t1 deadline; every reason passed here becomes a durable hard stop."
+        ),
+        "Czeka wyłącznie do absolutnego terminu t1. Po restarcie kontroler uruchamia": (
+            "Waits only until the absolute t1 deadline. After restart the controller starts"
+        ),
+        "pozostały czas; starsza generacja nie może przerwać nowszego cyklu.": (
+            "the remaining time; an older generation cannot abort a newer cycle."
+        ),
+        "Emituje zdarzenie związane z cyklem, generacją i absolutnym terminem.": (
+            "Emits an event tied to the cycle, generation and absolute deadline."
+        ),
+        "Zwykłe timer.finished nie przyznaje uprawnienia do zakończenia cyklu.": (
+            "A plain timer.finished event grants no authority to complete the cycle."
+        ),
+        "Fail-closed dla aktywnego niezweryfikowanego stanu. Nie odtwarza": (
+            "Fail-closed for active unverified state. It does not restore"
+        ),
+        "rejestrów, nie zgaduje trybu i nie zwalnia istniejącego właściciela.": (
+            "registers, guess a mode, or release the existing owner."
+        ),
+        "Tworzy kanoniczne rekordy wyłącznie dla udowodnionej świeżej,": (
+            "Creates canonical records only for a proven fresh,"
+        ),
+        "nieaktywnej instalacji; nie wykonuje żadnej czynności fizycznej.": (
+            "inactive installation; it performs no physical action."
+        ),
+        "Łączy niezmienione pola poprawnego rekordu z jawnymi nadpisaniami i": (
+            "Combines unchanged valid-record fields with explicit overrides and"
+        ),
+        "deleguje zapis do jedynego kanonicznego serializera.": (
+            "delegates the write to the sole canonical serializer."
+        ),
+        "Wrapper zgodności. Nie zawiera fizycznego zapisu; zleca pracę jedynemu": (
+            "Compatibility wrapper. It contains no physical write and delegates work to the sole"
+        ),
+        "serializowanemu workerowi transakcji.": (
+            "serialized transaction worker."
+        ),
+        "Wrapper zgodności. Monotoniczną tożsamość, własność i migawkę tworzy": (
+            "Compatibility wrapper. The monotonic identity, ownership and snapshot are created"
+        ),
+        "wyłącznie serializowany worker.": (
+            "only by the serialized worker."
+        ),
+        "Wrapper zgodności. Najpierw trwale zapisuje powód, a odtworzenie wykonuje": (
+            "Compatibility wrapper. It first stores the reason durably; restoration is performed by"
+        ),
+        "Jedyna transakcja fizyczna wyrównywania. Przed i po każdym oczekiwanym": (
+            "The sole physical balancing transaction. Before and after every awaited"
+        ),
+        "helperze sprawdza właściciela, zaufaną migawkę i trwały hard-stop.": (
+            "helper it checks ownership, the trusted snapshot and the durable hard stop."
+        ),
+        "Krótka kolejka niezależna od workera fizycznego. Trwale zapisuje": (
+            "A short queue independent of the physical worker. It durably stores"
+        ),
+        "najwyższy precyzyjny powód i nie wykonuje żadnego zapisu Modbus.": (
+            "the highest precise reason and performs no Modbus write."
+        ),
+        "Reaguje krótko i nie zawiera helperów fizycznych. Odtwarza strażniki": (
+            "It reacts briefly and contains no physical helpers. It restores"
+        ),
+        "terminów po restarcie i zleca pracę jedynemu workerowi szeregowemu.": (
+            "deadline guards after restart and delegates work to the sole queued worker."
+        ),
+        "Oddzielny dispatcher telefonu. Błąd, restart lub zawieszenie dostawcy": (
+            "A separate phone dispatcher. Provider failure, restart or hang"
+        ),
+        "nie blokuje odtworzenia, właściciela ani timera transakcji.": (
+            "does not block restoration, ownership or transaction timers."
+        ),
+        "wykryto niemożliwy skok zegara": "an impossible clock jump was detected",
+        "stan fizyczny zmienił się przed pierwszym zapisem": (
+            "physical state changed before the first write"
+        ),
+        "rekord transakcji jest nieprawidłowy": "the transaction record is invalid",
+        "starszy cykl nie ma zaufanej migawki": (
+            "the legacy cycle has no trusted snapshot"
+        ),
+        "odtwarzanie nie uzyskało potwierdzenia": (
+            "restoration did not receive acknowledgement"
+        ),
+        "transakcja fizyczna nie powiodła się": "the physical transaction failed",
+        "Przygotowanie cyklu wyrównywania": "Preparing the balancing cycle",
+        "Ładowanie z PV do 95% SOC": "Charging from PV to 95% SOC",
+        "Ładowanie z sieci do 95% SOC": "Charging from the grid to 95% SOC",
+        "Wolne ładowanie ok. 0,4 kW od 95% do 100% SOC": (
+            "Slow charging at approximately 0.4 kW from 95% to 100% SOC"
+        ),
+        "Wyrównywanie ogniw przy 100% SOC": "Balancing cells at 100% SOC",
+        "Bezpieczne kończenie cyklu wyrównywania": (
+            "Safely completing the balancing cycle"
+        ),
+        "Bezpieczne przerywanie cyklu wyrównywania": (
+            "Safely aborting the balancing cycle"
+        ),
+        "Bezpieczne kończenie przygotowania cyklu": (
+            "Safely ending balancing-cycle preparation"
+        ),
+        "Nieznany etap cyklu wyrównywania": "Unknown balancing-cycle phase",
+        "Limit BMS dla jednego pola EMS 4304. W Self-Use ogranicza moc": (
+            "BMS limit for the single EMS 4304 field. In Self-Use it limits"
+        ),
+        "ładowania baterii, a w Grid Charge obejmuje LOAD i moc baterii.": (
+            "battery charging; in Grid Charge it covers LOAD and battery power."
+        ),
+        "Jeden wspólny limit EMS 4304 dla około 0,4 kW netto w baterii:": (
+            "One shared EMS 4304 limit for approximately 0.4 kW net into the battery:"
+        ),
+        "bez LOAD w Self-Use i z LOAD dodanym dokładnie raz w Grid Charge.": (
+            "without LOAD in Self-Use and with LOAD added exactly once in Grid Charge."
+        ),
+        "Wysyła najwyżej jedno STARTED i jedno zdarzenie końcowe na trwałą": (
+            "Sends at most one STARTED and one terminal event for a durable"
+        ),
+        "tożsamość cyklu. Błąd usługi notify nie wpływa na fizyczny cykl.": (
+            "cycle identity. A notify-service error does not affect the physical cycle."
+        ),
+        "Miękka luka danych w Self-Use tylko wstrzymuje bieżący zapis. Każdy twardy": (
+            "A soft Self-Use data gap only pauses the current write. Every hard"
+        ),
+        "błąd i każda luka w Grid Charge uruchamiają bezpieczne zakończenie.": (
+            "failure and every Grid Charge gap starts safe closeout."
+        ),
+        "Jednorazowo odmierza 60 s od pierwszego braku świeżości. Kolejne zdarzenia": (
+            "Measures 60 s once from the first freshness loss. Subsequent events"
+        ),
+        "nie restartują terminu; powrót danych zeruje znacznik w kontrolerze.": (
+            "do not restart the deadline; returning data clears the controller marker."
+        ),
+        "Wspólna ścieżka zapisów dla PV, sieci, fazy wolnej i utrzymania.": (
+            "Shared write path for PV, grid, slow, and holding phases."
+        ),
+        "Korzysta wyłącznie z istniejących helperów pełnego bloku EMS 4300–4306.": (
+            "Uses only the existing verified full EMS 4300–4306 block helpers."
+        ),
+        "Przejmuje wolny EMS, zapisuje dokładny tryb i nastawy, a STARTED wysyła": (
+            "Claims an idle EMS, saves the exact mode and settings, and sends STARTED"
+        ),
+        "dopiero po potwierdzonym wejściu w fazę PV, sieciową albo wolną.": (
+            "only after acknowledged entry into the PV, grid, or slow phase."
+        ),
+        "Odtwarza dokładnie zapisany tryb, limit mocy i cel SOC. Off-Grid zawsze": (
+            "Restores the exact saved mode, power limit, and SOC target. Off-Grid always"
+        ),
+        "zachowuje fizyczną własność. Błąd zgłasza raz przed odtwarzaniem, a": (
+            "retains physical ownership. A failure is reported once before restore, and"
+        ),
+        "poprawne zakończenie dopiero po closeout.": (
+            "successful completion only after closeout."
+        ),
+        "Ładuje normalnie do 95% SOC, następnie utrzymuje około 0,4 kW netto": (
+            "Charges normally to 95% SOC, then maintains approximately 0.4 kW net"
+        ),
+        "w baterii. Pełny czas wyrównywania zaczyna dopiero od 99,9% po ACK.": (
+            "into the battery. The full balancing hold starts only at 99.9% after ACK."
+        ),
+        "Wysyła stabilne zmiany EMS, ale nie powiela oczekiwanych przejść": (
+            "Sends stable EMS changes without duplicating expected transitions of an"
+        ),
+        "aktywnego lub bezpiecznie zamkniętego cyklu wyrównywania.": (
+            "active or safely closed balancing cycle."
+        ),
+        "Wysyła stabilne zmiany EMS. Zamknięte allowlisty pomijają wyłącznie": (
+            "Sends stable EMS changes. Closed allowlists suppress only"
+        ),
+        "oczekiwane lub dokładnie pokryte zdarzeniem transakcji wyrównywania.": (
+            "expected changes or changes exactly covered by a balancing transaction event."
+        ),
+        "Krytyczne zdarzenie aktywnego wyrównywania zgłoszono jednym": (
+            "The active balancing critical event was reported by one"
+        ),
+        "powiadomieniem cyklu; ogólne powiadomienie jest pominięte": (
+            "cycle notification; the generic notification is skipped"
+        ),
+        "Oczekiwana zmiana wyrównywania albo błąd już zgłoszony przez": (
+            "Expected balancing change or a fault already reported by the"
+        ),
+        "pojedyncze powiadomienie końcowe; sygnatura nie jest zmieniana": (
+            "single terminal notification; the fingerprint is not changed"
+        ),
+        "Oczekiwana albo dokładnie pokryta zmiana wyrównywania;": (
+            "Expected or exactly covered balancing change;"
+        ),
+        "ogólna sygnatura pozostaje niezmieniona": (
+            "the generic fingerprint remains unchanged"
+        ),
+        "Stabilny kod przyczyny zakończenia": "Stable terminal reason code",
+        "cykl zakończony poprawnie": "cycle completed successfully",
+        "użytkownik wyłączył wyrównywanie": "the user disabled balancing",
+        "wykryto fizyczny tryb Off-Grid": "physical Off-Grid mode was detected",
+        "bezpieczny limit BMS jest niewykonalny": "the safe BMS limit is not writable",
+        "dane BMS są nieprawidłowe": "BMS data is invalid",
+        "dane obciążenia domu są nieprawidłowe": "house-load data is invalid",
+        "BMS zgłosił błąd": "the BMS reported a fault",
+        "falownik zgłosił awarię": "the inverter reported a fault",
+        "topologia falowników jest nieprawidłowa": "inverter topology is invalid",
+        "wykryto konflikt sterowania": "a control conflict was detected",
+        "utracono własność sterowania": "control ownership was lost",
+        "przerwa świeżości danych przekroczyła 60 s": (
+            "the data-freshness gap exceeded 60 s"
+        ),
+        "utracono wiarygodną komunikację": "reliable communication was lost",
+        "brak potwierdzenia limitu mocy": "the power limit was not acknowledged",
+        "brak potwierdzenia celu SOC": "the SOC target was not acknowledged",
+        "brak potwierdzenia trybu EMS": "the EMS mode was not acknowledged",
+        "przekroczono limit czasu cyklu": "the cycle watchdog expired",
+        "odtworzony niepełny cykl zakończono bezpiecznie": (
+            "the restored incomplete cycle was closed safely"
+        ),
+        "nieznany błąd wewnętrzny": "unknown internal error",
+        "nieznany kod przyczyny": "unknown reason code",
+        "niedostępny": "unavailable",
+        "Hoymiles — wyrównywanie baterii": "Hoymiles — battery balancing",
+        "Przyczyna:": "Reason:",
+        "Końcowy SOC:": "Final SOC:",
+        "Etap:": "Phase:",
+        "Cykl:": "Cycle:",
+        "Test sieci": "Grid test",
+        "Awaria": "Fault",
+        "Praca wyspowa": "Off-grid operation",
+        "najpierw wykorzystuje produkcję PV i normalny limit BMS do 95% SOC.": (
+            "first uses PV production and the normal BMS limit to 95% SOC."
+        ),
+        "Od pierwszego prawidłowego odczytu co najmniej 95% utrzymuje wolne": (
+            "From the first valid reading at or above 95%, it maintains slow"
+        ),
+        "ładowanie około 0,4 kW netto dla całego magazynu. Po zachodzie używa": (
+            "charging at approximately 0.4 kW net for the complete battery. After sunset it uses"
+        ),
+        "zweryfikowanego Grid Charge i dodaje zużycie domu dokładnie raz.": (
+            "verified Grid Charge and adds household load exactly once."
+        ),
+        "Zadany czas wyrównywania zaczyna liczyć dopiero po fizycznym": (
+            "The configured balancing hold starts only after physical"
+        ),
+        "potwierdzeniu trybu i nastaw przy 99,9% SOC.": (
+            "acknowledgement of the mode and settings at 99.9% SOC."
+        ),
+        "zablokowane przez istniejącą własność EMS; ich stan pozostaje": (
+            "blocked by existing EMS ownership; their state remains"
+        ),
+        "niezmieniony. Krótka luka świeżości w Self-Use tylko wstrzymuje zapis,": (
+            "unchanged. A short Self-Use freshness gap only pauses writes,"
+        ),
+        "a błędy bezpieczeństwa zatrzymują cykl natychmiast. Zakończenie albo": (
+            "while safety failures stop the cycle immediately. Completion or"
+        ),
+        "wyłączenie przywraca dokładne wcześniejsze nastawy i tryb EMS;": (
+            "disable restores the exact prior settings and EMS mode;"
+        ),
+        "fizyczny Off-Grid zawsze ma pierwszeństwo. Funkcji używaj zgodnie z": (
+            "physical Off-Grid always has priority. Use this function according to"
+        ),
+        "fizyczna praca wyspowa zawsze ma pierwszeństwo. Funkcji używaj zgodnie z": (
+            "physical Off-Grid operation always has priority. Use this function according to"
+        ),
+        "zaleceniami producenta baterii.": (
+            "the battery manufacturer's recommendations."
+        ),
+    }
+)
+
+# EMS Supervisor Active adds user-visible automation descriptions after the
+# earlier bilingual scheduler map. Keep the canonical scheduler Polish and
+# translate these exact phrases through the same deterministic generator.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "EMS — jawny MASTER STOP": (
+            "EMS — explicit MASTER STOP"
+        ),
+        "Przekazuje jedno jawne żądanie zatrzymania do jedynego executora Active.": (
+            "Forwards one explicit stop request to the sole Active executor."
+        ),
+        "Wynik jest publikowany przez sensor Nadzorcy po readbacku i rollbacku.": (
+            "The Supervisor sensor publishes the result after readback and rollback."
+        ),
+        "EMS — interlock zgodności legacy poza Active": (
+            "EMS — legacy compatibility interlock outside Active"
+        ),
+        "Poza Active zachowuje wcześniejszą wyłączność automatyk. W Active trzy": (
+            "Outside Active it preserves the previous automation exclusivity. In Active, all three"
+        ),
+        "planery mogą działać równocześnie, a zapisuje wyłącznie Supervisor.": (
+            "planners may run concurrently while only the Supervisor may write."
+        ),
+        "Co minutę stosuje rekomendację planera napięcia do globalnego limitu": (
+            "Every minute, it applies the voltage planner recommendation to the global"
+        ),
+        "Battery Max Charge Power oraz — po osobnym włączeniu — do maksymalnego": (
+            "Battery Max Charge Power limit and — when separately enabled — to the maximum"
+        ),
+        "limitu eksportu w trybie zgodności poza Active. W Active ten legacy": (
+            "export limit in compatibility mode outside Active. In Active, this legacy"
+        ),
+        "executor jest zablokowany, a RCEm publikuje kandydata dla Supervisora.": (
+            "executor is blocked and RCEm publishes a Supervisor candidate."
+        ),
+        "RCEm nie przełącza GCF, asymetrii ani nastaw zabezpieczeń.": (
+            "RCEm does not switch GCF, phase imbalance, or protection settings."
+        ),
+    }
+)
+
+# I2 keeps the canonical dashboard in natural Polish and produces an equally
+# natural English asset.  These full-label replacements deliberately precede
+# the older short compatibility tokens during the length-sorted translation
+# pass; that prevents hybrids such as ``Low-cost energia`` or
+# ``Voltage magazynu`` without changing stable routes or entity IDs.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "Magazyn energii": "Battery storage",
+        "Sprzedaż energii — Automatyka według cen RCE": (
+            "Energy sales — RCE price automation"
+        ),
+        "Sprzedaż energii — automatyka według cen RCE": (
+            "Energy sales — RCE price automation"
+        ),
+        "Włącz sprzedaż energii · Wymagane": "Enable energy sales · Required",
+        "Maksymalna moc sprzedaży · Wymagane": (
+            "Maximum export power · Required"
+        ),
+        "Godziny bez sprzedaży · Opcjonalne": (
+            "Export lockout hours · Optional"
+        ),
+        "Energia oddana przez magazyn — diagnostycznie": (
+            "Energy discharged from battery storage — diagnostics"
+        ),
+        "Tania energia — Ładowanie magazynu i zasilanie domu w tańszej strefie": (
+            "Low-cost energy — battery charging and home supply in the "
+            "lower-price period"
+        ),
+        "Tania energia — ładowanie magazynu i zasilanie domu w tańszej strefie": (
+            "Low-cost energy — battery charging and home supply in the "
+            "lower-price period"
+        ),
+        "Włącz tanią energię · Wymagane": "Enable low-cost energy · Required",
+        "Maksymalna moc poboru · Wymagane": "Maximum import power · Required",
+        "Stan wykonania": "Execution status",
+        "Tania energia — diagnostyka": "Low-cost energy — diagnostics",
+        "Ochrona przed wysokim napięciem — RCEm 253 V+": (
+            "High-voltage protection — RCEm 253 V+"
+        ),
+        "Włącz ochronę przed wysokim napięciem · Wymagane": (
+            "Enable high-voltage protection · Required"
+        ),
+        "Płynna regulacja eksportu · Opcjonalne": (
+            "Smooth export control · Optional"
+        ),
+        "Przygotowanie miejsca przed dużą produkcją PV · Opcjonalne": (
+            "Create battery headroom before high PV production · Optional"
+        ),
+        "PV1 dzisiaj energia": "PV1 energy today",
+        "PV2 dzisiaj energia": "PV2 energy today",
+        "PV3 dzisiaj energia": "PV3 energy today",
+        "PV4 dzisiaj energia": "PV4 energy today",
+        "PV moc": "PV power",
+        "PV1 — moc (blok pomiarowy)": "PV1 — power (metering block)",
+        "PV2 — moc (blok pomiarowy)": "PV2 — power (metering block)",
+        "PV3 — moc (blok pomiarowy)": "PV3 — power (metering block)",
+        "PV4 — moc (blok pomiarowy)": "PV4 — power (metering block)",
+        "Zużycie domu — moc ostatnie 24 godziny [W]": (
+            "Home consumption — power over the last 24 hours [W]"
+        ),
+        "Backup pozorna moc": "Backup apparent power",
+        "Backup pozorna moc L1": "Backup apparent power L1",
+        "Backup pozorna moc L2": "Backup apparent power L2",
+        "Backup pozorna moc L3": "Backup apparent power L3",
+        "Backup czynna moc": "Backup active power",
+        "Backup czynna moc L1": "Backup active power L1",
+        "Backup czynna moc L2": "Backup active power L2",
+        "Backup czynna moc L3": "Backup active power L3",
+        "Zużycie domu — moc": "Home consumption — power",
+        "Moc czynna domu — pomiar bezpośredni": (
+            "Home active power — direct measurement"
+        ),
+        "Łączna moc zużycia domu": "Total home-load power",
+        "Zużycie domu — energia": "Home consumption — energy",
+        "Magazyn energii — stan, moc i limity BMS": (
+            "Battery storage — status, power, and BMS limits"
+        ),
+        "Moc baterii (BMS)": "Battery power (BMS)",
+        "Magazyn energii — energia": "Battery storage — energy",
+        "Sieć czynna moc": "Grid active power",
+        "Sieć czynna moc L1": "Grid active power L1",
+        "Sieć czynna moc L2": "Grid active power L2",
+        "Sieć czynna moc L3": "Grid active power L3",
+        "Energia pobrana z sieci dzisiaj — faza L1": (
+            "Grid-import energy today — phase L1"
+        ),
+        "Energia pobrana z sieci dzisiaj — faza L2": (
+            "Grid-import energy today — phase L2"
+        ),
+        "Energia pobrana z sieci dzisiaj — faza L3": (
+            "Grid-import energy today — phase L3"
+        ),
+        "Sieć energia oddawanie dzisiaj": "Grid-export energy today",
+        "Energia oddana do sieci dzisiaj — faza L1": (
+            "Grid-export energy today — phase L1"
+        ),
+        "Energia oddana do sieci dzisiaj — faza L2": (
+            "Grid-export energy today — phase L2"
+        ),
+        "Energia oddana do sieci dzisiaj — faza L3": (
+            "Grid-export energy today — phase L3"
+        ),
+        "PV → magazyn — moc": "PV → battery storage — power",
+        "PV → dom — moc": "PV → home — power",
+        "Dom z PV — moc": "Home supplied by PV — power",
+        "PV → magazyn — energia dzisiaj": (
+            "PV → battery storage — energy today"
+        ),
+        "PV → dom — energia dzisiaj": "PV → home — energy today",
+        "Energia z PV dzisiaj": "Energy from PV today",
+        "Energia z magazynu dzisiaj": "Energy from battery storage today",
+        "Energia z sieci dzisiaj": "Energy from the grid today",
+        "Napięcie magazynu (falownik)": "Battery voltage (inverter)",
+        "Prąd magazynu (falownik)": "Battery current (inverter)",
+        "Falownik czynna moc": "Inverter active power",
+        "Falownik czynna moc L1": "Inverter active power L1",
+        "Falownik czynna moc L2": "Inverter active power L2",
+        "Falownik czynna moc L3": "Inverter active power L3",
+        "Falownik bierna moc": "Inverter reactive power",
+        "Falownik bierna moc L1": "Inverter reactive power L1",
+        "Falownik bierna moc L2": "Inverter reactive power L2",
+        "Falownik bierna moc L3": "Inverter reactive power L3",
+        "Napięcie falownika — faza L1": "Inverter voltage — phase L1",
+        "Napięcie falownika — faza L2": "Inverter voltage — phase L2",
+        "Napięcie falownika — faza L3": "Inverter voltage — phase L3",
+        "Prąd falownika — faza L1": "Inverter current — phase L1",
+        "Prąd falownika — faza L2": "Inverter current — phase L2",
+        "Prąd falownika — faza L3": "Inverter current — phase L3",
+        "Moc czynna falownika — łącznie": "Inverter active power — total",
+        "Moc czynna falownika — faza L1": "Inverter active power — phase L1",
+        "Moc czynna falownika — faza L2": "Inverter active power — phase L2",
+        "Moc czynna falownika — faza L3": "Inverter active power — phase L3",
+        "Moc bierna falownika — łącznie": "Inverter reactive power — total",
+        "Moc bierna falownika — faza L1": "Inverter reactive power — phase L1",
+        "Moc bierna falownika — faza L2": "Inverter reactive power — phase L2",
+        "Moc bierna falownika — faza L3": "Inverter reactive power — phase L3",
+        "Generator — moc fazy L1": "Generator — power, phase L1",
+        "Generator — moc fazy L2": "Generator — power, phase L2",
+        "Generator — moc fazy L3": "Generator — power, phase L3",
+        "Generator — energia dzisiaj, faza L1": (
+            "Generator — energy today, phase L1"
+        ),
+        "Generator — energia dzisiaj, faza L2": (
+            "Generator — energy today, phase L2"
+        ),
+        "Generator — energia dzisiaj, faza L3": (
+            "Generator — energy today, phase L3"
+        ),
+        "Napięcie sieci — faza L1": "Grid voltage — phase L1",
+        "Napięcie sieci — faza L2": "Grid voltage — phase L2",
+        "Napięcie sieci — faza L3": "Grid voltage — phase L3",
+        "Prąd sieci — faza L1": "Grid current — phase L1",
+        "Prąd sieci — faza L2": "Grid current — phase L2",
+        "Prąd sieci — faza L3": "Grid current — phase L3",
+        "Licznik sieci — moc czynna L1": "Grid meter — active power L1",
+        "Licznik sieci — moc czynna L2": "Grid meter — active power L2",
+        "Licznik sieci — moc czynna L3": "Grid meter — active power L3",
+        "Moc bierna sieci — faza L1": "Grid reactive power — phase L1",
+        "Moc bierna sieci — faza L2": "Grid reactive power — phase L2",
+        "Moc bierna sieci — faza L3": "Grid reactive power — phase L3",
+        "Napięcie PV — faza L1": "PV voltage — phase L1",
+        "Napięcie PV — faza L2": "PV voltage — phase L2",
+        "Napięcie PV — faza L3": "PV voltage — phase L3",
+        "Prąd PV — faza L1": "PV current — phase L1",
+        "Prąd PV — faza L2": "PV current — phase L2",
+        "Prąd PV — faza L3": "PV current — phase L3",
+        "Moc czynna PV — faza L1": "PV active power — phase L1",
+        "Moc czynna PV — faza L2": "PV active power — phase L2",
+        "Moc czynna PV — faza L3": "PV active power — phase L3",
+        "Moc bierna PV — faza L1": "PV reactive power — phase L1",
+        "Moc bierna PV — faza L2": "PV reactive power — phase L2",
+        "Moc bierna PV — faza L3": "PV reactive power — phase L3",
+        "Stan pracy magazynu": "Battery-storage operating state",
+        "Skrócone rejestry mocy": "Condensed power registers",
+        "Łączna moc PV": "Total PV power",
+        "Łączna moc wewnętrznych wejść PV": "Total internal-PV power",
+        "Łączna moc zewnętrznych źródeł PV": "Total external-PV power",
+        "Moc czynna falownika": "Inverter active power",
+        "Moc magazynu energii": "Battery-storage power",
+        "Łączna moc czynna sieci": "Total grid active power",
+        "Moc czynna generatora": "Generator active power",
+        "Moc zużycia domu": "Home-load power",
+    }
+)
+
+# Exact I2 explanatory copy.  Whole sentences are intentional here: older
+# assets still use a few short compatibility replacements (for example
+# ``gotowa`` and ``ładowanie``), so translating complete current sentences
+# first is what keeps the generated dashboard readable in both languages.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "Gotowość konfiguracji": "Configuration readiness",
+        "Konfiguracja i dane wymagane do przygotowania planu": (
+            "Configuration and data required to prepare the plan"
+        ),
+        "Co oznaczają ustawienia": "What the settings mean",
+        "Stan teraz i najbliższy plan": "Current status and next plan",
+        "Możliwość wykonania planu": "Plan execution eligibility",
+        "Jak działa sprzedaż energii": "How energy sales automation works",
+        "Pełna rozpiska planu RCE": "Full RCE plan details",
+        "Pełna rozpiska planu taniej energii": (
+            "Full low-cost energy plan details"
+        ),
+        "Wszystkie zaplanowane przedziały": "All scheduled periods",
+        "Konfiguracja i plan ochrony napięciowej": (
+            "High-voltage protection configuration and plan"
+        ),
+        "Falownik gotowy do bezpiecznego wykonania": (
+            "Inverter ready for safe execution"
+        ),
+        "Stan teraz": "Current status",
+        "RCEm — szczegóły sterowania": "RCEm — control details",
+        "Decyzja i najbliższy plan": "Decision and next plan",
+        "Pokaż pełne obliczenia RCEm": "Show full RCEm calculation",
+        "Jak działa RCEm i zasady bezpieczeństwa": (
+            "How RCEm works and its safety rules"
+        ),
+        "Pozostała prognoza na dzisiaj": "Remaining forecast for today",
+        "Prognoza na jutro": "Forecast for tomorrow",
+        "Stan źródeł PV": "PV-source status",
+        "Stringi PV — energia dzisiaj": "PV strings — energy today",
+        "PV1 — energia dzisiaj": "PV1 — energy today",
+        "PV2 — energia dzisiaj": "PV2 — energy today",
+        "PV3 — energia dzisiaj": "PV3 — energy today",
+        "PV4 — energia dzisiaj": "PV4 — energy today",
+        "Stringi PV i przepływy — energia całkowita": (
+            "PV strings and flows — lifetime energy"
+        ),
+        "Energia z PV — łącznie": "Energy from PV — total",
+        "PV1 — energia całkowita": "PV1 — lifetime energy",
+        "PV2 — energia całkowita": "PV2 — lifetime energy",
+        "PV3 — energia całkowita": "PV3 — lifetime energy",
+        "PV4 — energia całkowita": "PV4 — lifetime energy",
+        "PV — moc według bloku energii": "PV — power from the energy block",
+        "Moc PV według bloku energii — łącznie": (
+            "PV power from the energy block — total"
+        ),
+        "PV1 — moc według bloku energii": "PV1 — power from the energy block",
+        "PV2 — moc według bloku energii": "PV2 — power from the energy block",
+        "PV3 — moc według bloku energii": "PV3 — power from the energy block",
+        "PV4 — moc według bloku energii": "PV4 — power from the energy block",
+        "Inne źródła": "Other sources",
+        "Moc złącza generatora — ostatnie 24 godziny [W]": (
+            "Generator-port power over the last 24 hours [W]"
+        ),
+        "Złącze generatora": "Generator port",
+        "Zewnętrzne PV — moc": "External PV — power",
+        "Moc łączna według bloku pomiarowego": (
+            "Total power from the metering block"
+        ),
+        "Zewnętrzne PV — energia": "External PV — energy",
+        "Energia dzisiaj — łącznie": "Energy today — total",
+        "Energia dzisiaj — faza L1": "Energy today — phase L1",
+        "Energia dzisiaj — faza L2": "Energy today — phase L2",
+        "Energia dzisiaj — faza L3": "Energy today — phase L3",
+        "Energia całkowita — łącznie": "Lifetime energy — total",
+        "Energia całkowita — faza L1": "Lifetime energy — phase L1",
+        "Energia całkowita — faza L2": "Lifetime energy — phase L2",
+        "Energia całkowita — faza L3": "Lifetime energy — phase L3",
+        "Złącze generatora — podsumowanie": "Generator port — overview",
+        "Generator — wartości bieżące": "Generator — current values",
+        "Napięcie generatora — faza L1": "Generator voltage — phase L1",
+        "Napięcie generatora — faza L2": "Generator voltage — phase L2",
+        "Napięcie generatora — faza L3": "Generator voltage — phase L3",
+        "Prąd generatora — faza L1": "Generator current — phase L1",
+        "Prąd generatora — faza L2": "Generator current — phase L2",
+        "Prąd generatora — faza L3": "Generator current — phase L3",
+        "Moc czynna generatora — faza L1": (
+            "Generator active power — phase L1"
+        ),
+        "Moc czynna generatora — faza L2": (
+            "Generator active power — phase L2"
+        ),
+        "Moc czynna generatora — faza L3": (
+            "Generator active power — phase L3"
+        ),
+        "Moc generatora — łącznie": "Generator power — total",
+        "Generator — energia dzisiaj": "Generator — energy today",
+        "Energia generatora dzisiaj — łącznie": (
+            "Generator energy today — total"
+        ),
+        "Generator — energia całkowita": "Generator — lifetime energy",
+        "Energia generatora — łącznie": "Generator energy — total",
+        "Generator — energia dzisiaj — faza L1": (
+            "Generator — energy today — phase L1"
+        ),
+        "Generator — energia dzisiaj — faza L2": (
+            "Generator — energy today — phase L2"
+        ),
+        "Generator — energia dzisiaj — faza L3": (
+            "Generator — energy today — phase L3"
+        ),
+        "Generator — energia całkowita — faza L1": (
+            "Generator — lifetime energy — phase L1"
+        ),
+        "Generator — energia całkowita — faza L2": (
+            "Generator — lifetime energy — phase L2"
+        ),
+        "Generator — energia całkowita — faza L3": (
+            "Generator — lifetime energy — phase L3"
+        ),
+        "Zużycie domu — podsumowanie": "Home consumption — overview",
+        "Energia dzisiaj": "Energy today",
+        "Zasilanie awaryjne EPS": "Emergency EPS supply",
+        "Napięcie EPS — faza L1": "EPS voltage — phase L1",
+        "Napięcie EPS — faza L2": "EPS voltage — phase L2",
+        "Napięcie EPS — faza L3": "EPS voltage — phase L3",
+        "Prąd EPS — faza L1": "EPS current — phase L1",
+        "Prąd EPS — faza L2": "EPS current — phase L2",
+        "Prąd EPS — faza L3": "EPS current — phase L3",
+        "Moc pozorna EPS — łącznie": "EPS apparent power — total",
+        "Moc pozorna EPS — faza L1": "EPS apparent power — phase L1",
+        "Moc pozorna EPS — faza L2": "EPS apparent power — phase L2",
+        "Moc pozorna EPS — faza L3": "EPS apparent power — phase L3",
+        "Moc czynna EPS — łącznie": "EPS active power — total",
+        "Moc czynna EPS — faza L1": "EPS active power — phase L1",
+        "Moc czynna EPS — faza L2": "EPS active power — phase L2",
+        "Moc czynna EPS — faza L3": "EPS active power — phase L3",
+        "Ładowanie dzisiaj": "Charging today",
+        "Rozładowanie dzisiaj": "Discharging today",
+        "Dostępny prąd ładowania": "Available charging current",
+        "Dostępny prąd rozładowania": "Available discharging current",
+        "Moc według bloku pomiarowego": "Power from the metering block",
+        "Jak działa wyrównywanie magazynu": "How battery balancing works",
+        "Napięcia fazowe używane przez RCEm": "Phase voltages used by RCEm",
+        "Średnia napięcia z 10 minut": "10-minute voltage average",
+        "Moc czynna sieci — łącznie": "Grid active power — total",
+        "Moc czynna sieci — faza L1": "Grid active power — phase L1",
+        "Moc czynna sieci — faza L2": "Grid active power — phase L2",
+        "Moc czynna sieci — faza L3": "Grid active power — phase L3",
+        "Częstotliwość sieci": "Grid frequency",
+        "Energia pobrana dzisiaj": "Energy imported today",
+        "Energia oddana dzisiaj": "Energy exported today",
+        "Energia pobrana z sieci dzisiaj — łącznie": (
+            "Grid-import energy today — total"
+        ),
+        "Energia oddana do sieci dzisiaj — łącznie": (
+            "Grid-export energy today — total"
+        ),
+        "Energia pobrana z sieci — łącznie": "Grid-import energy — total",
+        "Energia oddana do sieci — łącznie": "Grid-export energy — total",
+        "Magazyn → dom — energia dzisiaj (diagnostycznie)": (
+            "Battery storage → home — energy today (diagnostic)"
+        ),
+        "Sieć → dom — energia dzisiaj (szacunek bilansowy)": (
+            "Grid → home — energy today (balance estimate)"
+        ),
+        "PV → dom — moc według bloku odbioru": (
+            "PV → home — power from the load block"
+        ),
+        "Jak czytać kierunki przepływu": "How to read energy-flow directions",
+        "Napięcie — faza L1": "Voltage — phase L1",
+        "Napięcie — faza L2": "Voltage — phase L2",
+        "Napięcie — faza L3": "Voltage — phase L3",
+        "Prąd — faza L1": "Current — phase L1",
+        "Prąd — faza L2": "Current — phase L2",
+        "Prąd — faza L3": "Current — phase L3",
+        "Moc czynna — łącznie": "Active power — total",
+        "Moc czynna — faza L1": "Active power — phase L1",
+        "Moc czynna — faza L2": "Active power — phase L2",
+        "Moc czynna — faza L3": "Active power — phase L3",
+        "Moc bierna — łącznie": "Reactive power — total",
+        "Moc bierna — faza L1": "Reactive power — phase L1",
+        "Moc bierna — faza L2": "Reactive power — phase L2",
+        "Moc bierna — faza L3": "Reactive power — phase L3",
+        "Współczynnik mocy — łącznie": "Power factor — total",
+        "Współczynnik mocy — faza L1": "Power factor — phase L1",
+        "Współczynnik mocy — faza L2": "Power factor — phase L2",
+        "Współczynnik mocy — faza L3": "Power factor — phase L3",
+        "Szczegóły licznika sieci": "Grid-meter details",
+        "Szczegóły licznika zewnętrznego PV": "External-PV meter details",
+        "Pozostałe fazy, częstotliwość, moc bierna i współczynnik mocy.": (
+            "Remaining phases, frequency, reactive power, and power factor."
+        ),
+        "Automatyczna ochrona energii dla domu · Wymagane": (
+            "Automatic home-energy protection · Required"
+        ),
+        "Planowany eksport z magazynu": "Planned battery-storage export",
+        "Rezerwa bazowa autokonsumpcji i korekta": (
+            "Baseline Self-Use reserve and correction"
+        ),
+        "Adaptacyjne dobowe zużycie domu": "Adaptive daily home consumption",
+        "Rzeczywiste zużycie domu dzisiaj": "Actual home consumption today",
+        "PV → dom — rejestr diagnostyczny": "PV → home — diagnostic register",
+        "PV → dom teraz": "PV → home now",
+        "Modelowane dzienne zużycie domu": "Modelled daily home consumption",
+        "Operator · Wymagane": "DSO · Required",
+        "Taryfa · Wymagane": "Tariff · Required",
+        "Docelowy poziom magazynu · Wymagane": (
+            "Target battery-storage level · Required"
+        ),
+        "name: Sterowanie": "name: Control",
+        "SOC magazynu": "Battery-storage SOC",
+        "PV — podsumowanie": "PV — overview",
+        "Tryb EMS — w tym praca wyspowa": (
+            "EMS mode — including off-grid operation"
+        ),
+        "Rezerwa SOC dla autokonsumpcji": "SOC reserve for Self-Use",
+        "Ustawienia falownika i magazynu": "Inverter and battery settings",
+        "Tryb zasilania awaryjnego EPS": "EPS backup-supply mode",
+        "Tryb PV podczas pracy wyspowej": "PV mode during off-grid operation",
+        "Typ magazynu energii": "Battery-storage type",
+        "Maksymalny SOC": "Maximum SOC",
+        "Minimalny SOC": "Minimum SOC",
+        "Harmonogramy ręczne": "Manual schedules",
+        "Rezerwa SOC — autokonsumpcja": "SOC reserve — Self-Use",
+        "Potwierdzony tryb falownika": "Confirmed inverter mode",
+        "Generacja fizycznego odczytu zwrotnego": (
+            "Physical-readback generation"
+        ),
+        "Praca systemu": "System operation",
+        "Alarmy falownika i magazynu": "Inverter and battery-storage alarms",
+        "Poziom magazynu energii": "Battery-storage level",
+        "Temperatura radiatora toru magazynu": (
+            "Battery-stage heatsink temperature"
+        ),
+        "Radiator toru magazynu": "Battery-stage heatsink",
+        "ESP IP adres": "ESP IP address",
+        "ESP Mac adres": "ESP MAC address",
+        "Typ BMS": "BMS type",
+        "Komunikacja — ESP32 i Wi-Fi": "Communication — ESP32 and Wi-Fi",
+        "Czas pracy ESP32": "ESP32 uptime",
+        "Siła sygnału Wi-Fi": "Wi-Fi signal strength",
+        "Adres IP ESP32": "ESP32 IP address",
+        "Nazwa sieci Wi-Fi": "Wi-Fi network name",
+        "Adres MAC ESP32": "ESP32 MAC address",
+        "Rola urządzenia": "Device role",
+        "Master — adres 1": "Master — address 1",
+        "Wszystkie adresy sieci równoległej": "All parallel-network addresses",
+        "Adres 2 — falownik podrzędny 1": "Address 2 — Slave inverter 1",
+        "Adres 3 — falownik podrzędny 2": "Address 3 — Slave inverter 2",
+        "Adres 4 — falownik podrzędny 3": "Address 4 — Slave inverter 3",
+        "Adres 5 — falownik podrzędny 4": "Address 5 — Slave inverter 4",
+        "Adres 6 — falownik podrzędny 5": "Address 6 — Slave inverter 5",
+        "Adres 7 — falownik podrzędny 6": "Address 7 — Slave inverter 6",
+        "Adres 8 — falownik podrzędny 7": "Address 8 — Slave inverter 7",
+        "Adres 9 — falownik podrzędny 8": "Address 9 — Slave inverter 8",
+        "Adres 10 — falownik podrzędny 9": "Address 10 — Slave inverter 9",
+        "**Wymagane**": "**Required**",
+        "**Opcjonalne**": "**Optional**",
+        "**Konfiguracja: 3/3** · ✓ wymagane pola i dane są gotowe<br>": (
+            "**Configuration: 3/3** · ✓ required fields and data are ready<br>"
+        ),
+        "**Maksymalna moc sprzedaży:**": "**Maximum export power:**",
+        "**Konfiguracja: —/3** · ! brak bieżącego wyniku sprawdzenia": (
+            "**Configuration: —/3** · ! no current validation result"
+        ),
+        "**Konfiguracja wymaga uzupełnienia** · ! sprawdź wymagane pola oraz": (
+            "**Configuration needs attention** · ! check the required fields and"
+        ),
+        "źródła prognozy. Brak nie nadaje planowi prawa do wykonania.": (
+            "forecast sources. Missing data does not grant the plan execution "
+            "authority."
+        ),
+        "**Konfiguracja: 5/5** · ✓ wymagane pola i dane są gotowe": (
+            "**Configuration: 5/5** · ✓ required fields and data are ready"
+        ),
+        "**Konfiguracja: —/5** · ! brak bieżącego wyniku sprawdzenia": (
+            "**Configuration: —/5** · ! no current validation result"
+        ),
+        "**Konfiguracja wymaga uzupełnienia** · ! sprawdź operatora, taryfę,": (
+            "**Configuration needs attention** · ! check the DSO, tariff,"
+        ),
+        "moc poboru i docelowy poziom magazynu.": (
+            "import power, and target battery-storage level."
+        ),
+        "**Konfiguracja: 2/2** · ✓ ustawienia i plan RCEm są dostępne<br>": (
+            "**Configuration: 2/2** · ✓ RCEm settings and plan are available<br>"
+        ),
+        "**Gotowość falownika:**": "**Inverter readiness:**",
+        "'gotowy' if execution == 'on' else 'oczekuje na potwierdzenie'": (
+            "'ready' if execution == 'on' else 'waiting for confirmation'"
+        ),
+        "**Konfiguracja: —/2** · ! plan RCEm nie jest obecnie dostępny.": (
+            "**Configuration: —/2** · ! the RCEm plan is currently unavailable."
+        ),
+        "Ten stan blokuje wyłącznie działania RCEm.": (
+            "This status blocks RCEm actions only."
+        ),
+        "**Plan sprzedaży jest dostępny, ale wykonanie jest zablokowane.**": (
+            "**The sales plan is available, but execution is blocked.**"
+        ),
+        "Na tej instalacji obowiązuje brak eksportu do sieci. To nie jest": (
+            "This installation operates with zero export to the grid. This is not"
+        ),
+        "awaria planera ani blokada pozostałych polityk.": (
+            "a planner fault and does not block the other policies."
+        ),
+        "Plan i wykonanie są rozdzielone. Nadzorca może rozpocząć sprzedaż": (
+            "Planning and execution are separate. The Supervisor may start export"
+        ),
+        "dopiero po własnym sprawdzeniu gotowości, przyznaniu właściciela i": (
+            "only after its own readiness check, ownership acquisition, and"
+        ),
+        "potwierdzeniu fizycznego odczytu zwrotnego.": (
+            "physical readback confirmation."
+        ),
+        (
+            "- **Włącz sprzedaż energii** — zezwala tej polityce przygotować "
+            "kandydata; wykonaniem nadal zarządza Nadzorca EMS."
+        ): (
+            "- **Enable energy sales** — lets this policy prepare a candidate; "
+            "the EMS Supervisor still controls execution."
+        ),
+        (
+            "- **Maksymalna moc sprzedaży** — ogranicza moc oddawania energii z "
+            "magazynu do sieci."
+        ): (
+            "- **Maximum export power** — limits power discharged from battery "
+            "storage to the grid."
+        ),
+        (
+            "- **Automatyczna ochrona energii dla domu** — zachowuje energię "
+            "potrzebną na przewidywane zużycie domu."
+        ): (
+            "- **Automatic home-energy protection** — retains the energy needed "
+            "for forecast home consumption."
+        ),
+        (
+            "- **Dodatkowa ochrona przed sprzedażą** — dodaje 0–90 punktów procentowych do rezerwy magazynu przy włączonej automatycznej ochronie energii dla domu. Dotyczy RCE i Pstryka. Suma jest ograniczona do 100%; dom nadal może korzystać z dodatkowego zapasu."
+        ): (
+            "- **Additional protection from sale** — adds 0–90 percentage points to the battery reserve while automatic home-energy protection is enabled. Applies to RCE and Pstryk. The total is capped at 100%; the home can still use this extra reserve."
+        ),
+        (
+            "- **Godziny bez sprzedaży** — wykluczają wskazane godziny z planu "
+            "RCE."
+        ): "- **Export lockout hours** — exclude the selected hours from the RCE plan.",
+        (
+            "- **Włącz tanią energię** — zezwala tej polityce przygotować "
+            "kandydata do ładowania."
+        ): (
+            "- **Enable low-cost energy** — lets this policy prepare a charging "
+            "candidate."
+        ),
+        (
+            "- **Operator i taryfa** — wybierają obowiązujące okna oraz ceny "
+            "energii."
+        ): (
+            "- **DSO and tariff** — select the applicable time periods and energy "
+            "prices."
+        ),
+        (
+            "- **Maksymalna moc poboru** — ogranicza moc pobieraną z sieci w "
+            "wybranym oknie."
+        ): (
+            "- **Maximum import power** — limits grid power imported in the "
+            "selected period."
+        ),
+        (
+            "- **Docelowy poziom magazynu** — wyznacza najwyższy poziom ładowania "
+            "dla tej polityki."
+        ): (
+            "- **Target storage level** — sets this policy's maximum charging "
+            "level."
+        ),
+        (
+            "- **Dodatkowy zapas SOC** — zwiększa zapas energii wymagany przez "
+            "plan taryfowy."
+        ): (
+            "- **Additional SOC reserve** — increases the energy reserve required "
+            "by the tariff plan."
+        ),
+        (
+            "- **Tryb ręczny** — pozwala podać własne strefy i ceny, gdy wybrany "
+            "jest operator „Ręczny”."
+        ): (
+            "- **Manual mode** — lets you enter custom periods and prices when "
+            "the Manual DSO is selected."
+        ),
+        (
+            "Wartość widoczna w każdym polu jest wartością efektywną. Jeśli karta"
+        ): "The value shown in every field is the effective value. If the",
+        "gotowości wskazuje brak danych, plan pozostaje informacyjny i nie": (
+            "readiness card reports missing data, the plan remains informational "
+            "and does not"
+        ),
+        "uzyskuje prawa do wykonania.": "receive execution authority.",
+        (
+            "Wartość widoczna w każdym polu jest wartością efektywną. Brak lub"
+        ): (
+            "The value shown in every field is the effective value. A missing or"
+        ),
+        "nieaktualność wymaganego pola pojawia się w stanie gotowości i": (
+            "stale required field is reported by readiness status and"
+        ),
+        "blokuje wyłącznie start tej polityki.": (
+            "blocks only this policy from starting."
+        ),
+        (
+            "- **Włącz ochronę przed wysokim napięciem** — zezwala RCEm "
+            "przygotować własnego kandydata."
+        ): (
+            "- **Enable high-voltage protection** — lets RCEm prepare its own "
+            "candidate."
+        ),
+        (
+            "- **Maksymalny eksport zgodny ze zgłoszeniem** — jest twardym "
+            "limitem, którego RCEm nie może przekroczyć."
+        ): (
+            "- **Maximum export permitted by the grid agreement** — is a hard "
+            "limit that RCEm cannot exceed."
+        ),
+        (
+            "- **Płynna regulacja eksportu** — ogranicza eksport przy wzroście "
+            "napięcia."
+        ): (
+            "- **Smooth export control** — reduces export as voltage rises."
+        ),
+        (
+            "- **Przygotowanie miejsca** — może zaplanować wcześniejsze "
+            "opróżnienie części magazynu."
+        ): (
+            "- **Create battery headroom** — may schedule an earlier partial "
+            "battery discharge."
+        ),
+        (
+            "- **Dodatkowy zapas SOC** — zwiększa rezerwę chronioną wyłącznie "
+            "przez RCEm."
+        ): (
+            "- **Additional SOC reserve** — increases the reserve protected by "
+            "RCEm only."
+        ),
+        "Wartości widoczne w polach są wartościami efektywnymi. Brak bieżącego": (
+            "The values shown in the fields are effective values. A missing current"
+        ),
+        "planu lub gotowości blokuje działania RCEm, ale nie blokuje pozostałych": (
+            "plan or lack of readiness blocks RCEm actions but does not block the "
+            "Supervisor's other"
+        ),
+        "polityk Nadzorcy.": "policies.",
+        "Wymagane są prognozy **na dziś** i **na jutro**.": (
+            "Forecasts for **today** and **tomorrow** are required."
+        ),
+        (
+            "Jeżeli Solcast udostępnia **prognozę na trzeci dzień**, integracja "
+            "wykorzysta ją"
+        ): (
+            "If Solcast provides a **day-three forecast**, the integration uses it"
+        ),
+        (
+            "Najpierw odkłada poza sprzedażą rezerwę awaryjną autokonsumpcji, "
+            "korektę"
+        ): "It first withholds the emergency Self-Use reserve and the safety",
+        (
+            "Pole rezerwy autokonsumpcji nie jest zmieniane. Pozostaje energią "
+            "dostępną"
+        ): (
+            "The Self-Use reserve setting is not changed. That energy remains "
+            "available"
+        ),
+        "**Nadwyżka prognozowana przy pozostawieniu autokonsumpcji:**": (
+            "**Forecast surplus while retaining Self-Use:**"
+        ),
+        "**Trzeci dzień — encja:**": "**Day three — entity:**",
+        "**Trzeci dzień — stan / świeżość:**": (
+            "**Day three — status / freshness:**"
+        ),
+        "**Trzeci dzień — wiek ze znakiem:**": "**Day three — signed age:**",
+        "**Model zużycia domu:**": "**Home-load model:**",
+        "sterowaną RCE i naturalną nadwyżkę w trybie autokonsumpcji.": (
+            "controlled RCE export and natural surplus in Self-Use mode."
+        ),
+        "Automatyka wróci do **autokonsumpcji** po zakończeniu": (
+            "The automation returns to **Self-Use** after the selected"
+        ),
+        "wybranego bloku, po osiągnięciu minimalnego SOC albo po wyłączeniu": (
+            "period ends, the minimum SOC is reached, or the"
+        ),
+        "przełącznika. Blokada sprzedaży wyklucza wskazane godziny z planu.": (
+            "switch is disabled. The export lockout excludes the selected hours "
+            "from the plan."
+        ),
+        "Zaktualizuj integrację albo wybierz profil **Ręczny** z aktualnymi cenami.": (
+            "Update the integration or select the **Manual** profile and enter "
+            "current prices."
+        ),
+        "albo profil **Ręczny**.": "or the **Manual** profile.",
+        (
+            "sprzedawcy wybierz profil **Ręczny** i przepisz ceny z własnej "
+            "faktury."
+        ): (
+            "supplier, select the **Manual** profile and copy the prices from "
+            "your bill."
+        ),
+        "⚠️ **Nie można odbudować bazowej rezerwy autokonsumpcji.** Sprzęt albo": (
+            "⚠️ **The baseline Self-Use reserve cannot be restored.** The hardware or"
+        ),
+        (
+            "aktywny limit ładowania nie pozwala wykonać wymaganego ładowania z "
+            "sieci."
+        ): (
+            "active charging limit does not permit the required grid charging."
+        ),
+        "Automat nie uruchomi ładowania z sieci w drogiej strefie.": (
+            "The automation will not start grid charging in a high-price period."
+        ),
+        (
+            "wymaganego marginesu oszczędności. Automat pozostaje w "
+            "autokonsumpcji"
+        ): (
+            "the required savings margin. The automation remains in Self-Use"
+        ),
+        "ℹ️ **Taryfa G11 nie ma tańszego okna.** Automat pozostaje w autokonsumpcji,": (
+            "ℹ️ **The G11 tariff has no lower-price period.** The automation remains "
+            "in Self-Use,"
+        ),
+        "✅ **Brak potrzeby ładowania z sieci.** Aktualny bilans nie wymaga": (
+            "✅ **No grid charging is needed.** The current balance does not require"
+        ),
+        "**Energia w wybranych blokach ładowania z sieci:**": (
+            "**Energy in selected grid-charging periods:**"
+        ),
+        (
+            "{{ plan.attributes.self_use_reserve_soc_percent | default(0) }}% "
+            "rezerwy autokonsumpcji +"
+        ): (
+            "{{ plan.attributes.self_use_reserve_soc_percent | default(0) }}% "
+            "Self-Use reserve +"
+        ),
+        "**Budżet mocy ładowania z sieci:** żądany": (
+            "**Grid-charging power budget:** requested"
+        ),
+        (
+            "bilans do końca jutra, a po automatycznym wykryciu prognozy na "
+            "trzeci dzień —"
+        ): (
+            "the balance through the end of tomorrow and, once a day-three "
+            "forecast is detected automatically,"
+        ),
+        "również kolejny dzień. W trybie **ładowania z sieci** ustawiona moc jest": (
+            "the following day as well. In **grid-charging** mode, the configured power is"
+        ),
+        (
+            "**rezerwy autokonsumpcji + dodatkowego zapasu SOC**. Nie ma stałej "
+            "wartości 27%."
+        ): (
+            "**Self-Use reserve + additional SOC reserve**. There is no fixed 27% "
+            "value."
+        ),
+        (
+            "prognozy. Podczas rzeczywistego ładowania z sieci mierzy też "
+            "osiągniętą moc;"
+        ): (
+            "change. During actual grid charging it also measures delivered power;"
+        ),
+        (
+            "Użytkownik z innym sprzedawcą wybiera profil **Ręczny** i wpisuje "
+            "łączną"
+        ): (
+            "A user with another supplier selects the **Manual** profile and "
+            "enters the total"
+        ),
+        (
+            "W czasie normalnej regulacji automatyka pozostaje w "
+            "**autokonsumpcji**. Łączy"
+        ): (
+            "During normal regulation, the automation remains in **Self-Use**. It "
+            "combines"
+        ),
+        (
+            "jutro, rzeczywisty profil zużycia domu z czterech dni, chronione "
+            "potrzeby domu,"
+        ): (
+            "tomorrow's forecast, the actual four-day home-load profile, protected "
+            "home demand,"
+        ),
+        (
+            "zakończeniu Nadzorca odtwarza dokładny zapis ustawień sprzed "
+            "transakcji."
+        ): (
+            "completion, the Supervisor restores the exact settings recorded "
+            "before the transaction."
+        ),
+        "zweryfikowanego ładowania z sieci i dodaje zużycie domu dokładnie raz.": (
+            "verified grid charging and adds home consumption exactly once."
+        ),
+        (
+            "niezmieniony. Krótka luka świeżości w autokonsumpcji tylko wstrzymuje "
+            "zapis,"
+        ): (
+            "unchanged. A short Self-Use freshness gap only pauses writes,"
+        ),
+        "**Stan sieci:**": "**Grid status:**",
+        "**Średnia 10 minut:**": "**10-minute average:**",
+        "**Najbliższe ryzyko:**": "**Next risk period:**",
+        "**Wymagane wolne miejsce:**": "**Required battery headroom:**",
+        "**Dostępne wolne miejsce:**": "**Available battery headroom:**",
+        "**Działanie:**": "**Action:**",
+        "default('Brak działania')": "default('No action')",
+        "default('Brak')": "default('None')",
+        "**Brak danych.** RCEm czeka na własny aktualny plan; pozostałe polityki": (
+            "**No data.** RCEm is waiting for its own current plan; the other "
+            "policies"
+        ),
+        "mogą nadal pracować niezależnie.": "may continue to operate independently.",
+        "opcja **Poranne rozładowanie** może wcześniej przełączyć EMS na": (
+            "the **Morning discharge** option may switch EMS earlier to"
+        ),
+        (
+            "**rozładowanie do sieci** i sprzedać wyłącznie obliczony brak. Moc "
+            "dobierana jest z"
+        ): (
+            "**grid discharge** and export only the calculated shortfall. Power is "
+            "selected from"
+        ),
+        "Przed przewidywanym szczytem RCEm nadal ogranicza **maksymalną moc": (
+            "Before the predicted peak, RCEm still limits the **maximum battery"
+        ),
+        "ładowania magazynu**, aby nie napełnić go za wcześnie. Jeżeli poranne": (
+            "charging power** to avoid filling it too early. If morning"
+        ),
+        "Opcjonalna regulacja eksportu zmienia wyłącznie **maksymalny limit": (
+            "Optional export control changes only the **maximum export"
+        ),
+        "eksportu**. Nigdy nie przekroczy mniejszej z dwóch wartości: limitu": (
+            "limit**. It never exceeds the lower of two values: the limit"
+        ),
+        "Podczas cyklu RCE, tania energia i ręczne harmonogramy EMS są": (
+            "During the cycle, RCE, low-cost energy, and manual EMS schedules are"
+        ),
+        "blokowane przez istniejącą własność EMS; ich ustawienia pozostają": (
+            "blocked by existing EMS ownership; their settings remain"
+        ),
+        "niezmienione. Krótka luka świeżości w autokonsumpcji tylko wstrzymuje": (
+            "unchanged. A short Self-Use freshness gap only pauses"
+        ),
+        "zapis, a błędy bezpieczeństwa zatrzymują cykl natychmiast. Zakończenie": (
+            "writes, while safety failures stop the cycle immediately. Completion"
+        ),
+        "albo wyłączenie przywraca dokładne wcześniejsze nastawy i tryb EMS;": (
+            "or disabling the feature restores the exact prior settings and EMS mode;"
+        ),
+        "fizyczna praca wyspowa zawsze ma pierwszeństwo. Funkcji używaj zgodnie": (
+            "physical Off-Grid operation always has priority. Use this feature in "
+            "accordance"
+        ),
+        "z zaleceniami producenta magazynu.": (
+            "with the battery-storage manufacturer's recommendations."
+        ),
+        "Strzałka wskazuje kierunek energii. Przepływy PV są wartościami": (
+            "The arrow indicates the direction of energy flow. PV flows are"
+        ),
+        "pomiarowymi publikowanymi przez falownik. Pozycje oznaczone jako": (
+            "metered values published by the inverter. Items marked as"
+        ),
+        "diagnostyczne lub szacowane wynikają z bilansu i nie są dokładnym": (
+            "diagnostic or estimated come from the energy balance and are not an "
+            "exact"
+        ),
+        "licznikiem fizycznego kierunku. Dokładny przepływ sieć → magazyn jest": (
+            "meter of physical direction. Exact grid → battery-storage flow is"
+        ),
+        "pokazywany wyłącznie wtedy, gdy instalacja udostępnia jego świeży,": (
+            "shown only when the installation provides a fresh"
+        ),
+        "fizyczny pomiar; brak takiego źródła pozostaje stanem „Brak danych”.": (
+            "physical measurement; without that source, the status remains “No data”."
+        ),
+        "dom, a dopiero niewykorzystaną częścią tej mocy ładuje": (
+            "home, and only uses the remaining part of that power to charge"
+        ),
+        "**Profil zużycia domu:**": "**Home-load profile:**",
+        "# ☀️ Produkcja PV": "# ☀️ PV production",
+        "**Nadzorca EMS jest włączony.** Bezpośrednie ustawienia są tylko do": (
+            "**EMS Supervisor is enabled.** Direct settings are read-only."
+        ),
+        "odczytu. Aby przejść do sterowania ręcznego, najpierw bezpiecznie": (
+            "To switch to manual control, first safely"
+        ),
+        "wyłącz Nadzorcę i zakończ aktywną transakcję.": (
+            "disable the Supervisor and finish the active transaction."
+        ),
+        "**Sterowanie ręczne.** Przed zmianą upewnij się, że Nadzorca jest": (
+            "**Manual control.** Before making a change, make sure the Supervisor is"
+        ),
+        "bezpiecznie wyłączony, transakcja zakończona, a właściciel zwolniony.": (
+            "safely disabled, the transaction has completed, and ownership is released."
+        ),
+        (
+            "Domyślnie zwinięte · nie uruchamiaj ich równocześnie z aktywną "
+            "automatyką EMS."
+        ): (
+            "Collapsed by default · do not run these alongside active EMS "
+            "automation."
+        ),
+        (
+            "Uruchomić ręczne rozładowanie do sieci? Upewnij się, że Nadzorca "
+            "EMS jest bezpiecznie wyłączony."
+        ): (
+            "Start manual grid discharge? Make sure EMS Supervisor is safely "
+            "disabled."
+        ),
+        (
+            "Uruchomić ręczne ładowanie z sieci? Upewnij się, że Nadzorca EMS "
+            "jest bezpiecznie wyłączony."
+        ): (
+            "Start manual grid charging? Make sure EMS Supervisor is safely "
+            "disabled."
+        ),
+        "Bezpieczne zakończenie działania": "Safe shutdown",
+        "Tryb pracy — w tym praca wyspowa": (
+            "Operating mode — including off-grid operation"
+        ),
+        "Powiadomienia telefonu": "Phone notifications",
+        "Telefon — usługa powiadomień": "Phone — notification service",
+        "**Uwaga:** zmiana ustawienia „Praca systemu” może zatrzymać falownik.": (
+            "**Warning:** changing “System operation” may stop the inverter."
+        ),
+        "Sieć równoległa — podsumowanie": "Parallel network — overview",
+        (
+            "Adresy 2–10 pozostają dostępne również wtedy, gdy nie wykryto "
+            "urządzenia podrzędnego."
+        ): (
+            "Addresses 2–10 remain available even when no Slave device is "
+            "detected."
+        ),
+        "Prognozowana nadwyżka w autokonsumpcji — od teraz": (
+            "Forecast surplus in Self-Use — from now"
+        ),
+        "Magazyn energii — podsumowanie": "Battery storage — overview",
+        "Licznik sieci — podsumowanie": "Grid meter — overview",
+        "Licznik zewnętrznego PV — podsumowanie": (
+            "External PV meter — overview"
+        ),
+        "Zatrzymaj i wróć do autokonsumpcji": "Stop and return to Self-Use",
+        "Sterowanie systemem": "System control",
+        "Moc teraz": "Power now",
+        "name: Moc teraz": "name: Power now",
+        "Napięcie magistrali DC": "DC bus voltage",
+        "Moc fazy L1": "Phase L1 power",
+        "Moc fazy L2": "Phase L2 power",
+        "Moc fazy L3": "Phase L3 power",
+        "do najdroższych dostępnych bloków RCE dzisiaj lub jutro.": (
+            "to the most valuable available RCE slots today or tomorrow."
+        ),
+        "Do zebrania co najmniej 24 godzin historii używane jest awaryjne": (
+            "Until at least 24 hours of history has been collected, the fallback"
+        ),
+        "zużycie dobowe z pola u góry. Następnie algorytm uczy się maksymalnie": (
+            "daily consumption entered above is used. The algorithm then learns "
+            "from up to"
+        ),
+        "magazyn do wyznaczonego SOC. Jeżeli celem jest tylko zachowanie": (
+            "the battery to its target SOC. If the goal is only to preserve"
+        ),
+        (
+            "# Wklej CAŁĄ zawartość do edytora surowej konfiguracji nowego "
+            "dashboardu."
+        ): "# Paste the ENTIRE content into the new dashboard's raw configuration editor.",
+        "# Responsywny interfejs Aurora, animowany przepływ, wykresy i podsumowania": (
+            "# The responsive Aurora interface, animated energy flow, charts, and "
+            "overviews"
+        ),
+        "# są dostarczane razem z integracją i nie wymagają dodatkowych kart HACS.": (
+            "# are bundled with the integration and require no additional HACS cards."
+        ),
+        "# Dashboard używa stabilnych identyfikatorów proxy tworzonych przez integrację": (
+            "# The dashboard uses stable proxy entity IDs created by the"
+        ),
+        "# Hoymiles HIT xxL G3 Modbus. Nie zależą one od nazwy urządzenia ESPHome.": (
+            "# Hoymiles HIT xxL G3 Modbus. They do not depend on the ESPHome device name."
+        ),
+        "# Karty harmonogramów EMS wymagają pakietu home_assistant/hoymiles_ems_scheduler.yaml.": (
+            "# EMS schedule cards require the home_assistant/hoymiles_ems_scheduler.yaml package."
+        ),
+        "# Obejmuje wszystkie aktywne encje; pominięta jest tylko jedna encja oznaczona": (
+            "# It includes all active entities; only one entity marked"
+        ),
+        "# w ESPHome jako disabled_by_default (opisana w zakładce Sterowanie).": (
+            "# disabled_by_default in ESPHome is omitted (documented on the Control tab)."
+        ),
+        "# Dashboard Home Assistant dla Hoymiles Energy Storage": (
+            "# Home Assistant dashboard for Hoymiles Energy Storage"
+        ),
+    }
+)
+
+# I2 field metadata and the compact RCEm guide use exact source phrases so
+# localization cannot alter entity IDs, readiness sources, or requirement
+# tokens.  The canonical dashboard remains Polish; only its generated English
+# representation receives this copy.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "Włącz sprzedaż energii": "Enable energy sales",
+        "Maksymalna moc sprzedaży": "Maximum export power",
+        "Automatyczna ochrona energii dla domu": (
+            "Automatic home-energy protection"
+        ),
+        "Godziny bez sprzedaży": "Export lockout hours",
+        "Pozwala polityce przygotować plan; o wykonaniu nadal decyduje Nadzorca.": (
+            "Lets this policy prepare a plan; the Supervisor still controls "
+            "execution."
+        ),
+        "Ogranicza moc oddawania energii z magazynu do sieci.": (
+            "Limits battery-storage export power."
+        ),
+        "Chroni energię potrzebną na prognozowane zużycie domu.": (
+            "Protects energy needed for forecast home consumption."
+        ),
+        "Dodaje zapas wyłącznie do chronionego progu planu RCE.": (
+            "Adds a reserve only to the RCE plan's protected threshold."
+        ),
+        "Wyklucza wybrany przedział z automatycznej sprzedaży.": (
+            "Excludes the selected period from automatic energy sales."
+        ),
+        "Ustala początek przedziału bez automatycznej sprzedaży.": (
+            "Sets the start of the automatic-sales lockout period."
+        ),
+        "Ustala koniec przedziału bez automatycznej sprzedaży.": (
+            "Sets the end of the automatic-sales lockout period."
+        ),
+        "Włącz tanią energię": "Enable low-cost energy",
+        "Taryfa": "Tariff",
+        "Maksymalna moc poboru": "Maximum import power",
+        "Docelowy poziom magazynu": "Target battery-storage level",
+        "Pozwala polityce przygotować kandydata do ładowania z sieci.": (
+            "Lets this policy prepare a grid-charging candidate."
+        ),
+        "Wybiera operatora, którego kalendarz stref ma być używany.": (
+            "Selects the DSO whose time-period schedule is used."
+        ),
+        "Wybiera obowiązujący profil godzin i cen energii.": (
+            "Selects the applicable time and energy-price profile."
+        ),
+        "Ogranicza moc pobieraną z sieci przez tę politykę.": (
+            "Limits the grid-import power used by this policy."
+        ),
+        "Wyznacza najwyższy SOC osiągany przez tanie ładowanie.": (
+            "Sets the highest SOC reached by low-cost charging."
+        ),
+        "Zwiększa zapas energii wymagany przez plan taryfowy.": (
+            "Increases the energy reserve required by the tariff plan."
+        ),
+        "Włącz ochronę przed wysokim napięciem": (
+            "Enable high-voltage protection"
+        ),
+        "Płynna regulacja eksportu": "Smooth export control",
+        "Przygotowanie miejsca przed dużą produkcją PV": (
+            "Create battery headroom before high PV production"
+        ),
+        "Pozwala RCEm przygotować własnego kandydata działania.": (
+            "Lets RCEm prepare its own action candidate."
+        ),
+        "Ogranicza eksport, gdy potwierdzone napięcie rośnie.": (
+            "Reduces export when confirmed voltage rises."
+        ),
+        "Może wcześniej utworzyć dokładnie wyliczone wolne miejsce.": (
+            "May create exactly the calculated battery headroom in advance."
+        ),
+        "Ustala twardy limit eksportu, którego RCEm nie przekroczy.": (
+            "Sets a hard export limit that RCEm cannot exceed."
+        ),
+        "Zwiększa rezerwę chronioną wyłącznie przez RCEm.": (
+            "Increases the reserve protected by RCEm only."
+        ),
+        "Jak RCEm reaguje na napięcie": "How RCEm responds to voltage",
+        "W czasie normalnej regulacji automatyka pozostaje w": (
+            "During normal regulation, the automation remains in"
+        ),
+        "**autokonsumpcji**. Łączy prognozę Solcast na dziś i jutro,": (
+            "**Self-Use**. It combines the Solcast forecast for today and tomorrow,"
+        ),
+        "rzeczywisty profil zużycia domu z czterech dni, SOC, pojemność": (
+            "the actual four-day home-load profile, SOC, battery capacity,"
+        ),
+        "magazynu i historyczne napięcia L1/L2/L3. Najwyższa z faz ma zawsze": (
+            "and historical L1/L2/L3 voltages. The highest phase always has"
+        ),
+        "pierwszeństwo. Przy wzroście napięcia RCEm dobiera bezpieczny limit": (
+            "priority. As voltage rises, RCEm selects a safe"
+        ),
+        "ładowania lub eksportu zgodnie z bieżącym planem i odczytami.": (
+            "charging or export limit according to the current plan and readbacks."
+        ),
+        "Jak chroni rezerwę magazynu": (
+            "How it protects the battery-storage reserve"
+        ),
+        "Od prognozy PV odejmowane jest zużycie domu; dopiero pozostała": (
+            "Home consumption is subtracted from the PV forecast; only the remaining"
+        ),
+        "nadwyżka wymaga miejsca w magazynie. RCEm uwzględnia miejsce, które": (
+            "surplus requires battery headroom. RCEm accounts for headroom that"
+        ),
+        "powstanie naturalnie, gdy magazyn zasila dom przed szczytem. Cykl": (
+            "will arise naturally as the battery supplies the home before the peak. "
+            "The"
+        ),
+        "przygotowawczy kończy się po osiągnięciu docelowego SOC albo": (
+            "preparation cycle ends upon reaching the target SOC, or"
+        ),
+        "wcześniej, gdy najwyższa faza wzrośnie do 248,4 V lub średnia": (
+            "earlier if the highest phase reaches 248.4 V or the"
+        ),
+        "10-minutowa do 249,2 V. Nigdy nie schodzi poniżej chronionego SOC": (
+            "10-minute average reaches 249.2 V. It never discharges below the "
+            "protected"
+        ),
+        "domu i rezerwy.": "home-and-outage-reserve SOC.",
+        "Jak uwzględnia zero-export": "How it accounts for zero export",
+        "Poranne rozładowanie wymaga trybu wykonawczego Nadzorcy, zgody na": (
+            "Morning discharge requires Supervisor execution mode and permission for"
+        ),
+        "RCEm, aktywnego GCF, potwierdzonego limitu eksportu większego od 0%": (
+            "RCEm, active GCF, and a confirmed export limit above 0%"
+        ),
+        "i braku blokady sprzedaży. Gdy limit wynosi 0%, rozładowanie do sieci": (
+            "with no export lockout. When the limit is 0%, grid discharge"
+        ),
+        "nie uzyskuje prawa wykonania, a wskazanie planu pozostaje wyłącznie": (
+            "does not receive execution authority and the plan remains"
+        ),
+        "informacją. RCEm nie włącza GCF — użytkownik ustawia go świadomie.": (
+            "informational only. RCEm does not enable GCF; the user enables it "
+            "deliberately."
+        ),
+        "Opcjonalna regulacja eksportu zmienia wyłącznie maksymalny limit": (
+            "Optional export control changes only the maximum export limit"
+        ),
+        "eksportu i nigdy nie przekracza mniejszej z wartości: limitu": (
+            "and never exceeds the lower of these values: the limit"
+        ),
+        "zastanego przy uruchomieniu oraz pola **Maksymalny eksport zgodny ze": (
+            "found at startup and the **Maximum export permitted by the grid"
+        ),
+        "zgłoszeniem**.": "agreement** field.",
+        "Jak przygotowuje miejsce na PV": "How it creates battery headroom for PV",
+        "Jeżeli po uwzględnieniu zasilania domu nadal brakuje pojemności,": (
+            "If capacity is still missing after accounting for home supply,"
+        ),
+        "opcja **Przygotowanie miejsca przed dużą produkcją PV** może": (
+            "the **Create battery headroom before high PV production** option may"
+        ),
+        "zaplanować rozładowanie wyłącznie o obliczony brak. Moc wynika z": (
+            "schedule discharge only for the calculated shortfall. Power is based on"
+        ),
+        "wymaganej energii i czasu do okna, z 30-minutowym zapasem.": (
+            "the required energy and time until the period, with a 30-minute buffer."
+        ),
+        "Przed przewidywanym szczytem RCEm może ograniczyć maksymalną moc": (
+            "Before the predicted peak, RCEm may limit the maximum battery"
+        ),
+        "ładowania magazynu, aby nie napełnić go za wcześnie. Wyliczony plan": (
+            "charging power to avoid filling it too early. The calculated plan"
+        ),
+        "nie jest potwierdzeniem fizycznego wykonania.": (
+            "does not confirm physical execution."
+        ),
+        "Jak współpracuje z Nadzorcą": "How it works with the Supervisor",
+        "Planer RCEm nie zapisuje falownika. Nadzorca niezależnie sprawdza": (
+            "The RCEm planner does not write to the inverter. The Supervisor "
+            "independently checks"
+        ),
+        "gotowość, przyznaje jednego właściciela, wykonuje komendę, potwierdza": (
+            "readiness, grants one owner, issues the command, and confirms"
+        ),
+        "odczyt fizyczny i po zakończeniu odtwarza ustawienia sprzed transakcji.": (
+            "physical readback, then restores the pre-transaction settings."
+        ),
+        "RCE, Tania energia i RCEm mogą być włączone jednocześnie. Nadzorca": (
+            "RCE, low-cost energy, and RCEm may be enabled at the same time. The "
+            "Supervisor"
+        ),
+        "wybiera jedną bezpieczną akcję; wyrównywanie magazynu i ręczne plany": (
+            "selects one safe action; battery balancing and manual EMS plans"
+        ),
+        "EMS zachowują własne bramki pierwszeństwa.": (
+            "retain their own priority rules."
+        ),
+        "Co dzieje się przy braku danych": "What happens when data is unavailable",
+        "Brak aktualnego planu, historii napięć, prognozy albo wymaganego": (
+            "A missing current plan, voltage history, forecast, or required"
+        ),
+        "odczytu blokuje wyłącznie działanie RCEm, które potrzebuje tej danej.": (
+            "readback blocks only the RCEm action that needs that data."
+        ),
+        "Nie wyłącza Nadzorcy i nie blokuje aktualnej, bezpiecznej polityki": (
+            "It does not disable the Supervisor or block the current safe"
+        ),
+        "Taniej energii ani RCE. Wartości niepewne są pokazywane jako": (
+            "low-cost energy policy or RCE. Uncertain values are shown as"
+        ),
+        "**Brak danych**, bez nadawania prawa wykonania.": (
+            "**No data**, without granting execution authority."
+        ),
+        "Ograniczenia i diagnostyka": "Limitations and diagnostics",
+        "RCEm nie zmienia asymetrii trójfazowej, Q(U), P(U), współczynnika": (
+            "RCEm does not change three-phase imbalance, Q(U), P(U), power"
+        ),
+        "mocy ani progów zabezpieczeń. To automatyka zarządzania energią, nie": (
+            "factor, or protection thresholds. It is energy-management automation, "
+            "not"
+        ),
+        "certyfikowane zabezpieczenie sieciowe.": (
+            "certified grid protection."
+        ),
+        "Jedyny wykonawca może zmieniać limit ładowania najwyżej o 10 punktów": (
+            "The sole executor may change the charging limit by at most 10 "
+            "percentage points"
+        ),
+        "procentowych na minutę, a limit eksportu o 5–15 punktów zależnie od": (
+            "per minute and the export limit by 5–15 percentage points, depending "
+            "on"
+        ),
+        "napięcia. Przy 253 V eksport może zostać natychmiast ograniczony do": (
+            "voltage. At 253 V, export may be reduced immediately to"
+        ),
+        "0%, a magazyn użyje pełnego bezpiecznego limitu BMS. Pełne profile,": (
+            "0%, and the battery uses the full safe BMS limit. Full profiles,"
+        ),
+        "równania, okna historyczne i wartości regulatora pozostają w sekcji": (
+            "equations, historical periods, and controller values are available under"
+        ),
+        "**Pokaż pełne obliczenia RCEm** oraz w diagnostyce eksperckiej.": (
+            "**Show full RCEm calculations** and in expert diagnostics."
+        ),
+    }
+)
+
+# I2 final closeout adds compact, evidence-only summaries and completes the
+# battery-storage terminology cleanup.  Keep these as exact labels/sentences:
+# broad word replacement would also alter BMS names and stable route values.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "Plan sprzedaży w skrócie": "Energy-sales plan at a glance",
+        "Brak danych w kW": "No kW data",
+        "| Najbliższe okno | Planowana sprzedaż | Szacowany przychód | SOC po planie |": (
+            "| Next window | Planned energy sale | Estimated revenue | SOC after plan |"
+        ),
+        "Dane pochodzą bezpośrednio z bieżącego planu. Brak pola backendowego\n"
+        "          jest pokazywany jako **Brak danych**, bez obliczeń w interfejsie.": (
+            "Data comes directly from the current plan. A missing backend field\n"
+            "          is shown as **No data**, without calculations in the interface."
+        ),
+        "**Brak danych.** Polityka RCE nie opublikowała jeszcze planu.": (
+            "**No data.** The RCE policy has not published a plan yet."
+        ),
+        "zużycia magazynu energii oraz wartość energii zachowanej na kolejny dzień.": (
+            "battery-storage wear and the value of energy retained for the next day."
+        ),
+        "wybiera najwyższe ceny i uwzględnia naturalny eksport PV, koszt\n"
+        "          zużycia magazynu energii oraz wartość energii zachowanej na kolejny dzień.": (
+            "selects the highest prices and includes natural PV export, battery-storage\n"
+            "          wear, and the value of energy retained for the next day."
+        ),
+        "lub utworzy miejsce w magazynie energii przed późniejszą nadwyżką sprzedawaną": (
+            "or creates battery-storage headroom before a later surplus sold"
+        ),
+        "**Koszt zużycia magazynu energii w planie:**": (
+            "**Battery-storage wear cost in the plan:**"
+        ),
+        "**Wzrost przychodu brutto przed kosztem zużycia magazynu energii:**": (
+            "**Gross revenue increase before battery-storage wear cost:**"
+        ),
+        "różnica cen nie pokrywa strat konwersji, kosztu zużycia magazynu energii i": (
+            "the price difference does not cover conversion losses, battery-storage wear, and"
+        ),
+        "ponieważ przesuwanie energii przez magazyn energii nie obniży kosztu.": (
+            "because shifting energy through battery storage would not reduce the cost."
+        ),
+        "w wybranych tanich blokach i zachowa wymaganą rezerwę magazynu energii.": (
+            "in the selected low-cost slots and retain the required battery-storage reserve."
+        ),
+        "**Rezerwa magazynu energii:**": "**Battery-storage reserve:**",
+        "'grid_support': 'sieć → dom; zachowanie energii w magazynie'": (
+            "'grid_support': 'grid → home; energy retained in battery storage'"
+        ),
+        "wspólnym limitem wejścia AC: falownik najpierw zasila bieżące\n"
+        "          odbiorniki domu, a dopiero niewykorzystaną częścią tej mocy ładuje": (
+            "a shared AC-input limit: the inverter first supplies current\n"
+            "          home loads and only then uses the remaining power to charge"
+        ),
+        "energii w magazynie na późniejsze drogie godziny, automat zamraża": (
+            "energy in battery storage for later peak-price hours, the automation freezes"
+        ),
+        "magazynu energii ponad ten poziom.": "battery storage above that level.",
+        "Prognozowane PV i energia w magazynie": (
+            "Forecast PV and energy in battery storage"
+        ),
+        "również kolejny dzień. W trybie **ładowania z sieci** ustawiona moc jest\n"
+        "          wspólnym limitem wejścia AC: falownik najpierw zasila bieżące\n"
+        "          odbiorniki domu, a dopiero niewykorzystaną częścią tej mocy ładuje": (
+            "the following day as well. In **grid-charging** mode, the configured power is a shared AC-input\n"
+            "          limit: the inverter first supplies current home loads and only then uses\n"
+            "          the remaining power to charge"
+        ),
+        "Zimą, przy niskiej produkcji i dużym zużyciu, może zachować energię w magazynie": (
+            "In winter, with low production and high consumption, it may retain energy in battery storage"
+        ),
+        "Plan, gotowość i wykonanie": "Plan, readiness, and execution",
+        "**Gotowość polityki:**": "**Policy readiness:**",
+        "'Tak' if readiness == 'on' else 'Nie' if readiness == 'off'": (
+            "'Yes' if readiness == 'on' else 'No' if readiness == 'off'"
+        ),
+        "**Komenda:**": "**Command:**",
+        "**Odczyt zwrotny:**": "**Readback:**",
+        "**Potwierdzenie fizyczne:**": "**Physical confirmation:**",
+        "**Fizyczny przepływ:**": "**Physical flow:**",
+        "| Następne działanie | Czas | Import z sieci | Do magazynu | Bezpośrednio do domu |": (
+            "| Next action | Time | Grid import | To battery storage | Directly to home |"
+        ),
+        "**SOC początkowy → końcowy:**": "**Starting → ending SOC:**",
+        "**Koszt całego planu:**": "**Whole-plan cost:**",
+        "**Dlaczego:**": "**Why:**",
+        "Warstwy są raportowane osobno. Interfejs nie uznaje oczekiwanej komendy\n"
+        "          za odczyt zwrotny ani za fizyczny przepływ.": (
+            "The layers are reported separately. The interface does not treat an expected command\n"
+            "          as readback or physical flow."
+        ),
+        "**Brak danych.** Polityka taryfowa nie opublikowała jeszcze planu.": (
+            "**No data.** The tariff policy has not published a plan yet."
+        ),
+        "**Prognoza PV dla okna ryzyka:**": "**PV forecast for the risk window:**",
+        "**Cel SOC przed ryzykiem:**": "**SOC target before the risk:**",
+        "**Limit ładowania:**": "**Charging limit:**",
+        "**Limit eksportu:**": "**Export limit:**",
+        "default('Brak działania', true)": "default('No action', true)",
+        "Dostępna moc magazynu według BMS": "Available battery-storage power from BMS",
+        "To bezpośrednie, świeże możliwości opublikowane przez BMS. Interfejs\n"
+        "          nie przelicza prądu na moc.": (
+            "These are direct, fresh capabilities published by the BMS. The interface\n"
+            "          does not convert current into power."
+        ),
+        "Energia pobrana — łącznie": "Total imported energy",
+        "Energia oddana — łącznie": "Total exported energy",
+        "Energia — łącznie": "Total energy",
+        "**Wybrane bloki:**": "**Selected slots:**",
+        "**Koszt zużycia magazynu:**": "**Battery-storage wear cost:**",
+        "**Rezerwa wykonawcza planu:**": "**Plan execution reserve:**",
+        "**Ostatni plan — bez prawa wykonania.** Trwa przeliczanie albo wynik\n"
+        "          nie odpowiada już bieżącym wejściom. Szczegóły poprzedniego wyniku nie\n"
+        "          są prezentowane jako aktualny plan.": (
+            "**Last plan — no execution authority.** Recalculation is in progress or the result\n"
+            "          no longer matches current inputs. Previous-result details are not\n"
+            "          presented as a current plan."
+        ),
+        "{'grid_support': 'Zasilanie domu z taniej sieci', 'battery_charge': 'Ładowanie magazynu z sieci', 'grid_support_and_charge': 'Zasilanie domu i ładowanie magazynu', 'none': 'Brak działania'}": (
+            "{'grid_support': 'Supply home from the low-cost grid', 'battery_charge': 'Charge battery storage from the grid', 'grid_support_and_charge': 'Supply home and charge battery storage', 'none': 'No action'}"
+        ),
+        "{'required_energy': 'Odbudowanie wymaganej energii', 'economic': 'Opłacalne przesunięcie energii', 'mixed': 'Odbudowanie energii i korzyść taryfowa', 'none': 'Brak potrzeby działania'}": (
+            "{'required_energy': 'Restore required energy', 'economic': 'Cost-effective energy shifting', 'mixed': 'Restore energy and gain a tariff benefit', 'none': 'No action needed'}"
+        ),
+        "{'ready': 'Plan gotowy', 'no_charge_needed': 'PV i magazyn pokrywają potrzeby', 'no_discount_window': 'Brak tańszej strefy', 'no_cheap_window': 'Brak taniego okna przed deficytem', 'not_economically_beneficial': 'Ładowanie nieopłacalne', 'shortage_in_low_period': 'Deficyt przypada w taniej strefie', 'insufficient_cheap_window': 'Tanie okna nie pokrywają deficytu', 'hard_reserve_unavailable': 'Nie można odbudować rezerwy', 'missing_data': 'Brak wymaganych danych', 'optimizer_error': 'Błąd obliczeń'}": (
+            "{'ready': 'Plan ready', 'no_charge_needed': 'PV and battery storage cover demand', 'no_discount_window': 'No lower-cost period', 'no_cheap_window': 'No low-cost period before the shortage', 'not_economically_beneficial': 'Charging is not economical', 'shortage_in_low_period': 'The shortage falls in the low-cost period', 'insufficient_cheap_window': 'Low-cost periods do not cover the shortage', 'hard_reserve_unavailable': 'The reserve cannot be restored', 'missing_data': 'Required data missing', 'optimizer_error': 'Calculation error'}"
+        ),
+        "**Odczyt zwrotny FC03:**": "**FC03 readback:**",
+        "Potwierdzony w transakcji · generacja": "Confirmed by the transaction · generation",
+        "Niezweryfikowany · generacja bieżąca": "Unverified · current generation",
+        ", bazowa": ", baseline",
+        "Brak aktywnej transakcji taryfowej": "No active tariff transaction",
+        "Brak aktywnej komendy taryfowej": "No active tariff command",
+        "**Wynik zweryfikowany grid → magazyn teraz:**": "**Verified grid → battery-storage result now:**",
+        "Brak potwierdzonego dowodu": "No confirmed evidence",
+        "**Wynik zweryfikowany grid → dom teraz:** Brak opublikowanego pomiaru rozdzielonego": (
+            "**Verified grid → home result now:** No published disaggregated measurement"
+        ),
+        "**Wynik szacowany dla następnego bloku:** do magazynu": (
+            "**Estimated result for the next slot:** to battery storage"
+        ),
+        "· do domu": "· to home",
+        "**Licznik zgodności (legacy, bez authority):**": (
+            "**Compatibility counter (legacy, no authority):**"
+        ),
+        "**Ostatni plan — bez prawa wykonania.** Trwa przeliczanie albo wynik\n"
+        "          nie odpowiada już bieżącym wejściom. Komenda, odczyt i przepływ nie są\n"
+        "          wyprowadzane z nieaktualnego wyniku.": (
+            "**Last plan — no execution authority.** Recalculation is in progress or the result\n"
+            "          no longer matches current inputs. Command, readback, and flow are not\n"
+            "          derived from an outdated result."
+        ),
+        "{'ready': 'Napięcie bezpieczne', 'learning': 'Uczenie historii napięcia', 'preparing_headroom': 'Przygotowanie miejsca w magazynie', 'preparing_discharge': 'Kontrolowane przygotowanie miejsca', 'controlling': 'Regulacja ochrony przed 253 V', 'battery_limited': 'Ograniczenie możliwości magazynu', 'emergency': 'Szybka ochrona przy co najmniej 253 V', 'emergency_actuator_unavailable': 'Ochrona 253 V bez świeżych aktuatorów', 'battery_charge_unavailable': 'BMS nie przyjmuje ładowania', 'stale_voltage': 'Napięcia nieaktualne', 'history_stale': 'Historia napięcia nieaktualna', 'forecast_stale': 'Prognoza nieaktualna', 'missing_data': 'Brak wymaganych danych', 'optimizer_error': 'Błąd obliczeń'}": (
+            "{'ready': 'Voltage safe', 'learning': 'Learning voltage history', 'preparing_headroom': 'Preparing battery-storage headroom', 'preparing_discharge': 'Controlled headroom preparation', 'controlling': 'Regulating protection below 253 V', 'battery_limited': 'Battery-storage capability limited', 'emergency': 'Fast protection at or above 253 V', 'emergency_actuator_unavailable': '253 V protection without fresh actuators', 'battery_charge_unavailable': 'BMS cannot accept charging', 'stale_voltage': 'Voltage data stale', 'history_stale': 'Voltage history stale', 'forecast_stale': 'Forecast stale', 'missing_data': 'Required data missing', 'optimizer_error': 'Calculation error'}"
+        ),
+        "Ostatni plan bez prawa wykonania — oczekiwanie na aktualny wynik": (
+            "Last plan has no execution authority — waiting for a current result"
+        ),
+        "{'ready': 'Sieć w bezpiecznym zakresie', 'learning': 'Uczenie historii napięcia', 'preparing_headroom': 'Przewidywane ryzyko — zachowanie miejsca', 'preparing_discharge': 'Przewidywane ryzyko — przygotowanie miejsca', 'controlling': 'Podwyższone napięcie — aktywna regulacja', 'battery_limited': 'Podwyższone napięcie — magazyn ograniczony', 'emergency': 'Próg 253 V osiągnięty', 'emergency_actuator_unavailable': 'Próg 253 V bez świeżych aktuatorów', 'battery_charge_unavailable': 'Podwyższone napięcie — BMS nie przyjmuje energii', 'stale_voltage': 'Stan sieci nieznany — napięcia nieaktualne', 'history_stale': 'Bieżąca sieć dostępna, predykcja wstrzymana', 'forecast_stale': 'Bieżąca sieć dostępna, prognoza nieaktualna', 'missing_data': 'Stan sieci nieznany — brak danych', 'optimizer_error': 'Stan sieci nieznany — błąd obliczeń'}": (
+            "{'ready': 'Grid within the safe range', 'learning': 'Learning voltage history', 'preparing_headroom': 'Forecast risk — preserve headroom', 'preparing_discharge': 'Forecast risk — prepare headroom', 'controlling': 'Elevated voltage — active regulation', 'battery_limited': 'Elevated voltage — battery storage limited', 'emergency': '253 V threshold reached', 'emergency_actuator_unavailable': '253 V threshold without fresh actuators', 'battery_charge_unavailable': 'Elevated voltage — BMS cannot accept energy', 'stale_voltage': 'Grid state unknown — voltage data stale', 'history_stale': 'Current grid available, prediction suspended', 'forecast_stale': 'Current grid available, forecast stale', 'missing_data': 'Grid state unknown — data unavailable', 'optimizer_error': 'Grid state unknown — calculation error'}"
+        ),
+        "{'ready': 'Niskie', 'learning': 'Brak oceny predykcyjnej', 'preparing_headroom': 'Przewidywane', 'preparing_discharge': 'Przewidywane', 'controlling': 'Wysokie', 'battery_limited': 'Wysokie', 'emergency': 'Krytyczne', 'emergency_actuator_unavailable': 'Krytyczne', 'battery_charge_unavailable': 'Wysokie', 'stale_voltage': 'Brak danych', 'history_stale': 'Brak oceny predykcyjnej', 'forecast_stale': 'Brak oceny predykcyjnej'}": (
+            "{'ready': 'Low', 'learning': 'No predictive assessment', 'preparing_headroom': 'Forecast', 'preparing_discharge': 'Forecast', 'controlling': 'High', 'battery_limited': 'High', 'emergency': 'Critical', 'emergency_actuator_unavailable': 'Critical', 'battery_charge_unavailable': 'High', 'stale_voltage': 'No data', 'history_stale': 'No predictive assessment', 'forecast_stale': 'No predictive assessment'}"
+        ),
+        "{'absorb_pv': 'Zwiększ pochłanianie PV przez magazyn', 'limit_export': 'Ogranicz eksport', 'monitor': 'Monitoruj bez zmiany nastaw', 'hold': 'Wstrzymaj działanie', 'restore': 'Przywróć ustawienie bazowe', 'release_export': 'Stopniowo zwolnij ograniczenie eksportu', 'grid_discharge_preparation': 'Przygotuj miejsce kontrolowanym rozładowaniem', 'preserve_headroom': 'Zachowaj wolne miejsce', 'none': 'Brak działania'}": (
+            "{'absorb_pv': 'Increase PV absorption by battery storage', 'limit_export': 'Limit export', 'monitor': 'Monitor without changing settings', 'hold': 'Hold action', 'restore': 'Restore baseline setting', 'release_export': 'Gradually release the export limit', 'grid_discharge_preparation': 'Prepare headroom with controlled discharge', 'preserve_headroom': 'Preserve headroom', 'none': 'No action'}"
+        ),
+        "**Napięcia L1 / L2 / L3:**": "**L1 / L2 / L3 voltages:**",
+        "**Najwyższe napięcie i faza:**": "**Highest voltage and phase:**",
+        "**Ocena ryzyka:**": "**Risk assessment:**",
+        "**Ostatni plan — bez prawa wykonania.** RCEm oczekuje na wynik zgodny\n"
+        "          z bieżącymi wejściami. Nieaktualne wartości nie są pokazywane jako\n"
+        "          gotowość ani bieżąca decyzja.": (
+            "**Last plan — no execution authority.** RCEm is waiting for a result that matches\n"
+            "          current inputs. Outdated values are not shown as\n"
+            "          readiness or a current decision."
+        ),
+        "Stan bezpiecznego zatrzymania": "Safe-shutdown status",
+        "{'not_requested': 'Nie uruchomiono', 'requested': 'Wysyłanie polecenia bezpiecznego zatrzymania', 'in_progress': 'Polecenie wysłane — oczekiwanie na fizyczny odczyt', 'completed': 'Sukces — bezpieczny stan potwierdzony', 'blocked': 'Błąd — bezpieczne zatrzymanie zablokowane', 'failed': 'Błąd — bezpieczne zatrzymanie nie powiodło się'}": (
+            "{'not_requested': 'Not started', 'requested': 'Sending safe-shutdown command', 'in_progress': 'Command sent — waiting for physical readback', 'completed': 'Success — safe state confirmed', 'blocked': 'Error — safe shutdown blocked', 'failed': 'Error — safe shutdown failed'}"
+        ),
+        "**Wynik:**": "**Result:**",
+        "**Transakcja:**": "**Transaction:**",
+        "**Powód:**": "**Reason:**",
+        "**Generacja fizycznego odczytu FC03:**": "**Physical FC03 readback generation:**",
+        "**Potwierdzony tryb:**": "**Confirmed mode:**",
+        "| Najbliższy slot 30 min | Planowana sprzedaż | Szacowany przychód planu | SOC na końcu horyzontu |": (
+            "| Next 30-minute slot | Planned energy sale | Estimated plan revenue | SOC at the end of the horizon |"
+        ),
+        "**Komenda wysłana:** Brak danych — Nadzorca nie publikuje komendy ani czasu jej wysłania": (
+            "**Command sent:** No data — the Supervisor does not publish the command or its dispatch time"
+        ),
+        "**Zamiar transakcji:**": "**Transaction intent:**",
+        "Brak aktywnego zamiaru taryfowego": "No active tariff intent",
+        "**Oczekiwany odczyt:**": "**Expected readback:**",
+        "**Bieżący odczyt FC03:** generacja": "**Current FC03 readback:** generation",
+        "**Bazowa generacja FC03 transakcji:**": "**Transaction FC03 baseline generation:**",
+        "· bazowa transakcji": "· transaction baseline",
+        "· bez opublikowanej korelacji z transakcją": (
+            "· without a published correlation to the transaction"
+        ),
+        "**SOC modelu na początku → cel:**": "**Initial model SOC → target:**",
+        "**Spodziewana oszczędność:**": "**Expected savings:**",
+        "{'pending': 'Oczekiwanie na potwierdzenie fizyczne', 'confirmed': 'Potwierdzone fizycznie', 'contradicted': 'Sprzeczne z odczytem fizycznym', 'unavailable': 'Brak dostępnego potwierdzenia fizycznego'}": (
+            "{'pending': 'Awaiting physical confirmation', 'confirmed': 'Physically confirmed', 'contradicted': 'Contradicted by physical readback', 'unavailable': 'Physical confirmation unavailable'}"
+        ),
+        "**Wynik zweryfikowany sieć → magazyn:** Brak dostawcy fizycznego rozdziału mocy": (
+            "**Verified grid → battery-storage result:** No physical power-allocation provider"
+        ),
+        "**Wynik zweryfikowany sieć → dom:** Brak opublikowanego pomiaru rozdzielonego": (
+            "**Verified grid → home result:** No published disaggregated measurement"
+        ),
+        "**Wynik zweryfikowany grid → magazyn:** Brak dostawcy fizycznego rozdziału mocy": (
+            "**Verified grid → battery-storage result:** No physical power-allocation provider"
+        ),
+        "**Wynik zweryfikowany grid → dom:** Brak opublikowanego pomiaru rozdzielonego": (
+            "**Verified grid → home result:** No published disaggregated measurement"
+        ),
+        "**Pomiar zgodności (legacy, bez authority):**": (
+            "**Compatibility measurement (legacy, no authority):**"
+        ),
+        "Brak opublikowanego dowodu": "No published evidence",
+        "moc chwilowa Brak danych": "instantaneous power No data",
+        "· licznik dobowy": "· daily counter",
+        "**Zlecono:**": "**Requested:**",
+        "**Zakończono:**": "**Completed:**",
+        "**Praca wyspowa zachowana:**": "**Off-Grid preserved:**",
+        "'Tak' if stop is mapping and stop.off_grid_preserved is sameas true else 'Nie' if stop is mapping and stop.off_grid_preserved is sameas false else 'Brak danych'": (
+            "'Yes' if stop is mapping and stop.off_grid_preserved is sameas true else 'No' if stop is mapping and stop.off_grid_preserved is sameas false else 'No data'"
+        ),
+        "**Rollback:**": "**Rollback:**",
+        "Bieżący tryb i generacja są diagnostyką live. Backend nie publikuje\n"
+        "          skorelowanego payloadu FC03 dla zakończonej transakcji STOP.": (
+            "The current mode and generation are live diagnostics. The backend does not publish\n"
+            "          a correlated FC03 payload for a completed STOP transaction."
+        ),
+    }
+)
+
+# Variant A compact-dashboard copy added after the original localization table.
+# Keep these replacements phrase-scoped: broad single-word substitutions are
+# intentionally avoided because entity names and stable route values share some
+# of the same Polish words.
+ENGLISH_REPLACEMENTS.update(
+    {
+        "RCE — sprzedaż energii": "RCE — energy sales",
+        "Pozwala polityce przygotować plan; o wykonaniu nadal decyduje EMS.": (
+            "Allows this policy to prepare a plan; EMS still decides whether it is executed."
+        ),
+        "zezwala tej polityce przygotować kandydata; wykonaniem nadal zarządza EMS.": (
+            "allows this policy to prepare a candidate; EMS still controls execution."
+        ),
+        "Plan i wykonanie są rozdzielone. EMS może rozpocząć sprzedaż": (
+            "Planning and execution are separate. EMS may start energy export"
+        ),
+        "Ładowanie taryfowe — ustawienia": "Tariff charging — settings",
+        "Ładowanie taryfowe — diagnostyka": "Tariff charging — diagnostics",
+        "Włącz ładowanie taryfowe": "Enable tariff charging",
+        "Ładowanie taryfowe": "Tariff charging",
+        "**Komenda wysłana:** Brak danych — EMS nie publikuje komendy ani czasu jej wysłania<br>": (
+            "**Command sent:** No data — EMS does not publish a command or its send time<br>"
+        ),
+        "Jak działa ładowanie taryfowe": "How tariff charging works",
+        "potrzeba. Chroni ustawioną rezerwę SOC i uwzględnia straty. Planery\n"
+        "          mogą być włączone jednocześnie; EMS wybiera tylko jedną bezpieczną\n"
+        "          akcję wykonawczą.": (
+            "is actually needed. It protects the configured SOC reserve and accounts for losses.\n"
+            "          The planners may be enabled at the same time; EMS selects only one safe\n"
+            "          execution action."
+        ),
+        "Planery\n"
+        "          mogą być włączone jednocześnie; EMS wybiera tylko jedną bezpieczną\n"
+        "          akcję wykonawczą.": (
+            "The planners may be enabled at the same time; EMS selects only one safe\n"
+            "          execution action."
+        ),
+        "EMS wybiera jedną bezpieczną akcję wykonawczą; ręczne\n"
+        "          harmonogramy EMS zachowują pierwszeństwo.": (
+            "EMS selects one safe execution action; manual EMS schedules\n"
+            "          retain priority."
+        ),
+        "Ochrona napięciowa — ustawienia": "Voltage management — settings",
+        "Włącz ochronę napięciową": "Enable voltage management",
+        "Ochrona napięciowa": "Voltage management",
+        "zezwala RCEm przygotować własnego kandydata.": (
+            "allows RCEm to prepare its own candidate."
+        ),
+        "**Tryb:** planowanie dla EMS; fizyczne wykonanie wyłącznie\n"
+        "          w trybie wykonawczym po przyznaniu właściciela<br>": (
+            "**Mode:** planning for EMS; physical execution only\n"
+            "          in execution mode after ownership is granted<br>"
+        ),
+        "Jak współpracuje z EMS": "How it works with EMS",
+        "Poranne rozładowanie wymaga trybu wykonawczego EMS, zgody na\n"
+        "          RCEm, aktywnego GCF, potwierdzonego limitu eksportu większego od 0%": (
+            "Morning discharge requires EMS execution mode, RCEm permission,\n"
+            "          active GCF, and a confirmed export limit above 0%"
+        ),
+        "Planer RCEm nie zapisuje falownika. EMS niezależnie sprawdza\n"
+        "          gotowość, przyznaje jednego właściciela, wykonuje komendę, potwierdza\n"
+        "          odczyt fizyczny i po zakończeniu odtwarza ustawienia sprzed transakcji.": (
+            "The RCEm planner does not write to the inverter. EMS independently checks\n"
+            "          readiness, grants one owner, issues the command, confirms physical\n"
+            "          readback, and restores the pre-transaction settings afterward."
+        ),
+        "RCE, ładowanie taryfowe i ochrona napięciowa mogą być włączone jednocześnie. EMS\n"
+        "          wybiera jedną bezpieczną akcję; balansowanie magazynu i ręczne plany\n"
+        "          EMS zachowują własne bramki pierwszeństwa.": (
+            "RCE, tariff charging, and voltage management may be enabled at the same time. EMS\n"
+            "          selects one safe action; battery balancing and manual EMS plans\n"
+            "          retain their own priority gates."
+        ),
+        "Nie wyłącza EMS i nie blokuje aktualnej, bezpiecznej polityki\n"
+        "          ładowania taryfowego ani RCE. Wartości niepewne są pokazywane jako\n"
+        "          **Brak danych**, bez nadawania prawa wykonania.": (
+            "It does not disable EMS or block the current safe tariff-charging or RCE\n"
+            "          policy. Uncertain values are shown as **No data**, without granting\n"
+            "          execution authority."
+        ),
+        "Moc źródeł PV i GEN — ostatnie 24 godziny": (
+            "PV and GEN source power — last 24 hours"
+        ),
+        "PV1–PV4 oraz źródło AC na złączu GEN na wspólnej osi": (
+            "PV1–PV4 and the AC source on the GEN port on one axis"
+        ),
+        "PV1–PV4, złącze GEN i zewnętrzne źródło PV": (
+            "PV1–PV4, GEN port, and external PV source"
+        ),
+        "Okresy produkcji": "Production periods",
+        "Dzień, miesiąc, rok i porównanie długoterminowe.": (
+            "Day, month, year, and long-term comparison."
+        ),
+        "Produkcja PV — ostatnie 30 dni": "PV production — last 30 days",
+        "Produkcja PV — ostatnie 12 miesięcy": "PV production — last 12 months",
+        "Produkcja PV — porównanie roczne": "PV production — annual comparison",
+        "Energia źródeł — ostatnie 30 dni": "Source energy — last 30 days",
+        "Energia źródeł — ostatnie 12 miesięcy": "Source energy — last 12 months",
+        "Energia stringów i przepływy": "String energy and flows",
+        "Pełne liczniki PV, blok energii i rozdział produkcji.": (
+            "Full PV meters, energy block, and production split."
+        ),
+        "Zewnętrzne PV i złącze GEN": "External PV and GEN port",
+        "Zewnętrzne PV": "External PV",
+        "Fazy, liczniki energii oraz techniczne parametry źródeł.": (
+            "Phases, energy meters, and technical source parameters."
+        ),
+        "Tryb źródła, pomiary fazowe i energia dzienna.": (
+            "Source mode, phase measurements, and daily energy."
+        ),
+        "Tryb źródła": "Source mode",
+        "name: Zewnętrzne PV": "name: External PV",
+        "name: Energia łącznie": "name: Total energy",
+        'name: "Moc PV — rejestr falownika"': 'name: "PV power — inverter register"',
+        "Liczniki i dane techniczne PV": "PV meters and technical data",
+        "Energia stringów, przepływy całkowite i surowy blok pomiarowy.": (
+            "String energy, total flows, and the raw measurement block."
+        ),
+        "Balansowanie magazynu — ustawienia i stan": (
+            "Battery balancing — settings and status"
+        ),
+        "Magazyn — ostatnie 24 godziny": "Battery storage — last 24 hours",
+        "Moc ładowania / rozładowania oraz stan naładowania": (
+            "Charge / discharge power and state of charge"
+        ),
+        "Moc magazynu [W]": "Battery-storage power [W]",
+        "Poziom magazynu [%]": "Battery-storage level [%]",
+        "Włącz automatyczne balansowanie": "Enable automatic balancing",
+        "Jak działa balansowanie magazynu": "How battery balancing works",
+        "Limity BMS i temperatury": "BMS limits and temperatures",
+        "Pełne limity prądu, napięcia i historia temperatur ogniw.": (
+            "Full current and voltage limits plus cell-temperature history."
+        ),
+        "To bezpośrednie, świeże możliwości opublikowane przez BMS. Interfejs": (
+            "These are direct, fresh capabilities published by the BMS. The interface"
+        ),
+        "nie przelicza prądu na moc.": "does not convert current into power.",
+        "title: Bilans energii — dzisiaj": "title: Energy balance — today",
+        "Bilans energii — ostatnie 12 miesięcy": "Energy balance — last 12 months",
+        "name: Produkcja": "name: Production",
+        "name: Zużycie": "name: Consumption",
+        "name: Eksport": "name: Export",
+        "PV → sieć": "PV → grid",
+        "Źródła i liczniki całkowite": "Sources and total meters",
+        "Złącze GEN — energia łącznie": "GEN port — total energy",
+        "Produkcja PV — energia łącznie": "PV production — total energy",
+        "Import — energia łącznie": "Import — total energy",
+        "Eksport — energia łącznie": "Export — total energy",
+        "title: Bilans mocy — ostatnie 24 godziny": (
+            "title: Power balance — last 24 hours"
+        ),
+        "Najważniejsze przepływy na jednej osi": "Key flows on one axis",
+        "Przepływy dzisiaj": "Today's flows",
+        "PV → dom, magazyn i sieć oraz źródła zasilania domu.": (
+            "PV to home, battery and grid, plus home supply sources."
+        ),
+        "Pozostałe źródła i liczniki": "Other sources and meters",
+        "GEN, liczniki całkowite, fazy, EPS i surowe wartości energii.": (
+            "GEN, total meters, phases, EPS, and raw energy values."
+        ),
+        "Fazy, EPS i surowe liczniki energii": "Phases, EPS, and raw energy meters",
+        "Szczegółowe pomiary fazowe domu oraz wyjścia awaryjnego.": (
+            "Detailed phase measurements for the home and emergency output."
+        ),
+        "Zużycie domu — historia": "Home consumption — history",
+        "Moc fazowa z 24 godzin i energia z ostatnich 30 dni.": (
+            "Phase power from the last 24 hours and energy from the last 30 days."
+        ),
+        "Zużycie domu — fazy": "Home consumption — phases",
+        "Balansowanie magazynu — działania serwisowe": (
+            "Battery balancing — service actions"
+        ),
+        "name: Uruchom ręcznie": "name: Start manually",
+        "Uruchomić ręczny cykl balansowania magazynu?": (
+            "Start a manual battery-balancing cycle?"
+        ),
+        "name: Zatrzymaj i bezpiecznie odtwórz": (
+            "name: Stop and restore safely"
+        ),
+        "Zatrzymać cykl balansowania i rozpocząć bezpieczne odtworzenie nastaw?": (
+            "Stop the battery-balancing cycle and safely restore the settings?"
+        ),
+        "**EMS jest włączony.** Bezpośrednie ustawienia są tylko do\n"
+        "            odczytu. Aby przejść do sterowania ręcznego, najpierw bezpiecznie\n"
+        "            wyłącz EMS i zakończ aktywną transakcję.": (
+            "**EMS is enabled.** Direct settings are read-only. To switch to manual\n"
+            "            control, first disable EMS safely and complete the active transaction."
+        ),
+        "**Sterowanie ręczne.** Przed zmianą upewnij się, że EMS jest\n"
+        "            bezpiecznie wyłączony, transakcja zakończona, a właściciel zwolniony.": (
+            "**Manual control.** Before making a change, make sure EMS is safely\n"
+            "            disabled, the transaction has completed, and ownership is released."
+        ),
+        "Uruchomić ręczne rozładowanie do sieci? Upewnij się, że EMS jest bezpiecznie wyłączony.": (
+            "Start manual grid discharge? Make sure EMS is safely disabled."
+        ),
+        "Uruchomić ręczne ładowanie z sieci? Upewnij się, że EMS jest bezpiecznie wyłączony.": (
+            "Start manual grid charging? Make sure EMS is safely disabled."
+        ),
+        "  - title: Serwis": "  - title: Service",
+        "title: EMS i automatyka": "title: EMS and automation",
+        'content: "## EMS i automatyka"': 'content: "## EMS and automation"',
+        "name: Stan i decyzje EMS": "name: EMS status and decisions",
+        "name: Ładowanie taryfowe": "name: Tariff charging",
+        "name: Ochrona napięciowa": "name: Voltage management",
+        'content: "## Diagnostyka techniczna"': (
+            'content: "## Technical diagnostics"'
+        ),
+        "title: Diagnostyka techniczna": "title: Technical diagnostics",
     }
 )
 
@@ -3177,8 +5812,28 @@ def add_dashboard_entity_names(
     return "\n".join(relocalized) + ("\n" if text.endswith("\n") else "")
 
 
+def _protect_route_bearing_values(text: str) -> tuple[str, list[tuple[str, str]]]:
+    """Replace route values with stable tokens for the localization pass."""
+    protected: list[tuple[str, str]] = []
+    pattern = re.compile(
+        r"^(?P<prefix>[ \t]*(?:path|navigation_path|details_path|settings_path)"
+        r"[ \t]*:[ \t]*)(?P<value>[^\r\n]*)$",
+        re.MULTILINE,
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        token = f"__HOYMILES_ROUTE_VALUE_{len(protected)}__"
+        if token in text:
+            raise ValueError(f"Route-protection token already present: {token}")
+        protected.append((token, match.group("value")))
+        return f"{match.group('prefix')}{token}"
+
+    return pattern.sub(replace, text), protected
+
+
 def translate_asset_to_english(text: str) -> str:
-    """Create a first-pass English dashboard/package for the current release."""
+    """Create a first-pass English asset without localizing route targets."""
+    text, protected_routes = _protect_route_bearing_values(text)
     text = text.replace('"Autokonsumpcja (Self-Use)"', '"self_use"')
     text = text.replace('"Ładowanie z sieci"', '"grid_charge"')
     text = text.replace('"Rozładowanie do sieci"', '"grid_discharge"')
@@ -3188,7 +5843,52 @@ def translate_asset_to_english(text: str) -> str:
         reverse=True,
     ):
         text = text.replace(polish, english)
+    for token, value in protected_routes:
+        text = text.replace(token, value)
     return text
+
+
+def _collect_route_bearing_values(
+    value: object, location: tuple[object, ...] = ()
+) -> list[tuple[tuple[object, ...], object]]:
+    """Return route-bearing values with structural locations for parity checks."""
+    routes: list[tuple[tuple[object, ...], object]] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_location = (*location, key)
+            if key in ROUTE_BEARING_KEYS:
+                routes.append((child_location, child))
+            routes.extend(_collect_route_bearing_values(child, child_location))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            routes.extend(
+                _collect_route_bearing_values(child, (*location, index))
+            )
+    return routes
+
+
+def _validate_dashboard_information_architecture(
+    dashboard_data: dict, language: str
+) -> None:
+    """Enforce the stable route set and exactly six top-level destinations."""
+    views = dashboard_data.get("views")
+    if not isinstance(views, list):
+        raise ValueError(f"Generated {language} dashboard has no views list")
+    paths = tuple(view.get("path") for view in views if isinstance(view, dict))
+    if paths != DASHBOARD_VIEW_PATHS:
+        raise ValueError(
+            f"Generated {language} dashboard route order changed: {paths!r}"
+        )
+    top_level_paths = tuple(
+        view.get("path")
+        for view in views
+        if isinstance(view, dict) and view.get("subview") is not True
+    )
+    if top_level_paths != DASHBOARD_TOP_LEVEL_PATHS:
+        raise ValueError(
+            f"Generated {language} dashboard top-level routes changed: "
+            f"{top_level_paths!r}"
+        )
 
 
 def canonicalize_proxy_select_options(text: str) -> str:
@@ -3198,6 +5898,72 @@ def canonicalize_proxy_select_options(text: str) -> str:
         .replace('"Ładowanie z sieci"', '"grid_charge"')
         .replace('"Rozładowanie do sieci"', '"grid_discharge"')
     )
+
+
+def render_managed_assets(catalog: list[dict]) -> dict[Path, str]:
+    """Render every managed dashboard/scheduler text asset in memory."""
+    dashboard = transform_entity_ids(
+        (ROOT / "dashboard_hoymiles.yaml").read_text(encoding="utf-8"),
+        catalog,
+    )
+    package = transform_entity_ids(
+        (ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml").read_text(
+            encoding="utf-8"
+        ),
+        catalog,
+    )
+    shared_inputs_package = (
+        ROOT / "home_assistant" / "hoymiles_ems_shared_inputs.yaml"
+    ).read_text(encoding="utf-8")
+    rendered = {
+        RESOURCES / "dashboard_hoymiles_pl.yaml": add_dashboard_entity_names(
+            dashboard, catalog, "pl"
+        ),
+        RESOURCES / "dashboard_hoymiles_en.yaml": translate_asset_to_english(
+            add_dashboard_entity_names(dashboard, catalog, "en")
+        ),
+        RESOURCES
+        / "home_assistant"
+        / "pl"
+        / "hoymiles_ems_scheduler.yaml": canonicalize_proxy_select_options(package),
+        RESOURCES
+        / "home_assistant"
+        / "en"
+        / "hoymiles_ems_scheduler.yaml": translate_asset_to_english(package),
+        RESOURCES
+        / "home_assistant"
+        / "pl"
+        / "hoymiles_ems_shared_inputs.yaml": shared_inputs_package,
+        RESOURCES
+        / "home_assistant"
+        / "en"
+        / "hoymiles_ems_shared_inputs.yaml": translate_asset_to_english(
+            shared_inputs_package
+        ),
+    }
+    parsed_dashboards: dict[str, dict] = {}
+    for language in ("pl", "en"):
+        dashboard_yaml = rendered[
+            RESOURCES / f"dashboard_hoymiles_{language}.yaml"
+        ]
+        dashboard_data = yaml.safe_load(dashboard_yaml)
+        if (
+            not isinstance(dashboard_data, dict)
+            or not isinstance(dashboard_data.get("views"), list)
+        ):
+            raise ValueError(
+                f"Generated {language} dashboard has no top-level views list"
+            )
+        _validate_dashboard_information_architecture(dashboard_data, language)
+        parsed_dashboards[language] = dashboard_data
+        rendered[
+            RESOURCES / "www" / f"dashboard_hoymiles_{language}.json"
+        ] = json.dumps(dashboard_data, ensure_ascii=False, indent=2) + "\n"
+    pl_routes = _collect_route_bearing_values(parsed_dashboards["pl"])
+    en_routes = _collect_route_bearing_values(parsed_dashboards["en"])
+    if en_routes != pl_routes:
+        raise ValueError("Generated PL/EN dashboard route-bearing values differ")
+    return rendered
 
 
 def build() -> None:
@@ -3291,6 +6057,60 @@ def build() -> None:
     pl["entity"]["sensor"]["tariff_charge_plan"] = {
         "name": "Plan automatycznego ładowania taryfowego"
     }
+    en["entity"]["sensor"]["tariff_import_price_schedule"] = {
+        "name": "Tariff import price schedule"
+    }
+    pl["entity"]["sensor"]["tariff_import_price_schedule"] = {
+        "name": "Harmonogram cen importu taryfowego"
+    }
+    en["entity"]["sensor"]["rce_automation_plan_timeline"] = {
+        "name": "RCE automation plan timeline",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["rce_automation_plan_timeline"] = {
+        "name": "Oś czasu planu automatyki RCE",
+        "state": {
+            "current": "Aktualna",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępna",
+        },
+    }
+    en["entity"]["sensor"]["tariff_automation_plan_timeline"] = {
+        "name": "Tariff automation plan timeline",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["tariff_automation_plan_timeline"] = {
+        "name": "Oś czasu planu automatyki taryfowej",
+        "state": {
+            "current": "Aktualna",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępna",
+        },
+    }
+    en["entity"]["sensor"]["rcm_automation_plan_timeline"] = {
+        "name": "RCEm automation plan timeline",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["rcm_automation_plan_timeline"] = {
+        "name": "Oś czasu planu automatyki RCEm",
+        "state": {
+            "current": "Aktualna",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępna",
+        },
+    }
     en["entity"]["sensor"]["rcm_voltage_plan"] = {
         "name": "RCEm 253 V+ plan"
     }
@@ -3303,73 +6123,86 @@ def build() -> None:
     pl["entity"]["sensor"]["setup_status"] = {
         "name": "Stan instalacji"
     }
+    en["entity"]["sensor"]["ems_shared_inputs"] = {
+        "name": "Shared EMS inputs",
+        "state": {
+            "partial": "Partial",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["ems_shared_inputs"] = {
+        "name": "Wspólne dane EMS",
+        "state": {
+            "partial": "Częściowe",
+            "unavailable": "Niedostępne",
+        },
+    }
+    en["entity"]["sensor"]["ems_baseline_energy_timeline"] = {
+        "name": "Baseline energy forecast timeline",
+        "state": {
+            "current": "Current",
+            "partial": "Partial",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["ems_baseline_energy_timeline"] = {
+        "name": "Oś bazowej prognozy energii",
+        "state": {
+            "current": "Aktualna",
+            "partial": "Częściowa",
+            "unavailable": "Niedostępna",
+        },
+    }
+    en["entity"]["sensor"]["ems_supervisor"] = {
+        "name": "EMS"
+    }
+    pl["entity"]["sensor"]["ems_supervisor"] = {
+        "name": "EMS"
+    }
+    en["entity"]["sensor"]["ems_supervisor_canonical_plan"] = {
+        "name": "EMS canonical execution plan",
+        "state": {
+            "current": "Current",
+            "pending": "Recalculation pending",
+            "unavailable": "Unavailable",
+        },
+    }
+    pl["entity"]["sensor"]["ems_supervisor_canonical_plan"] = {
+        "name": "Kanoniczny plan wykonawczy EMS",
+        "state": {
+            "current": "Aktualny",
+            "pending": "Oczekiwanie na przeliczenie",
+            "unavailable": "Niedostępny",
+        },
+    }
+    en["entity"]["sensor"]["ems_supervisor_grid_to_battery_energy_v2"] = {
+        "name": "EMS grid-to-battery energy v2"
+    }
+    pl["entity"]["sensor"]["ems_supervisor_grid_to_battery_energy_v2"] = {
+        "name": "Energia EMS sieć→magazyn v2"
+    }
 
     COMPONENT.mkdir(parents=True, exist_ok=True)
     TRANSLATIONS.mkdir(parents=True, exist_ok=True)
     (COMPONENT / "entity_catalog.json").write_text(
         json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     (TRANSLATIONS / "en.json").write_text(
         json.dumps(en, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     (TRANSLATIONS / "pl.json").write_text(
         json.dumps(pl, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
-    dashboard = transform_entity_ids(
-        (ROOT / "dashboard_hoymiles.yaml").read_text(encoding="utf-8"),
-        catalog,
-    )
-    package = transform_entity_ids(
-        (ROOT / "home_assistant" / "hoymiles_ems_scheduler.yaml").read_text(
-            encoding="utf-8"
-        ),
-        catalog,
-    )
-
-    localized_assets = {
-        RESOURCES / "dashboard_hoymiles_pl.yaml": add_dashboard_entity_names(
-            dashboard, catalog, "pl"
-        ),
-        RESOURCES / "dashboard_hoymiles_en.yaml": translate_asset_to_english(
-            add_dashboard_entity_names(dashboard, catalog, "en")
-        ),
-        RESOURCES
-        / "home_assistant"
-        / "pl"
-        / "hoymiles_ems_scheduler.yaml": canonicalize_proxy_select_options(package),
-        RESOURCES
-        / "home_assistant"
-        / "en"
-        / "hoymiles_ems_scheduler.yaml": translate_asset_to_english(package),
-    }
-    for destination, content in localized_assets.items():
+    for destination, content in render_managed_assets(catalog).items():
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8")
-
-    for language in ("pl", "en"):
-        dashboard_yaml = (
-            RESOURCES / f"dashboard_hoymiles_{language}.yaml"
-        ).read_text(encoding="utf-8")
-        dashboard_data = yaml.safe_load(dashboard_yaml)
-        if (
-            not isinstance(dashboard_data, dict)
-            or not isinstance(dashboard_data.get("views"), list)
-        ):
-            raise ValueError(
-                f"Generated {language} dashboard has no top-level views list"
-            )
-        dashboard_json = (
-            RESOURCES / "www" / f"dashboard_hoymiles_{language}.json"
-        )
-        dashboard_json.parent.mkdir(parents=True, exist_ok=True)
-        dashboard_json.write_text(
-            json.dumps(dashboard_data, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        destination.write_text(content, encoding="utf-8", newline="\n")
 
     for bundled_www_asset in (
         "hoymiles-dashboard-strategy.js",
@@ -3379,7 +6212,11 @@ def build() -> None:
         card_source = ROOT / "home_assistant" / "www" / bundled_www_asset
         card_destination = RESOURCES / "www" / bundled_www_asset
         card_destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(card_source, card_destination)
+        if (
+            not card_destination.exists()
+            or card_destination.read_bytes() != card_source.read_bytes()
+        ):
+            shutil.copy2(card_source, card_destination)
 
     print(f"Generated {len(catalog)} localized entities.")
 

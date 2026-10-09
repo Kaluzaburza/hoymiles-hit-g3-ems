@@ -30,6 +30,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Restore validator branch identity
+        env:
+          VALIDATOR_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: git checkout -B "$VALIDATOR_BRANCH" HEAD
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -41,55 +48,234 @@ jobs:
         run: git diff --exit-code
       - name: Run structural tests
         run: python tools/validate_release.py
+      - name: Test current RC2 evidence and exact candidate contract
+        run: |
+          python tools/test_lease_acceptance_journal.py
+          python tools/test_rc2_release_contract.py
+          python tools/test_rc2_public_snapshot.py
+          python tools/test_upgrade_from_157.py
       - name: Test RCE optimizer
         run: python tools/test_rce_optimizer.py
+      - name: Test PV history qualification and shared sales minimum
+        run: |
+          python tools/test_forecast_history_versions.py
+          python tools/test_forecast_history_quality.py
+          python tools/test_forecast_learning_runtime_quality.py
+          python tools/test_rce_minimum_input_runtime.py
+      - name: Test RCE fixed-plan revalidation
+        run: python tools/test_rce_plan_revalidation.py
+      - name: Test RCE active slot and publication continuity
+        run: |
+          python tools/test_rce_active_slot_commitment.py
+          python tools/test_rce_active_slot_publication.py
+          python tools/test_rce_daylight_publication.py
+          python tools/test_solcast_adaptation_contract.py
+          python tools/test_rce_forecast_market_scope.py
+          python tools/test_rce_installation_2_replan.py
+          python tools/test_rce_start_publication_race.py
+      - name: Test tariff continuity, sale consolidation and SOC protection
+        run: |
+          python tools/test_tariff_night_continuity.py
+          python tools/test_sale_soc_range.py
+          python tools/test_sale_consolidation.py
+          node tools/test_sale_soc_summary.js
       - name: Test RCE Recorder history reconstruction
         run: python tools/test_rce_history.py
       - name: Test tariff profiles and optimizer
         run: |
           python tools/test_tariff_profiles.py
           python tools/test_tariff_optimizer.py
+      - name: Test offline Pstryk price, profile and storage contracts
+        run: |
+          python tools/test_pstryk_offline.py
+          python tools/test_pstryk_replay_data.py
+          python tools/test_pstryk_joint.py
+          python tools/test_pstryk_buy_refinement.py
+          python tools/test_pstryk_rce_parity.py
+          python tools/test_pstryk_adapter.py
+          python tools/test_pstryk_buy_reserve.py
+          python tools/test_pv_charge_delay.py
+          python tools/test_pv_charge_delay_control.py
+          python tools/test_pv_charge_delay_sensor.py
+          node tools/test_pv_charge_delay_ui.js
+          node tools/test_pstryk_ui.js
+          node tools/test_pstryk_buy_readiness_ui.js
       - name: Test RCEm history and optimizer
         run: |
           python tools/test_rcm_history.py
           python tools/test_rcm_optimizer.py
+      - name: Test RCEm live-control refresh contract
+        run: python tools/test_rcm_live_control_refresh.py
+      - name: Test RCE and tariff automation timeline model
+        run: python tools/test_automation_plan_timeline.py
+      - name: Test RCEm automation timeline model
+        run: python tools/test_rcm_timeline_model.py
       - name: Test cross-system automation matrix
         run: python tools/test_automation_matrix.py
+      - name: Test battery-balancing lifecycle and mutation contract
+        run: python tools/test_battery_balancing_contract.py
       - name: Test diagnostic privacy filters
-        run: python tools/test_diagnostics.py
+        run: |
+          python tools/test_diagnostics.py
+          python tools/test_diagnostics_future.py
       - name: Test 100-package diagnostic analyzer
         run: python tools/test_diagnostic_analyzer.py
       - name: Test parallel power balancing
         run: python tools/test_power_balance.py
       - name: Test shared energy input freshness
         run: python tools/test_energy_data.py
+      - name: Test archived net economics and access control
+        run: |
+          python tools/test_profit_archive.py
+          python tools/test_profit_http.py
       - name: Test shared household LOAD estimates
         run: python tools/test_load_model.py
+      - name: Test EV household learning filter
+        run: python tools/test_ev_load_filter.py
+      - name: Test optional EV settings
+        run: node tools/test_ev_load_ui.js
       - name: Test physical FC03 actuator readback contract
         run: python tools/test_firmware_readback_contract.py
+      - name: Test single-inverter Overview control polling
+        run: python tools/test_overview_control_poll_contract.py
+      - name: Test Supervisor legacy-proxy transport lifecycle
+        run: python tools/test_supervisor_transport_lifecycle_contract.py
+      - name: Test Supervisor dispatch response and bounded RCE retargets
+        run: |
+          python tools/test_supervisor_adapter_response.py
+          python tools/test_supervisor_not_queued_reprepare.py
+          python tools/test_tariff_pv_unsent_dispatch.py
+          python tools/test_rce_run_end_extension.py
+          python tools/test_rce_small_power_retarget.py
       - name: Test optimizer event-loop offload contract
         run: python tools/test_optimizer_executor_contract.py
       - name: Test optimizer non-blocking startup contract
         run: python tools/test_optimizer_startup_contract.py
+      - name: Test I3 optimizer cadence contract
+        run: python tools/test_i3_policy_cadence_contract.py
       - name: Test source-device registry rebind contract
         run: python tools/test_source_device_rebind.py
       - name: Run exhaustive pre-release automation matrix
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: python tools/test_automation_matrix.py --exhaustive
       - name: Test RCE custom card
-        run: node tools/validate_rce_card.js
+        run: |
+          node tools/test_frontend_bootstrap_revision_contract.js
+          node tools/validate_rce_card.js
+      - name: Test combined 48-hour RCE card contract
+        run: node tools/test_rce_48h_ui_contract.js
+      - name: Test Aurora Compact dashboard contract
+        run: python tools/test_aurora_compact_dashboard_contract.py
+      - name: Test Aurora embedded disclosure contract
+        run: python tools/test_aurora_disclosure_embedded_contract.py
+      - name: Test RCE slot entity-ID compatibility
+        run: python tools/test_rce_slot_entity_id_compatibility.py
+      - name: Test Supervisor and Aurora frontend contract
+        run: node tools/test_supervisor_aurora_ui_contract.js
+
+  battery-balancing-ha-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14.7"
+      - name: Install exact isolated Home Assistant runtime
+        run: >-
+          python -m pip install --disable-pip-version-check
+          "PyYAML==6.0.3" "pytest==8.4.2" "homeassistant==2026.8.2"
+      - name: Test exact battery-balancing transaction runtime
+        run: python tools/test_battery_balancing_ha_runtime.py
+      - name: Test RCE publication and predecessor retention contracts
+        run: |
+          python tools/test_rce_publication_refresh.py
+          python tools/test_rce_negative_publication.py
+          python tools/test_rce_publication_continuity.py
+          python tools/test_rce_enabled_rcm_retention.py
+          python tools/test_rce_unsent_retarget_cohort.py
+      - name: Test EMS notification grouping and delivery runtime
+        run: python tools/test_ems_notifications.py
+      - name: Test exact timeline platform registration
+        run: python -m pytest -q tests/test_timeline_platform_registration.py
+      - name: Test upgrade settings and real Home Assistant storage
+        run: |
+          python tools/test_ems_initial_defaults.py
+          python tools/test_ems_shared_input_migration.py
+          python -m pytest -q tests/test_ems_initial_defaults_storage.py tests/test_ems_shared_input_migration_storage.py
+
+  pstryk-pv-ha-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14.7"
+      - name: Install exact isolated Home Assistant runtime
+        run: >-
+          python -m pip install --disable-pip-version-check
+          "PyYAML==6.0.3" "pytest==8.4.2" "homeassistant==2026.8.2"
+      - name: Test shared Pstryk runtime and bounded Recorder projection
+        run: |
+          python tools/test_ev_load_runtime.py
+          python tools/benchmark_ev_load_recorder.py --output "${RUNNER_TEMP}/ev-load-recorder"
+          python tools/test_pstryk_runtime.py
+          python tools/test_shared_load_current_slot.py
+          python tools/test_shared_load_rcm.py
+          python tools/test_shared_load_execution_budget.py
+          python tools/test_pstryk_daily_cache.py
+          python tools/test_pstryk_settling.py
+          python tools/test_pstryk_export_settling.py
+          python tools/test_pv_charge_delay_settling.py
+          python tools/test_pv_initial_cohort_wait.py
+          python tools/test_pv_prewrite_callback_race.py
+          python tools/test_pv_hold_precommand_recovery.py
+          python tools/test_pv_hold_retry_cooldown.py
+          python tools/test_stop_recorder_storage.py
+          python tools/test_stop_recorder_sqlite.py
+          python tools/test_pv_charge_delay_adapter.py
+          python tools/benchmark_pv_charge_delay_recorder.py --output "${RUNNER_TEMP}/pv-delay-recorder"
+          python tools/benchmark_pv_bms_recorder.py --output "${RUNNER_TEMP}/pv-bms-recorder"
+          python tools/benchmark_pstryk_recorder.py --output "${RUNNER_TEMP}/pstryk-recorder"
+      - name: Test complete tariff and dynamic sale cycles
+        run: |
+          python tools/test_tariff_continuous_night_cycle.py
+          python tools/test_tariff_input_stop_evidence.py
+          python tools/test_sale_consolidated_cycle.py
+      - name: Test bounded RCE discharge settling and real lease gate
+        run: |
+          python tools/test_ems_lease_timing.py
+          python tools/test_ems_confirmed_telemetry_grace.py
+          python tools/test_rcm_execution_bms_limits.py
+          python tools/test_tariff_initial_lease_settling.py
+          python tools/test_tariff_support_flow_filter.py
+          python tools/test_tariff_retarget_publication.py
+          python tools/test_rce_slow_replan_lease.py
+          python tools/test_pv_delay_continuity.py
+          python tools/test_rce_settling_extended.py
+          python tools/test_rce_post_command_settling.py
+          python tools/test_rce_settling_sensor_callback.py
+          python tools/test_rce_post_command_settling_sensor.py
+          python tools/test_rce_post_command_settling_optimizer.py
 
   firmware-compile:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [esp32, flow-control, s3]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install pinned ESPHome release compiler
-        run: python -m pip install --disable-pip-version-check "esphome==2026.7.2"
+        run: python -m pip install --disable-pip-version-check "esphome==2026.9.0"
+      - name: Validate public device files and manual RS485 direction
+        run: |
+          python tools/test_esphome_entry_points.py
+          python tools/test_esphome_2026_9_migration.py
       - name: Validate complete local firmware configuration
         run: esphome config tools/esphome_verify_ci.yaml
-      - name: Compile complete ESP-IDF firmware
-        run: esphome compile tools/esphome_verify_ci.yaml
+      - name: Compile complete public ESP-IDF firmware
+        run: python tools/test_esphome_entry_points.py --compile ${{ matrix.profile }}

@@ -5,3 +5,30 @@ install_assets:
       default: false
       selector:
         boolean:
+
+master_stop: {}
+
+set_ems_paused:
+  fields:
+    paused:
+      required: true
+      selector:
+        boolean:
+
+set_policy_enabled:
+  fields:
+    policy:
+      required: true
+      selector:
+        select:
+          options:
+            - rce
+            - tariff
+            - rcm
+            - balancing
+    enabled:
+      required: true
+      selector:
+        boolean:
+
+resume_after_master_stop: {}

@@ -1,0 +1,4 @@
+# Compile the complete pinned package tree with the optional classic-WROOM profile.
+packages:
+  inverter: !include esphome_verify_ci.yaml
+  wroom_acceptance: !include ../examples/esphome/esp32-wroom-diagnostic.yaml

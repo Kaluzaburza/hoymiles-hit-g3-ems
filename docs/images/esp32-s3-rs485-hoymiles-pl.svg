@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100" role="img" aria-labelledby="title desc">
+<title id="title">ESP32-S3 → TTL / RS485 → Hoymiles HIT-G3 — six connections / sześć połączeń</title>
+<desc id="desc">Logical wiring diagram, not physical pin placement. ESP32-S3-DevKitC-1 v1.1: 3V3 J1.1 to converter VCC; GND J1.22 to TTL GND; GPIO17 TX J1.10 to RXD; GPIO16 RX J1.9 from TXD. Isolated Waveshare TTL TO RS485 B: A+ to Hoymiles HIT-(5–20)L-G3 COM2 485_2+; B− to 485_2−. SGND unconnected in this example, never bridged to TTL GND. UART 3.3 V. Disconnect all inverter energy sources before wiring.</desc>
+<defs><style>
+text{font-family:Segoe UI,Arial,sans-serif;fill:#173448}
+.title{font-size:43px;font-weight:700}.sub{font-size:23px;fill:#526878}
+.h{font-size:25px;font-weight:700}.label{font-size:23px;font-weight:600}
+.small{font-size:20px}.muted{fill:#526878}.white{fill:white}
+.wire{fill:none;stroke-width:7;stroke-linecap:round}.card{fill:white;stroke:#d8e2e9;stroke-width:2}
+</style></defs>
+<rect width="1800" height="1100" fill="#f3f6f9"/>
+<rect width="1800" height="162" fill="#153647"/>
+<text x="52" y="69" class="title white">ESP32-S3 → TTL / RS485 → Hoymiles</text>
+<text x="54" y="117" class="sub" style="fill:#c8e0ec">Schemat połączeń / Wiring schematic • UART 3,3 V • izolowany konwerter / isolated converter</text>
+<rect x="1510" y="32" width="236" height="46" rx="12" fill="#d7f5e9"/>
+<text x="1628" y="63" text-anchor="middle" class="label">1.5.8RC2</text>
+<text x="54" y="209" class="sub">Połączenia logiczne, nie rozmieszczenie pinów. / Logical connections, not physical pin placement.</text>
+
+<rect x="54" y="250" width="395" height="397" rx="20" class="card"/>
+<rect x="699" y="250" width="420" height="397" rx="20" class="card"/>
+<rect x="1391" y="250" width="355" height="397" rx="20" class="card"/>
+<text x="79" y="286" class="h">01 • ESP32-S3-DevKitC-1</text>
+<text x="79" y="316" class="small muted">v1.1 • Espressif • J1</text>
+<text x="724" y="286" class="h">02 • Waveshare</text>
+<text x="724" y="316" class="small muted">TTL TO RS485 (B)</text>
+<text x="1417" y="286" class="h">03 • Hoymiles</text>
+<text x="1417" y="316" class="small muted">HIT-(5–20)L-G3</text>
+<text x="1417" y="349" class="label">COM2 / 485_2</text>
+<path d="M922 338 V612" stroke="#a8b9c6" stroke-width="2" stroke-dasharray="7 7"/>
+<text x="746" y="352" class="small muted">TTL</text><text x="1007" y="352" class="small muted">RS485</text>
+
+<text x="80" y="384" class="label">3V3 • J1.1</text>
+<path d="M449 377 H699" class="wire" stroke="#cb3c4e"/>
+<text x="574" y="366" class="small" text-anchor="middle" style="fill:#b12a3c">1 • 3,3 V</text>
+<text x="724" y="384" class="label">VCC</text>
+<text x="80" y="454" class="label">GND • J1.22</text>
+<path d="M449 447 H699" class="wire" stroke="#526878"/>
+<text x="574" y="436" class="small muted" text-anchor="middle">2 • GND</text>
+<text x="724" y="454" class="label">GND</text>
+<text x="80" y="524" class="label">GPIO17 / TX • J1.10</text>
+<path d="M449 517 H699" class="wire" stroke="#c06d00"/>
+<path d="M678 508 L694 517 L678 526" fill="none" stroke="#c06d00" stroke-width="4"/>
+<text x="574" y="506" class="small" text-anchor="middle" style="fill:#a85c00">3 • TX → RXD</text>
+<text x="724" y="524" class="label">RXD</text>
+<text x="80" y="594" class="label">GPIO16 / RX • J1.9</text>
+<path d="M449 587 H699" class="wire" stroke="#2469bb"/>
+<path d="M470 578 L454 587 L470 596" fill="none" stroke="#2469bb" stroke-width="4"/>
+<text x="574" y="576" class="small" text-anchor="middle" style="fill:#2469bb">4 • RX ← TXD</text>
+<text x="724" y="594" class="label">TXD</text>
+
+<text x="1040" y="404" class="label" text-anchor="middle">A+</text>
+<path d="M1119 397 H1391" class="wire" stroke="#00836b"/>
+<text x="1255" y="386" class="small" text-anchor="middle" style="fill:#00836b">5 • A+ ↔ 485_2+</text>
+<text x="1417" y="404" class="label">485_2+</text>
+<text x="1040" y="479" class="label" text-anchor="middle">B−</text>
+<path d="M1119 472 H1391" class="wire" stroke="#8350b9"/>
+<text x="1255" y="461" class="small" text-anchor="middle" style="fill:#8350b9">6 • B− ↔ 485_2−</text>
+<text x="1417" y="479" class="label">485_2−</text>
+<text x="1040" y="555" class="label" text-anchor="middle">SGND</text>
+<circle cx="1119" cy="548" r="6" fill="white" stroke="#526878" stroke-width="2"/>
+<text x="1255" y="543" class="small muted" text-anchor="middle">Niepodłączony tutaj</text>
+<text x="1255" y="570" class="small muted" text-anchor="middle">Unconnected here</text>
+<text x="1417" y="547" class="small muted">Sprawdź nadruk portu.</text>
+<text x="1417" y="576" class="small muted">Check the port label.</text>
+<text x="1417" y="609" class="small muted">Nie używaj / Do not use:</text>
+<text x="1417" y="634" class="small muted">485_1, DTU, 12V−, PE</text>
+
+<rect x="54" y="677" width="550" height="263" rx="18" class="card"/>
+<rect x="625" y="677" width="551" height="263" rx="18" class="card"/>
+<rect x="1197" y="677" width="549" height="263" rx="18" class="card"/>
+<text x="79" y="716" class="h">Zasilanie i masa / Power and ground</text>
+<text x="79" y="754" class="small">ESP zasil przez USB; VCC konwertera z 3V3.</text>
+<text x="79" y="785" class="small">Nie łącz GND TTL z izolowanym SGND.</text>
+<text x="79" y="816" class="small">Nie podłączaj VCC do portu falownika.</text>
+<text x="79" y="855" class="small muted">Power ESP via USB; converter VCC from 3V3.</text>
+<text x="79" y="886" class="small muted">Do not bridge TTL GND to isolated SGND.</text>
+<text x="79" y="917" class="small muted">Never connect VCC to the inverter port.</text>
+<text x="650" y="716" class="h">Transmisja / Communication</text>
+<text x="650" y="754" class="small">A/B: jedna skręcona para. Terminacja 120 Ω</text>
+<text x="650" y="785" class="small">według magistrali. Kierunek automatyczny:</text>
+<text x="650" y="816" class="small">bez przewodu DE / RE i bez GPIO4.</text>
+<text x="650" y="855" class="small muted">One twisted pair for A/B; terminate as needed.</text>
+<text x="650" y="886" class="small muted">Automatic direction: no DE / RE or GPIO4.</text>
+<text x="650" y="917" class="small muted">Default: 115200 • 8N1 • Modbus address 1.</text>
+<text x="1222" y="716" class="h">Zakres / Scope</text>
+<text x="1222" y="754" class="small">Tylko wskazane modele i port HIT-G3.</text>
+<text x="1222" y="785" class="small">Dostosuj platformę ESPHome do S3;</text>
+<text x="1222" y="816" class="small">domyślny YAML używa esp32dev.</text>
+<text x="1222" y="855" class="small muted">Named hardware and HIT-G3 port only.</text>
+<text x="1222" y="886" class="small muted">Adapt ESPHome board/platform for S3;</text>
+<text x="1222" y="917" class="small muted">the default YAML targets esp32dev.</text>
+
+<rect x="54" y="966" width="1692" height="84" rx="14" fill="#fff0cc"/>
+<text x="79" y="1000" class="label" style="fill:#82521a">Przed pracą odłącz wszystkie źródła: AC, PV, bateria, EPS / GEN — zgodnie z instrukcją falownika.</text>
+<text x="79" y="1033" class="small" style="fill:#82521a">Isolate all energy sources. A qualified person must verify absence of voltage. This diagram covers communication wiring only.</text>
+<text x="54" y="1080" class="small muted">Autorski schemat / Original schematic • 2026-10-03 • Źródła połączeń / Wiring references: docs/WIRING_ESP32_S3.md</text>
+</svg>

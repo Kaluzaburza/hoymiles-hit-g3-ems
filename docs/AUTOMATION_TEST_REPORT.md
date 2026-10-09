@@ -1,16 +1,210 @@
 # Automation simulation and safety report
 
+## Tariff, Pstryk BUY and PV-delay continuity — 2026-10-05
+
+The overnight localhost failures on `d9dcdf684bb3ffdd2cb2b9c4d350582134b724ac`
+are reproduced by controller, HA-lease and independent firmware-model tests.
+New coverage includes callback order, bounded 180-second settling, house import
+at 1–201 W with and without PV, battery-fed false positives, accepted BUY-run
+retention, FC03 publication cohorts and unchanged hard deadlines. The exhaustive
+automation matrix remains **2064 + 4 BMS** scenarios.
+
+See `CHARGE_STABILITY_2026-10-05.md` for the causal findings and boundaries.
+Exact source hashes, RED/GREEN logs and the final validation manifest are stored
+outside the repository in `2026-10-05_EMS_CHARGE_STABILITY`. Historical release
+freeze classifiers remain unchanged; their acceptance is not claimed for this
+new controlled deployment candidate. Natural field acceptance is separate from
+offline tests. Public release remains HOLD.
+
+## Accepted N12 to local release/v1.5.8 — 2026-09-13
+
+The release worktree is based on accepted N12 commit
+`c736b69d985d6f2a75015abdacb8839a461ac7f1` (tree
+`5c15dae9b4b429a22442de1b2fec953c3f89be2d`). Its strict release classifier
+permits exactly 16 reviewed documentation/test/validator paths and requires all
+114 product, Home Assistant, dashboard and ESPHome paths to retain the exact
+mode, type and blob identity of N12. The complete v1.5.7-to-release inventory
+contains 206 unique paths. Branch naming is not an authority signal.
+
+The asset generator ran twice and reported **296** localized entities on each
+pass without a protected-asset diff. The full deterministic suite passed,
+including RCE optimizer **84**, automation matrix **488 + 4 BMS**, exhaustive
+matrix **2064 + 4 BMS**, Aurora compact **383**, Supervisor UI **69 groups /
+1112 checks**, RCE 48-hour UI **75**, notification lifecycle **436**, and all
+focused tariff, RCEm, history, LOAD, energy, power-balance, FC03, executor,
+startup, cadence, source-rebind, diagnostic and analyzer contracts. Battery
+balancing killed **25/25** existing, **30/30** transactional and **60/60**
+correction mutations, with zero survivors.
+
+The real Home Assistant runtime tests passed in isolated environments for
+**HA 2026.8.2 / Python 3.14.7** and **HA 2026.9.2 / Python 3.14.7**. On
+2026.8.2 the balancing runtime covered exact start 1, races 15, transient stops
+19, recovery 4, soft-gap 7, holds 6, fresh-SOC 3, notifications 5, provider
+timeouts 10, morning notifications 8, inverter alarms 6, generation drifts 6,
+transaction edges 4, sun commit 10, outbox 1, cycle identity 1, gap boundaries
+8 and Jinja 2083; notifier **436** and the timeline pytest also passed.
+
+Two first-pass failures exposed stale test-harness assumptions only: the
+Supervisor adapter fixture omitted `EmsMode` and unintentionally selected a
+lease mode, while one mutation survived a generic test-file-presence assertion.
+The harnesses now exercise Self-Use and the exact balancing contract. Production
+runtime and the accepted N12 tree were not changed. Final ESPHome compile,
+portable-clone and exact-release validator evidence is recorded in the external
+release report; remote CI and publication remain **HOLD** until M01.
+
+## Shared household LOAD forecast v2 — 2026-09-12
+
+RCE and tariff planning now consume the same policy-neutral expected household
+LOAD from the entry-local shared-input broker. The measurement boundary remains
+the sum of phase LOAD registers 2170–2172 and excludes inverter self-consumption.
+Daily energy uses at most 28 complete Recorder days, real calendar ages and a
+seven-day half-life. Phase totals and the half-hour shape have independent
+quality: resets, invalid values, missing phases and long gaps reject the affected
+result instead of filling it with zero. The fast aggregate counter is reduced in
+SQL to one last sample per 150-second bucket before the bounded query returns.
+
+The same-day correction compares actual and expected energy over the identical
+midnight-to-observation window. It starts after two hours and 1 kWh expected,
+is clamped to 0.80–1.25 and applies only to the rest of that day. A signed power
+deviation needs 12 minutes of dense evidence in a 20-minute window, is capped at
+3 kW, applied with 25% gain, decays within 60 minutes and ends after two hours.
+The unfinished current slot continues to use fresh measured power once, so the
+profile correction, persistence and current-slot override are not double-counted.
+RCE and tariff retain their existing policy-specific risk and economic buffers.
+
+The causal replay used every forecast point only after its available training
+history. Recorder retained 11 calendar days and provided seven complete training
+days at the end, so this is shorter than the preferred 14–28-day window. Across
+193 forecast points, the candidate passed the limits fixed before comparison:
+
+| Horizon | Legacy MAE / bias | Candidate MAE / bias | Underestimate frequency legacy / candidate | Underestimate mean / max legacy -> candidate |
+|---|---:|---:|---:|---:|
+| 30 min (n=188) | 0.2154 / -0.0297 kWh | 0.2154 / -0.0297 kWh | 67.6% / 67.6% | 0.1814 / 1.3131 -> 0.1814 / 1.3131 kWh |
+| 2 h (n=188) | 0.6736 / +0.1677 kWh | 0.6484 / +0.1221 kWh | 44.1% / 47.9% | 0.5730 / 2.2418 -> 0.5497 / 1.9950 kWh |
+| 6 h (n=193) | 1.6663 / +0.7779 kWh | 1.6655 / +0.6733 kWh | 36.3% / 36.8% | 1.2247 / 3.5619 -> 1.3485 / 4.5654 kWh |
+
+The replay classified 65 ordinary, 83 persistently low, 35 persistently high and
+five impulse points at 30 minutes. Candidate compute time was 0.625 ms mean,
+0.752 ms p95 and 0.894 ms maximum. Historical point-in-time PV and price forecast
+vintages were unavailable, therefore cost, expensive import and lost-sale
+counterfactuals were not claimed.
+
+The six-hour mean and maximum underestimate increased despite slightly better
+overall MAE and bias. The worst point was 2026-09-12 06:30 local: the causal
+same-day measurement selected the bounded 0.80 lower correction, then a later
+load rise unavailable at forecast time produced a 4.5654 kWh miss versus 3.5619
+kWh for legacy. This is the intended bounded response to confirmed lower use,
+not future leakage; unchanged policy risk buffers remain the safety layer.
+
+Focused LOAD/history/parity/startup/executor/cadence/energy/supervisor/firmware
+tests passed, including the real adapter path from history through shared inputs
+to both optimizer inputs. The exhaustive safety matrix passed **2064/2064** plus
+**4/4** BMS fail-closed cases. Managed assets regenerated deterministically; no
+asset diff was produced. The frozen frontend-manifest and clean-tree release
+gates remain blocked by the intentionally dirty `AGENTS.md` and this task diff;
+their allowlists were not weakened.
+
+installation_1 deployment targets **installation_1 / installation_1**, Home
+Assistant **2026.9.2**. `ha core check` and restart passed. The loaded model reports
+schema `load_forecast_v2`, quality `complete`, seven profile days and 99.83%
+daily/profile coverage. The shared baseline was 25.2167 kWh; RCE and tariff each
+used 25.22 kWh before their separate buffers, and both results were current.
+The actual-day sample was 3.6 seconds old and the 48-hour history endpoint returned
+2737 events. Existing permissions were unchanged. The first candidate exposed two
+initialization-order errors and a >50,000-row aggregate Recorder query; the final
+candidate fixes both, retains the original rollback set and is the only candidate
+accepted below.
+
+The live observation covered **66 minutes**, 34 reconstructed two-minute state
+samples and the 14:30/15:00 local boundaries. All state samples kept RCE and
+tariff decisions stable, Supervisor `active_idle`, owner `none` and idle phase;
+FC03 generation advanced 2758 -> 3550 and LOAD ranged 254–750 W. The original
+in-memory observer proved unchanged permissions, both boundaries and current RCE
+for every sample, then its stricter all-current tariff assertion failed before
+it emitted the sample array. Recorder omits the repeated diagnostic attributes,
+so the exact tariff transition cannot be recovered. A final light state read
+showed LOAD `complete`, exact deployed hashes, RCE current, and tariff stale after
+a full plan three minutes earlier (solver counters since restart: 45 / 220).
+This known current/stale status churn is retained as Task 2 baseline; the LOAD
+candidate remains installed and accepted without changing retry or UI behavior.
+
+## Recorded EMS execution history — 2026-09-12
+
+The EMS chart adds an on-demand **Wczoraj / Aktualnie** switch for the preceding
+48 elapsed hours. History uses the **same renderer, axes and colors as the plan**:
+recorded SOC, hourly PV/home bars, separate grid import/export energy and colored
+executed RCE/tariff/RCEm intervals. Balancing uses its recorded active flag.
+The compact inspector exposes five-minute measurements and decision reasons.
+Four summary cards integrate recorded powers inside confirmed execution intervals:
+RCE export, RCEm discharge, tariff grid charging and tariff grid supply to home.
+Concurrent PV source attribution is shown as a range; missing/inconsistent samples
+are excluded and coverage is visible. This is observational estimation, not a new
+accounting authority or a change to inverter controls.
+
+The authenticated endpoint reads Recorder measurements and Supervisor attributes,
+requires read access to every source, and owns its fixed 48-hour horizon. Power is
+time-weighted; SOC is the last recorded level per bin. Restarts/unavailable states
+stay gaps. Confirmed execution requires matching active transaction, owner/policy,
+action, readback and timestamped physical verification. Reason changes do not
+split the same continuing confirmation; unconfirmed observations and outages do.
+
+Focused validation **PASS**: **16** pure history test groups, **6** HTTP/source/
+permission/projection groups, Node history UI (shared renderer, four totals,
+read-only loading, gaps, keyboard, escaping, stale responses, empty/error, PL/EN,
+and matching bootstrap/resource cache keys). Existing contracts pass: C4 **278**,
+Aurora planner **958**, RCE 48-hour UI **75**, optimizer startup, automation matrix
+**488 + 4 BMS**. Python/JS syntax, shared-package asset sync, generated mirrors and
+task-file whitespace checks pass. The matrix was not repeated for display-only
+corrections after its successful run.
+
+Browser QA uses labelled offline data at desktop and **390 × 844**, including
+colored policies, gaps, horizontal scrolling, keyboard selection and four readable
+summary cards. Live post-restart QA verifies the actual chart and its summaries.
+The first history read immediately after restart returned unavailable; a later
+read in the stable view completed successfully. Loading can take tens of seconds.
+The additional dashboard bootstrap also receives `&history=48h-executed`: its
+fallback import must match the Lovelace card URL, otherwise an older registered
+custom element can mask the new card. Version numbers remain **1.5.8 / 1.5.8.72**.
+
+installation_1: **installation_1 / installation_1**, HA **2026.9.2**.
+HA configuration check and restart **PASS**. Final postcheck: **8** exact file
+hashes, **2783** state/reason intervals, **36** confirmed execution
+intervals; populated bins per series: **{'soc': 568, 'pv': 568, 'battery': 568, 'grid': 568, 'load': 568}**. No missing source.
+Existing control permissions, unrelated scheduler/ESP files and other Lovelace
+resources are unchanged. Backup: `/config/.codex_backups/ems-history-48h-20260912`
+(original files, resource registry and guarded correction snapshots).
+Local receipts: `_local/tmp/ems_history_20260912/`.
+
+Flow-source audit on the installation: native `pv_to_battery_power` is Modbus
+register **2177**. `hoymiles_grid_to_battery_today` is a template subtracting PV
+energy from total charging; accounting-v2 reports its physical provider missing.
+No dedicated native grid-to-battery source was found in the current map/registry.
+Consequently estimates are labelled and do not consume accounting-v2's zero state.
+
+The broad `validate_release.py` clean-tree gate and `validate_rce_card.js` frozen
+manifest gate remain **BLOCKED** by existing dirty `AGENTS.md` and the new task file
+set. Gates were not weakened. This is not full release/inverter/per-Slave acceptance.
+
+Current evidence clarification (2026-09-12): the later consolidated RCE/tariff
+field runs, firmware 100 ms provenance and installation_1 source comparison are
+indexed in the [v1.5.8 handoff](releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md#firmware-and-control-evidence-reconciliation--2026-09-12).
+The 60-second RCE settling window does not disable all rollback conditions.
+Older release/version statements below retain their historical scope; they do
+not describe the currently installed ESP solely from its project version label.
+
 Baseline date: 2026-08-13 (Europe/Warsaw)
 Final RC6 live audit date: 2026-08-14 (Europe/Warsaw)
 Latest shared-bus hardware/protocol observation: 2026-08-15 (Europe/Warsaw)
 Final v1.5.6 release date: 2026-08-21 (Europe/Warsaw)
 v1.5.7 GCF cohort hotfix candidate date: 2026-08-22 (Europe/Warsaw)
-Last completed offline baseline in this report: **tagged v1.5.6 source — PASS**
+v1.5.8 RCE lifecycle hotfix candidate date: 2026-08-25 (Europe/Warsaw)
+Last completed offline baseline in this report:
+**v1.5.8 pre-commit candidate worktree — PASS**
 Last accepted live runtime merge:
 **`ce4afc614a691ce70c67da2439613de90e0c61c2`**
 (implementation commit **`915337fa34529c5197ad581a41d351b78bfb1d33`**)
 Current status: **v1.5.6 is published after full local/CI validation and live
-rollout on localhost plus `miernik.com.pl`. The final simultaneous 15-minute
+rollout on installation_1 plus `installation_2`. The final simultaneous 15-minute
 window proved stable tariff and RCE readiness but contained no planned active
 RCE slot. The maintainer explicitly accepted that bounded exact-final active-
 slot evidence gap for release, with a hotfix path. The 2026-08-15 shared-bus
@@ -20,7 +214,7 @@ run remains hardware/protocol evidence from HA package 1.5.4 and ESP32 project
 Current v1.5.7 candidate: semantic hotfix commit
 **`59fb1e28efb0471e10a40728f8d2e74b4b8164dd`**. Focused deterministic
 tests and mutation probes pass as recorded below. This source entry does not
-claim exact-final localhost, field, CI or public-release acceptance; those
+claim exact-final installation_1, field, CI or public-release acceptance; those
 remain mandatory gates and are recorded in the external release report for the
 exact final commit.
 
@@ -29,6 +223,98 @@ the RCE market-price optimizer, tariff-aware grid charging and experimental
 RCEm 253 V+ voltage management. The tests do not write to a real inverter.
 They verify arithmetic, state transitions, interlocks and fail-safe behaviour
 before field acceptance on each installation.
+
+## v1.5.8 RCE lifecycle and HIT-20L hotfix — offline GO; exact-commit field gate pending
+
+The pre-release field patch isolated two lifecycle causes. After physical ACK,
+the controller incorrectly reused new-start eligibility as continuation
+authority. A separate event-order race could publish a new current optimizer
+result just before dependent execution readiness became current. The promoted
+hotfix removes start eligibility only from post-ACK continuation and adds one
+no-write bridge, anchored to the source-plan update and bounded to **0–5
+seconds**, for an already active and physically acknowledged cycle. A new
+start still requires start eligibility. Planned-slot and continuation
+eligibility, owner/conflict, physical mode/readback, topology, fresh SOC/BMS
+and all other hard stops remain mandatory; loss of continuation eligibility is
+an immediate stop.
+
+The HIT-20L selector still denotes a **20 kW** nameplate and total AC bridge.
+RCE battery-only planning and verification use **16 kW per inverter**, so the
+two-inverter battery base is **32 kW** and the requested percentage applies to
+that base. PV, LOAD and charging continue to use their separate physical
+paths. The calibration does not add a power-cap write, does not change 4306
+semantics and does not affect the 5/10/12/15 kW profiles.
+
+The already field-accepted start verifier remains transaction-frozen and uses
+six fresh complete aggregate generations, four overlapping windows of three
+and a **155-second** horizon. A single isolated sampled transition peak remains
+best-effort diagnostics; persistent mismatch, missing export or no stable
+window still produces the existing fail-closed neutral rollback. Master FC03
+is still Master configuration acknowledgement only and no per-Slave protocol
+ACK is claimed.
+
+Exact candidate `23707c3d720385150e943f9fe8d375583f30ffd3` passed both
+aggregate-response verifications in the natural 2026-08-25 06:00 CEST run,
+but did not pass the exact-version field gate. The physical FC03 stream paused
+for about **115.1 seconds** while an active 4306 adjustment waited. Physical
+4306 remained **15.6%**, while the live optimizer target moved from about
+**16.2%** to **17.4%**. The active-update branch compared its final decision
+with that moving target and performed a complete rollback at
+**06:08:02.704 CEST**. The first uninterrupted window therefore ended before
+30 minutes. This was not an aggregate outlier-filter failure and publication
+remains blocked.
+
+The follow-up candidate freezes the active-update target and distinguishes a
+telemetry blackout from a fresh persistent actuator mismatch without changing
+the full-block helper or its physical-ACK rules. Only when the helper observed
+no newer FC03 generation may the existing second minute accept a later fresh
+Mode 5 generation that preserves 4300–4305 and confirms a positive physical
+4306 no higher than both the frozen and current safe targets. That state is
+explicitly under-command, not ACK of the requested update; the active cycle is
+preserved and the normal trigger retries. A fresh mismatch already observed by
+the helper, no later generation, over-command, an unconfirmed reduction or any
+hard stop still rolls back. The existing maximum two-minute decision horizon
+is unchanged.
+
+Follow-up pre-commit deterministic evidence on 2026-08-25:
+
+- release validator: **PASS**, manifest/package version **1.5.8**, **294**
+  localized entities;
+- RCE optimizer: **77/77 PASS**;
+- dedicated HIT-20L calibration: **10/10 PASS**;
+- automation matrix quick: **488/488 PASS**;
+- automation matrix exhaustive: **2064/2064 PASS**;
+- explicit BMS fail-closed contracts: **4/4 PASS**;
+- tariff, RCEm, RCE history, energy, LOAD, power balance, firmware-readback,
+  optimizer executor/startup, source-device rebind, diagnostics and analyzer:
+  **PASS**;
+- frontend validator: **PASS**;
+- generator: two in-place passes and clean-copy A/B: **deterministic PASS**;
+- independent out-of-tree adversarial harness: two identical runs,
+  **20/20 mutations detected**, survivors **0**, NOT RUN **0**; identical
+  result SHA-256
+  **9A24A7339D74181FCC6C1DC0330407C83E0B38BC06E2CA39047AB36694B0CC94**;
+- exact clean v1.5.7 → v1.5.8 managed-asset simulation, fresh install,
+  absent packages/www, idempotence, locally modified scheduler preservation,
+  metadata and interrupted atomic-copy rollback: **PASS**;
+- empirically exercised exact package lifecycle: exactly **two Home Assistant
+  restarts** after HACS (first loads runtime/copies the unchanged managed
+  package; second parses and activates it).
+
+The accepted precursor field window on the two-HIT-20L installation ran from
+2026-08-24 19:35:20.986 CEST through 20:05:31.047 CEST (**1810.06 s**) without
+rollback. It crossed a cohort refresh, expiration of start eligibility and the
+20:00 slot boundary. Final physical mode readback was 5, 4306 was 100%, battery
+power was about 34.1 kW and grid export about 30.4 kW. The verifier reported
+**confirmed / fresh_direction_and_target_confirmed**; its sampled transition
+peak of 64.516 kW remained diagnostic. This is installation-specific precursor
+evidence, not exact-v1.5.8 acceptance.
+
+Publication remains blocked until these exact pre-commit bytes become one
+candidate commit and that exact commit completes a natural 30-minute RCE field
+window. The external exact-commit acceptance report records the commit,
+deployment hashes, timestamps and final PASS/HOLD result; no post-acceptance
+runtime or documentation commit is permitted.
 
 ## v1.5.7 RCE GCF cohort hotfix — focused candidate evidence
 
@@ -235,14 +521,14 @@ it does not substitute for either live gate.
 
 ### Final live rollout — 2026-08-20/21
 
-The earlier localhost Core outage was traced to a loader-visible deployment
+The earlier installation_1 Core outage was traced to a loader-visible deployment
 backup, not a runtime regression. After the backup was moved outside
 `custom_components`, the release runtime and managed assets were deployed on
-localhost and `miernik.com.pl`. `ha core check`, controlled restart, integration
+installation_1 and `installation_2`. `ha core check`, controlled restart, integration
 setup, fresh physical FC03/readback and Aurora revision 24 passed on both sites.
 
 During the final simultaneous observation from `2026-08-20T22:30:25Z` to
-`22:45:45Z`, localhost tariff readiness was **16/16**, the status remained
+`22:45:45Z`, installation_1 tariff readiness was **16/16**, the status remained
 enabled/waiting, there were no ready/status transitions, and three subsequent
 five-minute planner cycles remained ready. Self-Use and no owner remained
 stable. No integration or frontend console error was observed.
@@ -345,7 +631,7 @@ Fresh offline evidence for this candidate:
 
 On 2026-08-14 exact firmware commit
 `11ee7c7306a2435059bf820b10bdf0a6be90c65d` was configuration-checked, flashed
-and exercised at miernik.com.pl. The Master accepted Grid Discharge and its
+and exercised at installation_2. The Master accepted Grid Discharge and its
 physical FC03 readback changed accordingly; the later return to Self-Use was
 also physically visible. No Home Assistant writer issued that later mode
 change, so it was not caused by the restored queued FC16 path.
@@ -412,7 +698,7 @@ protected registers and the final fault-free safe-power state.
 
 During the 2026-08-14 live audit,
 `sensor.solcast_pv_forecast_prognoza_na_dzien_3` was initially disabled in the
-Miernik entity registry and was then enabled by the user. The native source
+installation_2 entity registry and was then enabled by the user. The native source
 reported `146.9107 kWh`, a 14-second signed age and 48 detailed half-hour rows
 at the verification point. The currently deployed older RCE sensor selected
 that entity, while the older tariff sensor still reported Day 3 as `missing`
@@ -635,7 +921,7 @@ The exact runtime candidate demonstrated the following:
 
 ## RC6 live installation audit — PASS with one degraded-history observation
 
-| Check | Local installation | Parallel meter installation |
+| Check | Local installation | Parallel installation_2 |
 |---|---|---|
 | Home Assistant | 2026.8.1 | 2026.7.4 |
 | Exact candidate | Integration and managed-asset hashes matched runtime commit `7ce13155533bfa0bf9752a0fd201224dac1a7393` | Runtime and asset hashes matched the same commit |
@@ -664,7 +950,7 @@ either Home Assistant host.
 ## Archived v1.5.0 live candidate acceptance — 2026-08-12
 
 The same candidate archive was installed on a single-inverter Home Assistant
-test system and on the two-inverter field system at `miernik.com.pl` during the
+test system and on the two-inverter field system at `installation_2` during the
 2026-08-12 01:06–02:00 CEST deployment and capture window. The
 archive SHA-256 was verified before installation on both hosts. Home Assistant
 configuration validation passed, the managed EMS package and Aurora dashboard

@@ -2,7 +2,7 @@
 # Copy this file to your ESPHome directory and adjust substitutions/secrets.
 # Read the README wiring section before connecting the converter:
 # automatic-direction modules need TX/RX/GND, while MAX3485/MAX485 modules
-# with DE and /RE need an additional GPIO and a UART flow_control_pin override.
+# with DE and /RE use the root hoymiles-inverter-flow-control.yaml instead.
 # For parallel EMS, continue the same external RS485 A/B bus from the converter
 # to the Master and every Slave; address-0 broadcast is not relayed by a
 # Master-only connection.
@@ -31,7 +31,6 @@ substitutions:
   wifi_password: !secret wifi_password
   fallback_password: !secret fallback_password
   api_key: !secret api_key
-  ota_password: !secret ota_password
 
 esp32:
   board: ${board}
@@ -42,7 +41,7 @@ esp32:
       sram1_as_iram: true
 
 dashboard_import:
-  package_import_url: github://Kaluzaburza/hoymiles-hit-g3-ems/examples/esphome/hoymiles-hit-g3.yaml@main
+  package_import_url: github://Kaluzaburza/hoymiles-hit-g3-ems/examples/esphome/hoymiles-hit-g3.yaml@v1.5.8RC2
   import_full_config: true
 
 logger:
@@ -54,7 +53,7 @@ logger:
 packages:
   hoymiles_hit_g3:
     url: https://github.com/Kaluzaburza/hoymiles-hit-g3-ems
-    ref: v1.5.6
+    ref: v1.5.8RC2
     refresh: 1d
     files:
       - packages/core.yaml

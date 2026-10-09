@@ -10,14 +10,19 @@ substitutions:
   control_update_interval: 5s
   modbus_settings_controller_id: hoymiles_modbus_settings
   settings_update_interval: 20s
+  # ESPHome 2026.9 no longer applies per-sensor skip_updates. Static internal
+  # addresses retain their old ten-full-cycle (25 minute) diagnostic cadence.
+  modbus_slow_controller_id: hoymiles_modbus_slow
+  slow_update_interval: 1500s
 
 esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
   comment: "${device_description}"
+  min_version: 2026.9.0
   project:
     name: "hoymiles.energy-storage-modbus"
-    version: "1.5.6"
+    version: "1.5.8rc2"
 
 logger:
   level: WARN
@@ -41,7 +46,9 @@ api:
 ota:
   - platform: esphome
     id: ota_esphome
-    password: ${ota_password}
+    # Inherit the existing API key; never rotate it during an OTA migration.
+    # Existing devices must already offer encrypted OTA before installing this.
+    encryption:
 
 sensor:
   - platform: uptime

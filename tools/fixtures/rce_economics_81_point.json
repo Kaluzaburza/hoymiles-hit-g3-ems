@@ -1,0 +1,627 @@
+{
+  "fixture_version": 1,
+  "description": "Anonymized 81-point RCE economics counterexample; no host identity or runtime hashes.",
+  "now": "2026-09-24T13:58:44.955178Z",
+  "first_end": "2026-09-24T14:00:00Z",
+  "settings": {
+    "battery_capacity_kwh": 230,
+    "battery_soc_percent": 85,
+    "outage_reserve_soc_percent": 20,
+    "safety_margin_soc_percent": 38,
+    "dynamic_reserve_enabled": true,
+    "inverter_power_kw": 16,
+    "inverter_ac_power_kw": 20,
+    "inverter_count": 2,
+    "discharge_power_percent": 100,
+    "export_efficiency_percent": 95,
+    "charge_efficiency_percent": 95,
+    "house_discharge_efficiency_percent": 95,
+    "battery_wear_cost_pln_kwh": 0.08,
+    "sale_block_start": "23:00",
+    "sale_block_end": "05:00"
+  },
+  "floor_kwh": 133.4,
+  "points": [
+    {
+      "pv_kw": 6.027,
+      "load_kw": 0.515,
+      "price_pln_kwh": 0.697715,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 6.027
+    },
+    {
+      "pv_kw": 4.485499529,
+      "load_kw": 2.039835945,
+      "price_pln_kwh": 0.658775,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 3.612637465
+    },
+    {
+      "pv_kw": 2.853694074,
+      "load_kw": 1.945561008,
+      "price_pln_kwh": 0.87137,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 2.20316523
+    },
+    {
+      "pv_kw": 1.405670678,
+      "load_kw": 1.851286071,
+      "price_pln_kwh": 0.930955,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 1.022636021
+    },
+    {
+      "pv_kw": 0.429867416,
+      "load_kw": 1.757011134,
+      "price_pln_kwh": 1.164505,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.352564281
+    },
+    {
+      "pv_kw": 0.108798302,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.02805,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.091620123
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.189405,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.25264,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.37329,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.26387,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.131845,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.03124,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.93028,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.881015,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.70798,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.715045,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.584085,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.754865,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.71283,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.747405,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.728095,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.719725,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.710235,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.713995,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.72061,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.72115,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.71968,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.70608,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.668975,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.862875,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0.111169869,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.08557,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.073021484
+    },
+    {
+      "pv_kw": 0.396897625,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.2181,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.244477459
+    },
+    {
+      "pv_kw": 0.784065479,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.19134,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.492403697
+    },
+    {
+      "pv_kw": 1.79124137,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.14957,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 1.017580293
+    },
+    {
+      "pv_kw": 2.831074615,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.98522,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 1.541427462
+    },
+    {
+      "pv_kw": 3.902601869,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.948035,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 2.117430099
+    },
+    {
+      "pv_kw": 4.790804807,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.772455,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 2.594323906
+    },
+    {
+      "pv_kw": 5.633730589,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.73315,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 3.004265276
+    },
+    {
+      "pv_kw": 6.323195711,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.685275,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 3.3458863
+    },
+    {
+      "pv_kw": 7.063332715,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.675025,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 3.76840899
+    },
+    {
+      "pv_kw": 7.78786355,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.67574,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 4.266361575
+    },
+    {
+      "pv_kw": 8.010588625,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.64262,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 4.301696972
+    },
+    {
+      "pv_kw": 7.676308344,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.629115,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 3.84447445
+    },
+    {
+      "pv_kw": 7.395782644,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.653405,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 3.551752645
+    },
+    {
+      "pv_kw": 7.16429114,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.67322,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 3.417423952
+    },
+    {
+      "pv_kw": 6.71421694,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.714615,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 3.129191398
+    },
+    {
+      "pv_kw": 6.007218961,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.69747,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 2.788707127
+    },
+    {
+      "pv_kw": 5.175082629,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.66962,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 2.410999266
+    },
+    {
+      "pv_kw": 4.247864269,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.736335,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 2.0042177
+    },
+    {
+      "pv_kw": 3.134624231,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.74873,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 1.487133239
+    },
+    {
+      "pv_kw": 1.978322727,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.80152,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.952824192
+    },
+    {
+      "pv_kw": 0.877702491,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.832695,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.441885866
+    },
+    {
+      "pv_kw": 0.393333253,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.008855,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.202706836
+    },
+    {
+      "pv_kw": 0.091902994,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.993215,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0.045951506
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.24107,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.373795,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.48467,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.2249,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 1.073385,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.999905,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.831205,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.80121,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.684565,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.680455,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": 0.67408,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    },
+    {
+      "pv_kw": 0,
+      "load_kw": 1.666666667,
+      "price_pln_kwh": null,
+      "protected_soc_percent": 76,
+      "conservative_pv_kw": 0
+    }
+  ],
+  "reference_plan": [
+    {
+      "start": "2026-09-24T17:30:00+02:00",
+      "price_pln_kwh": 1.164505,
+      "energy_kwh": 3.1377765735
+    },
+    {
+      "start": "2026-09-24T18:00:00+02:00",
+      "price_pln_kwh": 1.02805,
+      "energy_kwh": 0.19227026265234376
+    },
+    {
+      "start": "2026-09-24T18:30:00+02:00",
+      "price_pln_kwh": 1.189405,
+      "energy_kwh": 3.0066666664999997
+    },
+    {
+      "start": "2026-09-24T19:00:00+02:00",
+      "price_pln_kwh": 1.25264,
+      "energy_kwh": 3.0066666664999997
+    },
+    {
+      "start": "2026-09-24T19:30:00+02:00",
+      "price_pln_kwh": 1.37329,
+      "energy_kwh": 3.0066666664999997
+    },
+    {
+      "start": "2026-09-24T20:00:00+02:00",
+      "price_pln_kwh": 1.26387,
+      "energy_kwh": 3.0066666664999997
+    }
+  ],
+  "expected_reference_net_pln": 17.82989939156645,
+  "expected_legacy_net_pln": 15.53714651995835
+}

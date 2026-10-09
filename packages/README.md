@@ -31,6 +31,21 @@ Rejestr pojemności baterii `4102` jest odpytywany przez kontroler ustawień co
 pojemność jako stabilną cechę instalacji, ale nie rozluźnia kontroli świeżości
 bieżącego napięcia ani limitów prądowych BMS.
 
+## Wersja firmware i odstępy Modbus
+
+Wersja projektu EMS pochodzi z `core.yaml` (`1.5.8`); numer ESPHome/Buildera
+jest osobną wersją kompilatora. Sam numer projektu nie identyfikuje zestawu
+pakietów: przy wdrożeniu sprawdzaj ich SHA256 oraz `config_hash` urządzenia.
+Pierwszy udokumentowany wariant 100 ms wgrano na instalację 185 dnia
+8.09.2026, około 15:50 UTC, z `config_hash=b05237cf` i ESPHome `2026.8.2`.
+
+`modbus.turnaround_time: 100ms` ustala odstęp po odbiorze odpowiedzi dla
+wszystkich czterech kontrolerów wspólnej magistrali. Nie jest gwarancją
+odpowiedzi falownika w 100 ms. `send_wait_time` pozostaje `250ms`.
+Nie dodawaj `command_throttle`: nowe ESPHome ignoruje tę opcję i ostrzega
+o jej planowanym usunięciu. Odstęp jest już ustawiony we wspólnym hubie.
+Historia i zakres dowodów: [handoff v1.5.8](../docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md#firmware-and-control-evidence-reconciliation--2026-09-12).
+
 ## Bezpieczna zmiana trybu EMS
 
 Encja `Tryb EMS` udostępnia wyłącznie tryby używane w tej instalacji:

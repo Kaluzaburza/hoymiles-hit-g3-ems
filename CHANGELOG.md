@@ -2,17 +2,642 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [1.5.8RC2] — 2026-10-09
+
+**Release candidate / Wersja przedpremierowa · 9 October / 9 października 2026.**
+Tag **`v1.5.8RC2`**, integration/package **`1.5.8rc2`**,
+frontend **`1.5.8rc2.122`**, ESP lease protocol **2**.
+In HACS enable prereleases to select RC2. / W HACS włącz wersje przedpremierowe.
+
+## Changes / Zmiany
+
+- **Earnings / Zyski:** separate purchase and sale panels with kWh, amounts and
+  weighted prices; breakdown by tariff zone and provider, month by default and
+  collapsed details. Estimated benefit accounts for remaining battery energy
+  and shows comparison coverage. / Osobno zakup i sprzedaż, podział na strefy
+  i dostawców, czytelny miesiąc; szacunek korzyści uwzględnia stan magazynu i luki.
+- **RCE/Pstryk:** shared household LOAD, coherent current-plan publication,
+  qualified continuity during recalculation, consolidation of small sale tails
+  and bounded improvements to Pstryk BUY choices. / Wspólny LOAD domu,
+  stabilniejsze plany, ograniczenie drobnych końcówek sprzedaży i lepszy wybór
+  zakupu, z zachowaniem cen, rezerwy domu i ograniczeń fizycznych.
+- **Additional SOC / Dodatkowy SOC:** accepts **0–90%**, with a live explanation
+  of protected capacity. Reserve 20% + additional 60% protects 80%, leaving at
+  most 20% for sale, subject to actual SOC and limits. / Przykład w panelu
+  wyjaśnia chronioną część magazynu; dostępna część nie jest obietnicą sprzedaży.
+- **PV charging delay / Opóźnienie ładowania PV:** Maximum/Balanced/Conservative
+  profiles use **20/50/55%** forecast allowances. Provider parity and startup
+  callback handling improve. A newly qualified neutral attempt can follow a
+  **180 s cooldown**, retaining the original deadline and first-command settling
+  interval. / Maksymalny/Zrównoważony/Zachowawczy, poprawiony start RCE/Pstryk,
+  ponowienie po 180 s i pełnej ponownej kwalifikacji.
+- **Tariff continuity / Ciągłość taryfy:** compatible target changes preserve
+  the transaction; grid-support spikes have a bounded **60 s** filter and
+  **2 percentage point** SOC guard. Shared LOAD tolerates readings down to
+  **−300 W**, treated as zero; larger invalid values remain unavailable.
+  / Krótkie skoki nie zrywają od razu poprawnej pracy; nieaktualne dane i
+  rzeczywiste naruszenia nadal blokują sterowanie.
+- **History and diagnostics / Historia i diagnostyka:** HA history-query
+  compatibility, STOP/input evidence, a bounded in-memory accepted-lease journal
+  in diagnostic ZIPs and explicit retention/gaps, without extra Modbus polling.
+- **ESPHome 2026.9:** retired `skip_updates`/`register_count` usage removed;
+  slower sparse diagnostics and full-width 32-bit faults preserved. OTA uses
+  API-key encryption. Public profiles: **ESP32**, **ESP32-S3 N16R8** and
+  **ESP32 with DE + /RE**. / Trzy opisane warianty sprzętowe i szyfrowane OTA.
+- Pstryk uses public hourly net prices with separate BUY/SELL permissions;
+  PGE G12e is an additional tariff option. / Dodanie tych opcji nie przełącza
+  automatycznie dostawcy ani taryfy użytkownika.
+
+### User update steps / Kroki po aktualizacji
+
+1. **Backup and stop / Kopia i zatrzymanie:** save HA, device YAML, secrets and
+   custom packages; record tariff, prices, SOC, power and policy settings.
+   Stop automatic writers and wait for confirmed neutral state. Keep execution
+   stopped during the update; do not force Self-Use over physical Off-Grid.
+   **PL:** zabezpiecz dane i nastawy, zaczekaj na potwierdzony koniec pracy.
+2. **HA:** select **1.5.8RC2** in HACS with prereleases visible, then restart HA.
+   Complete Repairs, check configuration and restart again if requested to load
+   the updated scheduler and new shared-input package. Custom YAML is preserved;
+   deliberate replacement follows the Repair procedure after backup.
+   **PL:** po pierwszym restarcie sprawdź Naprawy; drugi może być potrzebny do
+   załadowania pakietów. Przy ręcznych include dopisz pakiet wspólnych wejść.
+3. **ESPHome:** upgrading from **1.5.7 requires compatible lease-2 firmware**.
+   Choose the complete correct-board YAML and packages at **`v1.5.8RC2`**.
+   Preserve hostname, board, pins, API key, Wi-Fi and partition layout.
+   Classic ESP32 profiles require silicon revision **3.1+**; check the boot log,
+   not the PCB label. Older chips need a separately validated configuration.
+   HACS does not flash ESP. The old public YAML could still reference `v1.5.6`.
+   **PL:** nie zmieniaj tylko numeru wersji — sprawdź cały plik i odwołania.
+   Sprawdź też rewizję krzemu: nadruk v1.1 na płytce jej nie określa.
+4. **Older OTA / Starsze OTA:** retain the existing OTA password and API key for
+   an intermediate ESPHome **2026.9.0** build that offers encryption, then install
+   the RC2 encryption-only profile. Use USB if the old firmware cannot accept
+   this path or the board/partition layout changes. Do not bypass encryption.
+   **PL:** najpierw przygotowanie starszego ESP do szyfrowania, potem nowe OTA;
+   szczegóły i komunikaty kontrolne są w instrukcji aktualizacji poniżej.
+5. **Verify / Sprawdź:** integration/package **1.5.8rc2**, frontend
+   **1.5.8rc2.122** after a cache-free reload, no unresolved installation Repair,
+   fresh full physical FC03, correct topology/BMS/SOC, current plan and no
+   conflicting owner. Review shared settings, then restore only prior policies.
+   **PL:** potwierdź odczyt i nastawy przed włączeniem EMS; w układzie równoległym
+   sprawdź każdy falownik osobno.
+
+Full [1.5.7 upgrade guide](docs/UPGRADE_1_5_7.md),
+[board selection](docs/ESP32_VARIANTS.md), [new installation](docs/QUICK_START.md).
+Pełna instrukcja obejmuje zachowanie encji, własne pakiety, dwa restarty i OTA.
+
+## Limits / Ograniczenia
+
+PV Delay requires a qualified plan, two newer matching complete FC03 Mode5
+readbacks, topology/readiness/BMS/SOC/permissions, lease and original deadline.
+Its power measurements are diagnostic; this does **not** relax RCE SELL or
+charging physical-response requirements. Mode5 alone is not measured energy.
+
+History and earnings show gaps where older prices, counters or execution
+information were not stored. They do not invent missing data at today's prices.
+Modelled benefit is not a supplier bill. See [Earnings](docs/EMS_PROFITS.md).
+
+HACS 2.0.5's repository list can omit custom-integration local icons.
+Local images and a README logo are supplied; see [upstream status](docs/releases/1.5.8RC2/HACS_ICON.md).
+
+**PL:** brak danych pozostaje brakiem danych. Master FC03 nie jest osobnym ACK
+Slave'a. Zgodność zgłoszona dla 1.5.7 nie potwierdza wszystkich modeli i funkcji
+RC2. RCEm pozostaje eksperymentalny. [Compatibility](docs/COMPATIBILITY.md),
+[safety boundary](docs/SAFETY_AND_COMPLIANCE.md).
+
+## Earlier 1.5.8 preparation / Wcześniejsze przygotowanie 1.5.8
+
+- Add **Wczoraj / Aktualnie** (**Yesterday / Current**) to the EMS energy plan:
+  48 hours of recorded SOC/power using the same chart as the plan, with executed
+  policy colors, compact decision details and four measured-energy summaries
+  (RCE export, RCEm discharge, tariff grid charging and grid supply to home).
+  Preserve Recorder gaps, expose incomplete/ambiguous totals and distinguish selected/pending commands
+  from physically confirmed execution. Read-only, on-demand history; no control
+  policy or version change. Restart HA and refresh the dashboard after updating.
+
+- Remove deprecated ESPHome `command_throttle` from all four controllers;
+  keep shared Modbus turnaround at 100 ms and response wait at 250 ms.
+  Reconcile firmware identities and RCE/tariff continuity evidence in the
+  [v1.5.8 handoff](docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md#firmware-and-control-evidence-reconciliation--2026-09-12).
+
+## [1.5.8] — Historical candidate / Historyczny kandydat
+
+**Historical record, superseded by RC2 above. / Zapis historyczny; aktualny opis RC2 znajduje się wyżej.**
+
+The accepted N12 base is frozen at `c736b69d985d6f2a75015abdacb8839a461ac7f1`.
+The `release/v1.5.8` preparation delta changes only reviewed documentation and
+release validation; all protected HA runtime, scheduler/frontend assets and
+ESPHome firmware sources remain byte/mode/type-identical to that base. Local G3
+is closed with accepted residual risk, while `RCE_FIELD_PENDING = M01`, remote
+CI and publication remain HOLD. **PL:** odebrana baza N12 to `c736b69…`;
+delta przygotowania wydania obejmuje wyłącznie przejrzane opisy i walidację,
+bez zmiany chronionego runtime/firmware. G3 lokalnie zamknięto z zaakceptowanym
+ryzykiem resztkowym, natomiast M01, zdalne CI i publikacja pozostają HOLD.
+
+### Post-preparation corrections / Poprawki po przygotowaniu kandydata
+
+- **SOC-01 (offline complete, installation_1 pending):** a valid measured SOC below
+  the additional RCEm reserve is retained as the real starting energy. Future
+  discharge remains zero until energy exceeds the unchanged reserve, and both
+  Self-Use and pre-discharge steps are prevented from manufacturing energy up
+  to a floor or target. The original upper-bound and invalid-input checks remain
+  fail-closed. Healthy `active_idle / no_eligible_candidate` is labelled as
+  waiting rather than as a blocked transaction. **PL:** prawidłowy zastany SOC
+  poniżej dodatkowej rezerwy nie unieważnia osi czasu i nie jest podnoszony do
+  progu bez przepływu. Rozładowanie pozostaje zablokowane do odzyskania rezerwy,
+  a zdrowy brak akcji jest opisany jako oczekiwanie. Wdrożenie i odbiór installation_1
+  pozostają wymagane przed M01.
+
+- **PV-NOC-01 (offline complete, installation_1 re-acceptance pending):** a valid
+  scheduled overnight forecast remains usable during the source's intentional
+  pause. Stale, missing and invalid inputs still fail closed. Aurora reports the
+  source freshness separately from operational usefulness and uses frontend
+  revision `.80`. `NIGHT_TRANSITION_LIVE=PENDING` remains an explicit field
+  boundary until an actual night transition is observed. **PL:** prawidłowa
+  nocna prognoza pozostaje użyteczna podczas planowej pauzy źródła; stare,
+  brakujące i błędne dane nadal są odrzucane. Pełne przejście nocne pozostaje
+  nieodebrane do czasu obserwacji w rzeczywistym oknie.
+
+- **DIAG-01 (deferred):** the operator moved diagnostics ZIP work to a separate
+  task. No DIAG-01 runtime or documentation delta is included in this candidate,
+  and diagnostics acceptance is not claimed. **PL:** DIAG-01 odłożono do
+  osobnego zadania; ten kandydat nie zawiera jego zmian ani nie deklaruje odbioru.
+
+- **TARYFA-LEASE-01 (offline complete, installation_1 active acceptance pending):**
+  once the existing physical and authorization gates become true, an already-due
+  renewal replaces the pending unauthorised recheck instead of waiting another
+  five seconds. A confirmed terminal record releases only its correlated handle;
+  delayed arm/renew responses cannot mutate a newer transaction. The ESP TTL,
+  renewal interval, hard deadline, FC03/BMS checks and planner current/pending
+  rules are unchanged. **PL:** należne odnowienie rusza bez dodatkowej zwłoki po
+  fizycznym potwierdzeniu, a potwierdzony koniec usuwa wyłącznie skorelowany
+  uchwyt. Odbiór aktywny na installation_1 wymaga osobnego nadzorowanego okna.
+
+### Documentation and installation / Dokumentacja i instalacja
+
+- 2026-09-12: the EMS energy chart adds **Yesterday / Current** for 48 hours of
+  recorded measurements and Supervisor decisions with their reasons/evidence,
+  using the same renderer as the plan and four execution-energy summary cards.
+  This read-only view requires Recorder history, an HA restart after updating,
+  and a dashboard refresh. It does not change optimizer or inverter control.
+  **PL:** **Wczoraj / Aktualnie** pokazuje 48 godzin zapisanej pracy EMS;
+  wykres ma układ planu, pod spodem sumy RCE/RCEm/taryfy/zasilania domu.
+  Braki pozostają lukami; szacunki nie udają bezpośredniego pomiaru przepływu.
+
+- 2026-09-12: removed deprecated ESPHome `command_throttle` entries; shared
+  `modbus.turnaround_time: 100ms` and `send_wait_time: 250ms` are unchanged.
+  Firmware identities, first 185 upload and bounded RCE/tariff field evidence
+  are reconciled in the [release handoff](docs/releases/EMS_CONSOLIDATION_RELEASE_HANDOFF.md#firmware-and-control-evidence-reconciliation--2026-09-12).
+  **PL:** usunięto ignorowane `command_throttle`; 100 ms jest odstępem między
+  komunikatami. Handoff rozdziela wersję EMS, kompilator, hash konfiguracji oraz
+  dowody płynnych zmian mocy/SOC. Okno stabilizacji RCE 60 s nie wyłącza globalnie rollbacku.
+
+- Updated English and Polish READMEs describe the frozen Aurora interface,
+  the difference between planning and execution, chart units and SOC sources,
+  status/history actions, fresh-install defaults and remaining limitations.
+  The four-view overview uses real Aurora `1.5.8.72` screenshots captured on
+  9 September 2026; the SOC/PV candidate uses `.80`, so the retained originals
+  show provenance, not proof of the later frontend build or physical acceptance.
+  **PL:** README PL/EN opisują zamrożony interfejs Aurora, różnicę między
+  planowaniem a wykonaniem, jednostki wykresu i źródła SOC, okno stanu/historii,
+  domyślne ustawienia oraz ograniczenia. Obraz „4 w 1” zawiera rzeczywiste
+  zrzuty Aurory `1.5.8.72` z 9 września 2026 r., z odczytami i ustawieniami
+  jednej instalacji.
+- The five-step guide now explains File editor, ESPHome secrets, both forms
+  of the `homeassistant:` package setup, configuration checks and full restarts.
+  **PL:** instrukcja pięciu kroków wyjaśnia File editor, sekrety ESPHome,
+  dodanie pakietów przy nowej i istniejącej sekcji `homeassistant:`, kontrolę
+  konfiguracji i pełne restarty.
+- [Issue #33](https://github.com/Kaluzaburza/hoymiles-hit-g3-ems/issues/33):
+  corrected the UART override to use a mapping, matching the package.
+  The separate [manual-direction file](https://github.com/Kaluzaburza/hoymiles-hit-g3-ems/blob/v1.5.8/hoymiles-inverter-flow-control.yaml)
+  includes `flow_control_pin` for joined DE + /RE, with GPIO4 as an adjustable
+  example. Automatic-direction converters retain the standard file. The variant
+  shares all other runtime settings and does not add another HA integration.
+  **PL:** poprawiono blok UART zgodnie ze strukturą pakietu. Osobny
+  `hoymiles-inverter-flow-control.yaml` zawiera `flow_control_pin` dla
+  połączonych DE + /RE; przykładowy GPIO4 można zmienić. Konwertery automatyczne
+  korzystają z pliku standardowego. Pozostałe ustawienia pracy są wspólne;
+  wariant nie dodaje kolejnej integracji HA.
+
+The manual-direction configuration and complete firmware build passed with
+ESPHome **2026.7.2**, using the candidate's local packages. This is offline
+validation; the new entry file was not flashed to a physical converter during
+documentation preparation. Its versioned link becomes available with the tag.
+**PL:** konfiguracja ręcznego kierunku i pełna kompilacja przeszły w ESPHome
+**2026.7.2** z lokalnymi pakietami kandydata. To walidacja offline; podczas
+przygotowania dokumentacji nie wgrywano nowego pliku na fizyczny konwerter.
+Link wersjonowany będzie dostępny po utworzeniu tagu.
+
+> **Release gate / Bramka wydania:** publish this hotfix only after the exact
+> candidate commit passes the complete offline suite, exact-version 30-minute
+> field acceptance, required CI, HACS Action and Hassfest; the unchanged
+> exhaustive automation matrix must report **2064/2064** scenarios. Offline
+> evidence and one installation-specific field run do not replace electrical
+> commissioning, certified protection or manufacturer declarations.
+>
+> Hotfix publikuj wyłącznie po przejściu przez dokładny commit kandydata pełnego
+> zestawu offline, 30-minutowej akceptacji terenowej exact-version, wymaganego
+> CI, HACS Action i Hassfest; niezmieniona pełna macierz automatyzacji musi
+> zgłosić **2064/2064** scenariuszy. Dowody offline oraz test jednej instalacji
+> nie zastępują odbioru elektrycznego, certyfikowanych zabezpieczeń ani
+> deklaracji producenta.
+
+### User update steps / Kroki po aktualizacji
+
+1. **Safety / Bezpieczeństwo:** disable RCE and every other automatic EMS
+   writer before the update. Confirm no discharge/charge cycle is active,
+   **Self-Use** is physically read back and there is no active control owner.
+   **PL:** przed aktualizacją wyłącz RCE i wszystkie pozostałe automatyczne
+   zapisy EMS. Potwierdź brak aktywnego cyklu rozładowania/ładowania, fizyczny
+   odczyt **Self-Use** oraz brak aktywnego właściciela sterowania.
+2. **HACS:** update **EMS for Hoymiles HIT-(5–20)L-G3** to **v1.5.8**.
+   Keep every writer disabled until the verification step passes.
+   **PL:** zaktualizuj w HACS integrację
+   **EMS for Hoymiles HIT-(5–20)L-G3** do **v1.5.8**. Do zakończenia
+   weryfikacji pozostaw wszystkie automatyczne zapisy wyłączone.
+3. **Home Assistant:** update the integration and compatible managed scheduler,
+   run **Check configuration**, then perform the full restart(s) required by the
+   actual install/Repair path. The exercised standard managed-package upgrade
+   requires exactly **two Home Assistant restarts** (runtime/install, then
+   package load), but an already-current
+   package may need fewer; a newly created **www** directory or preserved local
+   scheduler can require an additional explicit restart after correction. Back
+   up and consciously rebase/replace a locally modified scheduler; until the
+   canonical v1.5.8 package is loaded, keep every writer disabled.
+   **PL:** zaktualizuj integrację i zgodny scheduler, wykonaj **Sprawdź
+   konfigurację**, a następnie pełny restart lub restarty wymagane przez
+   rzeczywistą ścieżkę instalacji/Naprawy. Sprawdzona standardowa aktualizacja
+   pakietu użyła dwóch restartów (runtime/instalacja, potem wczytanie pakietu),
+   lecz pakiet już aktualny może wymagać mniejszej liczby; nowy katalog **www**
+   lub zachowany lokalny scheduler może wymagać dodatkowego restartu po
+   świadomej korekcie. Do załadowania kanonicznego pakietu pozostaw wszystkie
+   automatyczne zapisy wyłączone.
+4. **ESP32 / ESPHome:** after the Home Assistant no-write check, rebuild and
+   upload ESPHome from the top-level configuration pinned to immutable tag
+   **v1.5.8**. This firmware update is mandatory because the release changes
+   Modbus transport timing, control polling and percentage-control semantics.
+   HACS updates Home Assistant only and does not flash ESP32. Repeat the
+   no-write verification after upload. Preserve the existing device name,
+   board/pins, API/OTA secrets and selected RS485 variant. An ESP already running
+   the accepted v1.5.8 firmware does not need another flash solely because the
+   release validator or documentation changed.
+   **PL:** po kontroli Home Assistanta bez zapisów przebuduj i wgraj ESPHome z
+   głównej konfiguracji przypiętej do niezmiennego tagu **v1.5.8**. Aktualizacja
+   firmware jest obowiązkowa, ponieważ wydanie zmienia czasy transportu Modbus,
+   odpytywanie sterowania i semantykę nastaw procentowych. HACS aktualizuje
+   wyłącznie Home Assistanta i nie wgrywa ESP32. Po wgraniu ponów kontrolę bez
+   zapisów. Zachowaj nazwę urządzenia, płytkę/piny, sekrety API/OTA i wybrany
+   wariant RS485. ESP już pracujący na odebranym firmware v1.5.8 nie wymaga
+   kolejnego flashowania wyłącznie z powodu zmian walidatora lub dokumentacji.
+5. **Verification / Weryfikacja:** confirm integration and managed package
+   version **1.5.8**, no relevant Repair/error, physical **Self-Use**, no active
+   owner/conflict and no unexpected register write before re-enabling policies.
+   For a configured HIT-20L, confirm diagnostics report nameplate
+   **inverter_nameplate_power_each_kw=20**, battery-effective
+   **inverter_power_each_kw=16**, the correct **system_power_kw** and
+   **requested_export_power_kw**. Only then restore the policies that were
+   enabled before the update.
+   **PL:** przed ponownym włączeniem polityk potwierdź wersję integracji i
+   zarządzanego pakietu **1.5.8**, brak istotnych Napraw/błędów, fizyczny
+   **Self-Use**, brak aktywnego ownera/konfliktu i brak nieoczekiwanego zapisu
+   rejestru. Dla skonfigurowanego HIT-20L sprawdź diagnostykę:
+   **inverter_nameplate_power_each_kw=20**,
+   **inverter_power_each_kw=16**, właściwe **system_power_kw** oraz
+   **requested_export_power_kw**. Dopiero wtedy przywróć polityki aktywne przed
+   aktualizacją.
+
+> **Accepted boundary / Zaakceptowana granica:** a completely dead sole ESP
+> cannot transmit STOP; independent electrical/inverter protection remains
+> required. A configured SOC limit is a constraint, not a Self-Use command or
+> proof that Self-Use was physically applied. Local acceptance and an operator
+> decision do not guarantee behavior on every installation.
+>
+> Całkowicie martwy jedyny ESP nie może wysłać STOP; nadal są wymagane niezależne
+> zabezpieczenia elektryczne/falownika. Limit SOC jest ograniczeniem, a nie
+> komendą Self-Use ani dowodem jej fizycznego wykonania. Odbiór lokalny i decyzja
+> operatora nie gwarantują zachowania na każdej instalacji.
+
+### Fixed / Naprawiono
+
+- Percentage targets from RCE, tariff charging, RCEm and manual Home Assistant
+  commands are encoded as whole percentages only after all safety limits are
+  applied. BMS capability remains an upper bound, while physical readbacks and
+  historical restore snapshots retain their original precision.
+- RCE keeps the complete `4300–4306` transaction, physical FC03 acknowledgement,
+  owner and original restore baseline across retargeting. Its bounded settling
+  exception starts from the real command timestamp and applies only to the
+  recognized transient LOAD/no-plan condition; every hard stop remains active.
+- A stale pending execution frame is rejected and prepared again when the cycle
+  advances from WAITING to EXECUTING. An optional RCE battery-wear helper uses
+  the configured default only when the entity is absent; an existing invalid or
+  unavailable entity remains fail-closed, and zero remains a valid zero.
+- Tariff Mode 4 can move charging → hold → charging and change SOC/power without
+  a Mode 0 transition. The hold target is `floor(fresh SOC)-1`; PV contribution,
+  current BMS capability and the pending-RCEm dispatch race are accounted for.
+- Normal RCE and tariff planning runs every 120 seconds, while dedicated setting
+  and recovery triggers remain separate. The user-facing energy chart refreshes
+  about every three minutes and does not change any control timer.
+- Aurora EMS shows grid import/export in kWh below the chart, action-coloured SOC
+  glass including green balancing, the full next balancing date, all plan-state
+  reasons and a larger inspector. The duplicate PLANS strip is removed. Revision
+  `1.5.8.72` also suppresses presentation-only baseline import and negative zero,
+  keeps the desktop inspector at 500 px, uses theme-independent light text and
+  resets every mobile tab to the top through the relevant shadow-DOM containers.
+- The System status control opens a closable diagnostic dialog with current and
+  historical inverter/EMS errors and the existing confirmed alarm-clear and EMS
+  reload actions. A `rollback_failed` condition cannot be hidden by presentation.
+- Fresh installations seed 5% additional SOC margins for RCE, RCEm and tariff
+  charging, 50% charge/discharge power for every plan and a tariff minimum saving
+  of 1 PLN/kWh. Existing installations retain user values through first-seed
+  persistence.
+- Aurora Compact PV, battery and energy pages now treat a replay of the same
+  normalized configuration as idempotent. They preserve the page DOM, selected
+  history range, expanded disclosures, chart SVG and Home Assistant scroll
+  position; a materially changed configuration still performs the existing
+  full rebuild. The 390x844 browser regression covers 50 interleaved identical
+  configuration and live-state updates on each long mobile view.
+- The tariff and RCEm full-plan optimizers now schedule one five-second
+  recovery batch only after all three immediate executor results were rejected
+  because their certified input revision or fingerprint changed in flight. The
+  delayed batch is limited to three further attempts, cannot re-arm itself and
+  is cancelled by success, a newer explicit trigger or unload. Missing data and
+  optimizer errors never arm it; freshness, fingerprint and fail-closed
+  execution-authority contracts are unchanged.
+- RCE now separates pre-ACK start authority from post-ACK continuation. A new
+  cycle still requires **current_slot_start_eligible=true**; an already active,
+  physically acknowledged cycle no longer rolls back merely because that
+  new-start condition expires. Continuation still requires a planned slot,
+  continuation eligibility, a valid latched run/slot relationship, exclusive
+  RCE ownership, matching physical mode/readback, fresh critical inputs and
+  every existing hard stop.
+- A newly current optimizer result may precede its dependent execution sensors
+  by one event. An active, physically acknowledged RCE cycle may bridge only
+  that specific cohort transition for at most **5 seconds** while
+  **control_data_ready=off**. The bridge grants no authority, performs zero
+  writes, does not repeat Mode 5 or 4306, does not change the latched target
+  and ends immediately on readiness, timeout, missing/unavailable data,
+  conflict, mode mismatch, loss of plan/continuation or any hard stop.
+- The start verifier keeps the transaction-frozen slot, percentage and expected
+  battery-power target. It collects six newer complete aggregate generations
+  and evaluates the four exact three-sample windows **[1,2,3]**, **[2,3,4]**,
+  **[3,4,5]**, **[4,5,6]** within the accepted **155-second** horizon. One
+  isolated sampled transition peak remains best-effort diagnostics and cannot
+  poison a separate clean window. Two consecutive central peaks, persistent
+  mismatch, missing export and absence of a stable window still fail closed
+  through the existing neutral rollback.
+- Active 4306 retuning now freezes the requested value and the physical
+  4300–4305 tuple for the complete verification attempt. If the verified
+  helper sees no newer FC03 generation during its existing 60-second wait, the
+  existing second minute may observe telemetry recovery. A newer physical
+  Mode 5 generation that preserves 4300–4305 and confirms a positive 4306 no
+  higher than both the frozen and current safe targets is conservative
+  under-command: the active transaction stays in place and the update is
+  retried by the next normal trigger. Any fresh generation that mismatches
+  during the helper wait, missing recovery, stale data, over-command,
+  unconfirmed reduction or hard stop still performs the complete rollback.
+  The maximum two-minute horizon, full-block helper and physical-ACK contract
+  are unchanged; command echo is never accepted as ACK.
+- The configured HIT-20L nameplate remains **20 kW**. Its battery-only RCE
+  model now uses **16 kW per inverter**, so two units provide a **32 kW**
+  battery base and the requested RCE percentage applies to that base. This
+  calibration is not a hardware AC power cap and does not constrain register
+  4306. PV and LOAD remain separate in the physical balance, total
+  instantaneous AC power may exceed 16 kW per inverter with PV, and charging
+  power is unchanged. The 5/10/12/15 kW profiles are unchanged.
+- Battery balancing now retains normal BMS-safe charging below **95% SOC** and
+  latches an aggregate net target of approximately **0.4 kW** from the first
+  valid reading at or above 95%. The full-SOC hold still starts only at
+  **99.9%** after physical mode/4303/4304 acknowledgement. Self-Use uses the
+  direct battery cap; Grid Charge adds fresh household load exactly once.
+  Downward 0.1% quantization never overrides the BMS cap, and unavailable data
+  cannot become a positive physical command. A freshness-only Self-Use gap
+  pauses writes for at most 60 seconds without start/stop churn. Dedicated,
+  bounded FIFO lanes freeze trigger evidence and cycle identity per hard-stop
+  priority class, then merge the durable request; a lower-priority burst cannot
+  consume admission for the later higher-priority reason, and the first exact
+  reason wins at equal priority. The capture path does not wait for the fault to
+  remain active. It cannot cancel an already-running verified helper, but the
+  durable request blocks later non-restorative writes and restoration starts at
+  the first safe serialized boundary. Both snapshot generations require exact
+  equality before the first write, and SOC is freshly re-read before
+  `HOLD_ARMING` and again across its timing-write boundary. The final
+  steady-phase commit rechecks current sun, physical mode, owner generation and
+  hard-stop state; it permits at most one verified mode correction and fails
+  closed on another sun change. A guarded steady record persists raw `APPLYING`
+  plus a conditional phase/mode token, so the canonical parser exposes an
+  accepted steady phase only while all live commit guards remain true. The abort retry
+  cooldown is 15 minutes. Only a trusted current-cycle snapshot is restored,
+  with matching physical ACK and Off-Grid priority. An unverifiable active
+  legacy cycle instead remains owned in `RECOVERY_REQUIRED` for the documented
+  manual recovery procedure, with no guessed physical write. Terminal events
+  use a durable outbox and a dispatcher outside physical closeout. The physical
+  `operational_started` fact does not depend on free outbox capacity. A provider
+  attempt has a durable 15-second lease; timeout/restart enables a bounded retry,
+  late completion is inert, and the same stable event ID is included in the
+  message body on every attempt. The durable outbox prevents deterministic
+  scheduler duplicates; the event ID lets repeated provider deliveries be
+  correlated but does not claim mathematical exactly-once delivery. The closed
+  status allowlist still suppresses routine phase pushes. This behavior is
+  validated offline only and still requires exact-version real-inverter
+  acceptance before publication.
+- The integrated candidate also carries the observation-only Aurora AP-2
+  timelines for RCE, tariff and RCEm, including their exact registration,
+  lifecycle and source-convergence contracts. Aurora AP-3B is now implemented
+  as the compact six-view Variant A dashboard with direct EMS settings, a
+  48-hour RCE view, separate PV/GEN and battery views, real 24-hour energy data,
+  and a hidden Service index for the retained expert pages. The implementation
+  is validated offline only; exact-version live acceptance remains incomplete
+  and no public v1.5.8 release exists yet.
+- ESPHome now explicitly rejects `stale_snapshot_generation`; a rejected command
+  is not marked as sent and may be prepared at most once after a newer FC03
+  snapshot. `turnaround_time` is 100 ms, selected Overview control readbacks use
+  the five-second group and percentage controls use 1% steps. The register map,
+  complete-block write/readback contract, GCF policy and certified protection
+  settings are unchanged. Master FC03 still acknowledges Master configuration
+  only; no per-Slave protocol acknowledgement is claimed. These runtime firmware
+  changes require an ESP32 rebuild from immutable tag `v1.5.8`.
+
+- Cele procentowe RCE, ładowania taryfowego, RCEm i ręcznych poleceń Home
+  Assistanta są kodowane jako całkowite procenty dopiero po zastosowaniu
+  wszystkich ograniczeń bezpieczeństwa. Zdolność BMS pozostaje górnym limitem,
+  a fizyczne odczyty i historyczne migawki odtwarzania zachowują precyzję.
+- RCE zachowuje pełną transakcję `4300–4306`, fizyczne potwierdzenie FC03, ownera
+  i pierwotną bazę restore podczas retargetowania. Ograniczony wyjątek
+  stabilizacji liczy czas od rzeczywistego wysłania komendy i dotyczy wyłącznie
+  rozpoznanego przejściowego braku LOAD/planu; wszystkie hard-stopy działają.
+- Stara oczekująca ramka wykonania jest odrzucana i przygotowywana ponownie po
+  przejściu cyklu z WAITING do EXECUTING. Opcjonalny helper kosztu baterii RCE
+  korzysta z wartości domyślnej tylko przy braku encji; istniejąca encja błędna
+  lub niedostępna pozostaje fail-closed, a zero jest prawidłowym zerem.
+- Taryfowy Mode 4 przechodzi ładowanie → podtrzymanie → ładowanie i zmienia
+  SOC/moc bez przejścia przez Mode 0. Cel podtrzymania to `floor(świeży SOC)-1`;
+  uwzględniane są PV, bieżąca zdolność BMS i wyścig oczekującego RCEm.
+- Zwykły plan RCE i taryfy przelicza się co 120 sekund, a szybkie triggery
+  ustawień i recovery pozostają osobne. Wykres użytkownika odświeża się około co
+  trzy minuty i nie zmienia żadnego timera sterowania.
+- Aurora EMS pokazuje import/eksport sieci w kWh pod wykresem, kolorowe szkło SOC
+  wraz z zielonym balansowaniem, pełną datę następnego balansowania, wszystkie
+  powody stanów planów i większy panel szczegółów. Usunięto zdublowany pasek
+  PLANY. Rewizja `1.5.8.72` usuwa wyłącznie prezentacyjny bazowy import i ujemne
+  zero, utrzymuje panel desktopowy 500 px, wymusza jasny tekst niezależnie od
+  motywu i przewija każdą kartę mobilną na górę przez właściwe kontenery shadow DOM.
+- Kontrolka stanu Systemu otwiera zamykane okno z bieżącymi i historycznymi
+  błędami falownika/EMS oraz istniejącymi akcjami kasowania alarmu i reload EMS z
+  potwierdzeniem. Stanu `rollback_failed` nie można ukryć samą prezentacją.
+- Świeża instalacja zasiewa dodatkowe marginesy SOC 5% dla RCE, RCEm i taryfy,
+  moc ładowania/rozładowania 50% dla każdego planu oraz minimalną oszczędność
+  taryfy 1 PLN/kWh. Istniejące instalacje zachowują wartości użytkownika przez
+  mechanizm pierwszego zasiewu.
+- Strony PV, Magazyn i Energia w Aurora Compact traktują teraz ponowne podanie
+  tej samej znormalizowanej konfiguracji jako operację idempotentną. Zachowują
+  DOM strony, wybrany zakres historii, rozwinięte sekcje, SVG wykresu i pozycję
+  przewijania Home Assistanta; rzeczywista zmiana konfiguracji nadal wykonuje
+  pełną przebudowę. Regresja przeglądarkowa 390x844 obejmuje 50 przeplatanych
+  identycznych konfiguracji i aktualizacji live na każdym długim widoku
+  mobilnym.
+- Optymalizatory pełnego planu taryfy i RCEm planują teraz jedną serię
+  odzyskiwania po pięciu sekundach wyłącznie wtedy, gdy wszystkie trzy
+  natychmiastowe wyniki executora odrzucono z powodu zmiany certyfikowanej
+  rewizji lub fingerprintu wejść w trakcie obliczeń. Seria opóźniona ma najwyżej
+  trzy kolejne próby, nie może uzbroić się ponownie i jest anulowana po sukcesie,
+  nowszym jawnym triggerze albo unload. Brak danych i błąd optymalizatora jej nie
+  uruchamiają; kontrakty świeżości, fingerprintu i fail-closed authority
+  pozostają bez zmian.
+- RCE rozdziela teraz autoryzację startu przed ACK od kontynuacji po ACK. Nowy
+  cykl nadal wymaga **current_slot_start_eligible=true**; aktywny, fizycznie
+  potwierdzony cykl nie wykonuje rollbacku tylko dlatego, że wygasł warunek
+  nowego startu. Kontynuacja nadal wymaga planowanego slotu, kwalifikacji
+  kontynuacji, ważnej relacji zatrzaśniętego cyklu/slotu, wyłącznej własności
+  RCE, zgodnego fizycznego trybu/readbacku, świeżych danych krytycznych i
+  wszystkich dotychczasowych hard-stopów.
+- Nowy aktualny wynik optymalizatora może zostać opublikowany jedno zdarzenie
+  przed zależnymi sensorami wykonawczymi. Aktywny, fizycznie potwierdzony cykl
+  RCE może podtrzymać wyłącznie to konkretne przejście kohorty przez maksymalnie
+  **5 sekund**, gdy **control_data_ready=off**. Bridge nie nadaje authority,
+  wykonuje zero zapisów, nie ponawia Mode 5 ani 4306, nie zmienia
+  zatrzaśniętego celu i kończy się natychmiast po gotowości, timeoutcie,
+  braku/niedostępności danych, konflikcie, błędnym trybie, utracie
+  planu/kontynuacji lub dowolnym hard-stopie.
+- Weryfikator startowy zachowuje zatrzaśnięty dla transakcji slot, procent i
+  oczekiwaną moc baterii. Zbiera sześć nowszych kompletnych generacji
+  sumarycznych i ocenia cztery dokładne trzypróbkowe okna **[1,2,3]**,
+  **[2,3,4]**, **[3,4,5]**, **[4,5,6]** w zaakceptowanym horyzoncie
+  **155 sekund**. Pojedynczy próbkowany skok przejściowy pozostaje diagnostyką
+  best-effort i nie zatruwa osobnego czystego okna. Dwa kolejne centralne skoki,
+  trwała niezgodność, brak eksportu i brak stabilnego okna nadal kończą się
+  fail-closed przez istniejący neutralny rollback.
+- Aktywna korekta 4306 zatrzaskuje teraz żądaną wartość oraz fizyczny blok
+  4300–4305 na cały przebieg weryfikacji. Jeżeli helper w istniejącym
+  60-sekundowym oczekiwaniu nie zobaczy żadnej nowszej generacji FC03, druga
+  istniejąca minuta może potwierdzić powrót telemetrii. Nowsza fizyczna
+  generacja Mode 5, która zachowuje 4300–4305 i potwierdza dodatnie 4306 nie
+  większe od zatrzaśniętego oraz aktualnego bezpiecznego celu, oznacza
+  zachowawcze under-command: aktywna transakcja pozostaje, a zapis zostanie
+  ponowiony przy kolejnym zwykłym triggerze. Świeża generacja niezgodna już
+  podczas oczekiwania helpera, brak powrotu, dane stale, over-command,
+  niepotwierdzone obniżenie lub hard-stop nadal wykonują pełny rollback.
+  Maksymalny dwuminutowy horyzont, helper pełnego bloku i kontrakt fizycznego
+  ACK pozostają bez zmian; command echo nigdy nie jest uznawane za ACK.
+- Skonfigurowana moc znamionowa HIT-20L nadal wynosi **20 kW**. Model RCE
+  rozładowania wyłącznie z baterii używa teraz **16 kW na falownik**, więc dwie
+  jednostki dają bateryjną bazę **32 kW**, do której stosowany jest procent RCE.
+  Kalibracja nie jest sprzętowym ograniczeniem mocy AC i nie ogranicza rejestru
+  4306. PV i LOAD pozostają osobnymi składnikami bilansu, chwilowa całkowita moc
+  AC z PV może przekroczyć 16 kW/falownik, a moc ładowania się nie zmienia.
+  Profile 5/10/12/15 kW pozostają bez zmian.
+- Wyrównywanie baterii zachowuje teraz normalne, bezpieczne dla BMS ładowanie
+  poniżej **95% SOC** i od pierwszego prawidłowego odczytu co najmniej 95%
+  zatrzaskuje sumaryczny cel netto około **0,4 kW**. Podtrzymanie pełnego SOC
+  nadal zaczyna się dopiero przy **99,9%**, po fizycznym ACK trybu oraz rejestrów
+  4303/4304. Self-Use używa bezpośredniego limitu baterii, a Grid Charge dodaje
+  świeże zużycie domu dokładnie raz. Kwantyzacja w dół do 0,1% nigdy nie
+  przekracza limitu BMS, a niedostępne dane nie mogą stać się dodatnim poleceniem
+  fizycznym. Luka wyłącznie w świeżości danych w Self-Use wstrzymuje zapisy
+  najwyżej przez 60 sekund bez pętli start/stop. Osobne, ograniczone kolejki FIFO
+  zamrażają dowód triggera i tożsamość cyklu dla każdej klasy priorytetu
+  hard-stop, a następnie scalają trwałe żądanie; seria niższego priorytetu nie
+  zajmuje przyjęcia późniejszej przyczyny wyższej, a przy równym priorytecie
+  wygrywa pierwszy dokładny powód. Ścieżka przechwycenia nie czeka, aż stan błędu
+  pozostanie aktywny. Nie anuluje już trwającego zweryfikowanego helpera, lecz
+  trwałe żądanie blokuje późniejsze zapisy inne niż odtwarzanie, które zaczyna
+  się na pierwszej bezpiecznej granicy serializowanej. Obie generacje migawki
+  wymagają dokładnej równości przed pierwszym zapisem, a SOC jest świeżo
+  odczytywany przed `HOLD_ARMING` i ponownie na granicy zapisu jego timingu.
+  Końcowy commit fazy stabilnej ponownie sprawdza bieżące słońce, tryb fizyczny,
+  generację właściciela i hard-stop; dopuszcza najwyżej jedną zweryfikowaną
+  korektę trybu i kończy się fail-closed po kolejnej zmianie słońca. Chroniony
+  rekord fazy stabilnej utrwala surowe `APPLYING` z warunkowym tokenem
+  fazy/trybu, więc parser kanoniczny pokazuje zaakceptowaną fazę tylko wtedy,
+  gdy wszystkie bieżące guardy commitu nadal są prawdziwe. Cooldown po
+  przerwaniu wynosi 15 minut. Odtwarzana jest tylko zaufana migawka bieżącego
+  cyklu, z pasującym fizycznym ACK i pierwszeństwem Off-Grid. Nieweryfikowalny
+  aktywny stary cykl pozostaje natomiast własnością balansowania w
+  `RECOVERY_REQUIRED` do udokumentowanej procedury ręcznej, bez zgadywanego
+  zapisu fizycznego. Zdarzenia terminalne używają trwałej kolejki i dispatchera
+  poza fizycznym zamknięciem. Fizyczny fakt `operational_started` nie zależy od
+  wolnego miejsca w outboxie. Próba dostawcy ma trwałą 15-sekundową dzierżawę;
+  timeout/restart umożliwia ograniczone ponowienie, spóźnione zakończenie jest
+  bezskuteczne, a ten sam stabilny identyfikator zdarzenia jest umieszczany w
+  treści każdej próby. Trwały outbox zapobiega deterministycznym duplikatom
+  schedulera; identyfikator pozwala skorelować powtórzone dostarczenia dostawcy,
+  ale nie stanowi obietnicy matematycznego exactly-once. Zamknięta lista
+  statusów nadal usuwa zwykłe powiadomienia etapów. Zachowanie zweryfikowano
+  wyłącznie offline i przed publikacją nadal wymaga odbioru exact-version na
+  rzeczywistym falowniku.
+- Zintegrowany kandydat zawiera także obserwacyjne osie czasu Aurora AP-2 dla
+  RCE, taryfy i RCEm wraz z ich dokładnym kontraktem rejestracji, lifecycle i
+  zbieżności źródeł. Aurora AP-3B jest już wdrożona jako kompaktowy dashboard
+  wariantu A z sześcioma widokami, bezpośrednimi ustawieniami EMS, 48-godzinnym
+  widokiem RCE, osobnymi widokami PV/GEN i baterii, rzeczywistymi danymi 24 h
+  oraz ukrytym indeksem Serwis do zachowanych stron eksperckich. Implementację
+  zweryfikowano wyłącznie offline; odbiór exact-version na żywej instalacji
+  pozostaje nieukończony i publiczne wydanie v1.5.8 jeszcze nie istnieje.
+- ESPHome jawnie odrzuca `stale_snapshot_generation`; odrzucona komenda nie jest
+  oznaczana jako wysłana i może zostać przygotowana najwyżej raz po nowszym
+  FC03. `turnaround_time` wynosi 100 ms, wybrane odczyty sterowania Overview
+  używają grupy pięciosekundowej, a nastawy procentowe mają krok 1%. Mapa
+  rejestrów, kontrakt pełnego bloku zapisu/odczytu, polityka GCF i certyfikowane
+  zabezpieczenia pozostają bez zmian. FC03 Mastera nadal potwierdza wyłącznie
+  konfigurację Mastera; nie deklarujemy protokołowego ACK żadnego Slave'a.
+  Te zmiany runtime firmware wymagają przebudowy ESP32 z niezmiennego tagu
+  `v1.5.8`.
+
+### PV-NOC-01 — bounded overnight Solcast usefulness
+
+- The source timestamp and the existing 6/12/18-hour policy freshness limits
+  remain unchanged and visible. A separate shared evaluator may classify a
+  numerically valid but stale forecast as `scheduled_pause` only when its
+  dated half-hour coverage matches the requested day and is complete, the
+  Solcast API-success sensor provides a plausible next automatic update, and
+  the finite deadline has not passed. The fallback uses `sun.sun.next_rising`
+  only while the sun is below the horizon.
+- The finite deadline is the earlier of the expected update plus 90 minutes
+  and 30 hours after the last successful API update. Missing/non-numeric/NaN,
+  negative, future-dated, `dataCorrect=false`, wrong-day, incomplete-coverage,
+  missing-schedule and overdue inputs remain fail-closed. The generic numeric
+  state validator and Solcast's schedule/query count are not changed.
+- RCE, tariff charging, RCEm and the entry-local shared-input broker publish
+  source freshness separately from `usable`, `mode`, target/coverage dates,
+  last success, next update and validity deadline. RCE's P10 critical-zero
+  guard and remaining-today path consume the same bounded decision instead of
+  reintroducing the old six-hour rejection through a secondary check.
+- Offline simulations cover the 2026-09-13 installation_1 incident, midnight
+  rollover, the first morning update and its grace boundary, winter/summer,
+  both Warsaw DST transitions, incomplete coverage, a sunrise fallback and
+  parity across all three policy TTLs. `NIGHT_TRANSITION_LIVE` remains
+  `PENDING`; offline success is not a installation_1 deployment or publication
+  acceptance.
 
 ## [1.5.7] - 2026-08-22
 
 > **Status:** RCE GCF cohort stability hotfix. Publication is permitted only
-> after the exact final commit passes the complete offline, localhost,
-> `miernik.com.pl` and CI release gates.
+> after the exact final commit passes the complete offline, installation_1,
+> `installation_2` and CI release gates.
 >
 > **Status PL:** hotfix stabilności kohorty GCF w RCE. Publikacja jest
 > dozwolona dopiero po przejściu przez dokładny finalny commit pełnych bramek
-> offline, localhost, `miernik.com.pl` oraz CI.
+> offline, installation_1, `installation_2` oraz CI.
 
 ### User update steps / Kroki po aktualizacji
 
@@ -293,9 +918,9 @@ rejestrów `258/259/306` ani granicy deklaracji broadcastu/per-Slave.
 
 ### Field evidence boundary / Granica dowodu terenowego
 
-- The v1.5.6 runtime was deployed on localhost and `miernik.com.pl`; Home
+- The v1.5.6 runtime was deployed on installation_1 and `installation_2`; Home
   Assistant checks/restarts, fresh FC03/readback and Aurora revision 24 passed.
-- During the final simultaneous 15-minute window localhost tariff readiness was
+- During the final simultaneous 15-minute window installation_1 tariff readiness was
   **16/16** with no status transition or schedule flapping; three subsequent
   five-minute cycles also remained ready.
 - An earlier controlled meter run had RCE ownership **16/16** and physical grid
@@ -305,10 +930,10 @@ rejestrów `258/259/306` ani granicy deklaracji broadcastu/per-Slave.
 - The final meter window was RCE-ready **16/16**, but no active slot was planned
   **16/16**. Publication therefore carries an explicit active exact-final RCE
   evidence gap accepted by the maintainer, with a hotfix path for a regression.
-- Runtime v1.5.6 wdrożono na localhost i `miernik.com.pl`; kontrole/restart HA,
-  świeży FC03/readback oraz Aurora rev24 przeszły. Taryfa localhost zachowała
+- Runtime v1.5.6 wdrożono na installation_1 i `installation_2`; kontrole/restart HA,
+  świeży FC03/readback oraz Aurora rev24 przeszły. Taryfa installation_1 zachowała
   gotowość **16/16** bez skakania planu, także w trzech kolejnych cyklach.
-  Wcześniejszy kontrolowany test miernika miał właściciela RCE **16/16** i
+  Wcześniejszy kontrolowany test installation_2 miał właściciela RCE **16/16** i
   fizyczne rozładowanie **13/16**, a końcowe osiem minut było stabilne.
   Końcowe okno miało gotowość RCE **16/16**, lecz bez planowanego aktywnego
   slotu **16/16**; opiekun jawnie zaakceptował tę lukę z możliwością hotfixu.
@@ -1524,7 +2149,7 @@ rejestrów `258/259/306` ani granicy deklaracji broadcastu/per-Slave.
 
 ### Validation
 
-- Reproduced the HACS upgrade issue on the live miernik.com.pl installation:
+- Reproduced the HACS upgrade issue on the live installation_2 installation:
   the bundled dashboard contained 50 zebra cards while the active storage
   dashboard contained none.
 - Applied the equivalent migration to the live installation and confirmed six
@@ -1592,7 +2217,7 @@ rejestrów `258/259/306` ani granicy deklaracji broadcastu/per-Slave.
 ### Validation
 
 - Compiled and uploaded the v1.3.3 ESPHome configuration on the live parallel
-  inverter installation at miernik.com.pl.
+  inverter installation at installation_2.
 - Confirmed uninterrupted dashboard updates and continuously increasing ESP32
   uptime while reproducing and diagnosing the log-viewer failure.
 - Confirmed exactly eight stale Device Builder API sessions at failure time;
