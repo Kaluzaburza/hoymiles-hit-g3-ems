@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "base": "6617bc4de6592439ea2c64889b0a25bbe5bfa45e",
-  "parent": "dccf6629d695bf858ad33d9aa353799348f6621e",
-  "subject": "release: publish 1.5.8.1 HACS ESP upgrade guide",
+  "parent": "2634fc2d997e1ccb648f716905314c6083258728",
+  "subject": "test: align supervisor fixture with ESP upgrade view",
   "version": "1.5.8.1",
   "frontend_revision": 123,
   "files": {
@@ -2304,7 +2304,7 @@
     },
     "tools/test_supervisor_sensor_contract.py": {
       "mode": "100644",
-      "sha256": "cae99ce02acb5bdd57fc770b9272ab5d12bc587fefda2c08b7dd091fe275565f"
+      "sha256": "2625b687d80ad9c928afd072f0c70e7f8eed0aaf6beb94f52589c2a2d091de6a"
     },
     "tools/test_supervisor_terminal_fallback.py": {
       "mode": "100644",
@@ -2452,7 +2452,7 @@
     },
     "tools/upgrade_1581_release_contract.py": {
       "mode": "100644",
-      "sha256": "530fec0d9ecb33ffac4168d34e6dd4ba66f4fb72026c69cfd85a3545a8f4c781"
+      "sha256": "0423e7989161c8fb7111a7b086badd4e7f36ff03c91d4312b4f9fde211c3ca6c"
     },
     "tools/validate_ha_dashboard.py": {
       "mode": "100644",

@@ -611,6 +611,12 @@ def _install_integration_init_stubs() -> None:
         "custom_components.hoymiles_hit_modbus.support_http",
         HoymilesSupportBundleView=type("HoymilesSupportBundleView", (), {}),
     )
+    # HTTP behavior is exercised separately by test_esphome_upgrade_http.py
+    # against real HA; this harness isolates the supervisor lifecycle.
+    _module(
+        "custom_components.hoymiles_hit_modbus.esphome_upgrade_http",
+        HoymilesEsphomeUpgradeView=type("HoymilesEsphomeUpgradeView", (), {}),
+    )
     _module(
         "custom_components.hoymiles_hit_modbus.execution_history_http",
         HoymilesExecutionHistoryView=type("HoymilesExecutionHistoryView", (), {}),

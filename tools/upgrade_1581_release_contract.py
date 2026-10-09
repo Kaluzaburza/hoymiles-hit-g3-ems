@@ -20,11 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = 'tools/release_manifests/upgrade_1_5_8_1_contract.json'
 SELF_PATH = 'tools/upgrade_1581_release_contract.py'
 BASE_SHA = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
-PARENT_SHA = 'dccf6629d695bf858ad33d9aa353799348f6621e'
-SUBJECT = 'release: publish 1.5.8.1 HACS ESP upgrade guide'
-MANIFEST_SHA256 = '3530a51f0b8f33c820a15a3bcd2d0f2cfed57fe60ecc608ae3338c78e523d4a7'
+PARENT_SHA = '2634fc2d997e1ccb648f716905314c6083258728'
+SUBJECT = 'test: align supervisor fixture with ESP upgrade view'
+MANIFEST_SHA256 = '705150901eb4908e2c7b487c530332746c30293418aa52f0e4dbf55087faebdb'
 PUBLIC_BASE = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
-RUNTIME_SOURCE_SHA = PARENT_SHA
+RUNTIME_SOURCE_SHA = 'dccf6629d695bf858ad33d9aa353799348f6621e'
 HISTORICAL_PUBLIC = RUNTIME_SOURCE_SHA
 
 
