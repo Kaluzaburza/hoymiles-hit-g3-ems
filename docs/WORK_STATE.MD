@@ -1,5 +1,18 @@
 # Public work state — 1.5.8RC2
 
+## Documentation correction after publication
+
+The original ESP32-S3 / TTL-RS485 / HIT wiring illustration from 20 September
+2026 has been restored at the user's request, including the original PNG/SVG and
+their source attribution. The follow-up changes documentation and its source
+manifest only; integration, frontend, firmware and shared packages are unchanged.
+The published `v1.5.8RC2` tag remains at
+`ba91261597420ea3a58a6665fc996d7081f219e2`, with its original release assets.
+Use that tag to reproduce the published archive; the current source contract
+also records this later documentation commit separately.
+
+## Published source
+
 The public snapshot starts from published 1.5.7. Integration/package version is
 1.5.8rc2, frontend revision 122 and ESP lease protocol 2. The strict RC2 source
 contract pins the parent, subject, all tracked files and modes. The tag and

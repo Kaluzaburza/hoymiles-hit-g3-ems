@@ -88,7 +88,7 @@ and manual controls. Desktop and mobile use the same data.
 - **Faster RCE planning:** the unchanged 110-slot performance test fell from
   about 1.22 s to 0.767 s with its 1 s limit retained; all 86 RCE scenarios
   passed locally. This is a test-machine result, not a speed promise for every HA host.
-- **Installation documentation:** an original wiring diagram, bilingual
+- **Installation documentation:** an illustrated wiring example, bilingual
   five-step instructions and model-specific compatibility guidance.
 
 The 1.5.8 series also brings one PV/LOAD/grid/SOC timeline, interval details,
@@ -349,8 +349,9 @@ signal direction in the converter documentation.
 #### Illustrated ESP32-S3 example
 
 **ESP32-S3-DevKitC-1 v1.1 → Waveshare TTL TO RS485 (B) → Hoymiles
-HIT-(5–20)L-G3, COM2 / 485_2.** The bilingual schematic names all six
-connections. It is a logical connection diagram, not a physical pin-layout drawing.
+HIT-(5–20)L-G3, COM2 / 485_2.** The original illustrated guide names all six
+connections and shows the board, converter and COM2 terminal strip. Its labels
+are in Polish; the connection map is also described in English below.
 
 [![ESP32-S3 to isolated Waveshare converter and Hoymiles COM2 wiring](docs/images/esp32-s3-rs485-hoymiles-pl.png)](docs/images/esp32-s3-rs485-hoymiles-pl.png)
 

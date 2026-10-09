@@ -1,21 +1,21 @@
 # Documentation images / Ilustracje dokumentacji
 
-## RC2 wiring schematic / Schemat połączeń RC2
+## Accepted ESP32-S3 illustration / Zaakceptowana ilustracja ESP32-S3
 
-`esp32-s3-rs485-hoymiles-pl.svg` is the original bilingual vector source;
-the `.png` is its 1800 × 1100 rendering. Despite the retained `-pl` filename,
-the diagram includes English and Polish. It contains no embedded manufacturer
-images or installation identities. Both files use the repository MIT license.
-See [wiring scope and sources](../WIRING_ESP32_S3.md).
+`esp32-s3-rs485-hoymiles-pl.png` (2400 × 1760) and the editable `.svg` are the
+accepted **20 September 2026, revision 2** illustration, restored on
+9 October. They show ESP32-S3-DevKitC-1 v1.1, Waveshare TTL TO RS485 (B)
+and the Hoymiles COM2 / 485_2 terminal strip with Polish labels.
 
-The six connections retain the map confirmed by the user on 20 September 2026.
-The RC2 artwork was redrawn on 3 October; visual verification is distinct from
-a new hardware test. It depicts logical connections, not terminal placement.
+The six connections retain the map confirmed by the user for that hardware.
+This is not a new physical test of RC2 or other devices. Manufacturer images
+retain their owners' rights; the repository MIT license does not relicense
+them. See [scope, image sources and current S3 configuration](../WIRING_ESP32_S3.md).
 
-**PL:** autorski SVG i PNG zastępują wcześniejszy rysunek ze zdjęciami
-producentów. Zachowano mapę sześciu połączeń potwierdzoną przez użytkownika.
-Nowa grafika jest dwujęzyczna i nie zawiera danych instalacji. Nie stanowi
-odbioru innych modeli ani całego EMS.
+**PL:** przywrócono wcześniejszą, zaakceptowaną ilustrację ze zdjęciami płytki,
+konwertera i rysunkiem listwy COM2. PNG i SVG zachowują oryginalną treść.
+Podpisy są po polsku; źródła grafik producentów pozostają wskazane. Potwierdzenie
+użytkownika dotyczy tego konkretnego zestawu i nie stanowi odbioru całego EMS.
 
 ## Historical dashboard captures / Historyczne zrzuty panelu
 

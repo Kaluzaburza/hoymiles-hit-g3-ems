@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = 'tools/release_manifests/rc2_local_contract.json'
 SELF_PATH = 'tools/rc2_release_contract.py'
 BASE_SHA = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
-PARENT_SHA = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
-SUBJECT = 'release: prepare 1.5.8RC2 public snapshot and upgrade guide'
-MANIFEST_SHA256 = 'c1faf4dc05fb91989ae0bb9fb93122c466f0018507eb9fe669f43c16db37c249'
+PARENT_SHA = 'ba91261597420ea3a58a6665fc996d7081f219e2'
+SUBJECT = 'docs: restore accepted ESP32-S3 wiring illustration'
+MANIFEST_SHA256 = 'b3ce1e5f79b949fba25f5f2be5684d302a13478b66075ecd16a056c1d2802fec'
 PUBLIC_BASE = '6617bc4de6592439ea2c64889b0a25bbe5bfa45e'
 HISTORICAL_PUBLIC = PUBLIC_BASE
 

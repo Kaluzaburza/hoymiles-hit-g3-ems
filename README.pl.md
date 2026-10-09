@@ -88,7 +88,7 @@ oraz sterowanie ręczne. Komputer i telefon korzystają z tych samych danych.
   z około 1,22 s do 0,767 s przy zachowanym limicie 1 s; lokalnie zaliczono
   wszystkie 86 scenariuszy RCE. To wynik komputera testowego, a nie obietnica
   takiego czasu na każdym hoście HA.
-- **Dokumentacja instalacji:** autorski schemat połączeń, instrukcja pięciu
+- **Dokumentacja instalacji:** ilustrowany schemat połączeń, instrukcja pięciu
   kroków po polsku i angielsku oraz zakres zgodności poszczególnych rodzin.
 
 Seria 1.5.8 wprowadza również wspólną oś PV/LOAD/sieć/SOC, szczegóły przedziału,
@@ -354,8 +354,9 @@ modułami, dlatego sprawdź kierunek sygnałów w dokumentacji konwertera.
 #### Ilustrowany przykład ESP32-S3
 
 **ESP32-S3-DevKitC-1 v1.1 → Waveshare TTL TO RS485 (B) → Hoymiles
-HIT-(5–20)L-G3, COM2 / 485_2.** Dwujęzyczny schemat opisuje sześć połączeń.
-Pokazuje połączenia logiczne, a nie fizyczne rozmieszczenie pinów. Kliknij, aby powiększyć.
+HIT-(5–20)L-G3, COM2 / 485_2.** Wcześniejsza, zaakceptowana ilustracja opisuje
+sześć połączeń i pokazuje płytkę, konwerter oraz listwę COM2. Podpisy są po polsku.
+Kliknij, aby powiększyć.
 
 [![Połączenia ESP32-S3, izolowanego konwertera Waveshare i COM2 falownika Hoymiles](docs/images/esp32-s3-rs485-hoymiles-pl.png)](docs/images/esp32-s3-rs485-hoymiles-pl.png)
 

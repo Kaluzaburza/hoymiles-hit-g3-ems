@@ -56,7 +56,8 @@ communication terminal.
 
 **Illustrated example:** ESP32-S3-DevKitC-1 v1.1 + isolated Waveshare
 TTL TO RS485 (B) + Hoymiles HIT-(5–20)L-G3, **COM2 / 485_2**.
-The diagram is bilingual and shows logical connections; click it to enlarge.
+The original illustration shows the board, converter and COM2 terminal strip
+with Polish labels; the connections are described in English below. Click to enlarge.
 
 [![ESP32-S3, Waveshare TTL TO RS485 B and Hoymiles COM2 wiring](images/esp32-s3-rs485-hoymiles-pl.png)](images/esp32-s3-rs485-hoymiles-pl.png)
 
@@ -277,7 +278,8 @@ falownika.
 
 **Przykład na ilustracji:** ESP32-S3-DevKitC-1 v1.1 + izolowany Waveshare
 TTL TO RS485 (B) + Hoymiles HIT-(5–20)L-G3, **COM2 / 485_2**.
-Dwujęzyczny schemat pokazuje połączenia logiczne. Kliknij, aby powiększyć.
+Wcześniejsza ilustracja pokazuje płytkę, konwerter i listwę COM2 z polskimi
+podpisami. Kliknij, aby powiększyć.
 
 [![Połączenia ESP32-S3, Waveshare TTL TO RS485 B i COM2 falownika Hoymiles](images/esp32-s3-rs485-hoymiles-pl.png)](images/esp32-s3-rs485-hoymiles-pl.png)
 

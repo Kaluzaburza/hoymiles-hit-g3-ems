@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "base": "6617bc4de6592439ea2c64889b0a25bbe5bfa45e",
-  "parent": "6617bc4de6592439ea2c64889b0a25bbe5bfa45e",
-  "subject": "release: prepare 1.5.8RC2 public snapshot and upgrade guide",
+  "parent": "ba91261597420ea3a58a6665fc996d7081f219e2",
+  "subject": "docs: restore accepted ESP32-S3 wiring illustration",
   "version": "1.5.8rc2",
   "frontend_revision": 122,
   "files": {
@@ -64,11 +64,11 @@
     },
     "README.md": {
       "mode": "100644",
-      "sha256": "f2a75d7bb51019cbba6c4a0fca61ec87a380c3dbbf92255f3fba45b86c4a98ee"
+      "sha256": "3c3195530d0f4cbf2b548014303fa1c5c507fe5f82a2fddfd61bb659985316bb"
     },
     "README.pl.md": {
       "mode": "100644",
-      "sha256": "451c7a4494acbd59419fbc4241b3c9a4ea5149c563d4da707fdad2e599dbe0b2"
+      "sha256": "f1a72025056ab05e897e316dc722bfead584b3549fb675f60582760e33b4e487"
     },
     "RELEASING.md": {
       "mode": "100644",
@@ -652,7 +652,7 @@
     },
     "docs/QUICK_START.md": {
       "mode": "100644",
-      "sha256": "b4a229a3faaf2511fffa8721f39406eb3c767e789c3a659e63568e9b410b20e2"
+      "sha256": "0853f30d63f2e49fa3bc91922bc3d52e73f5a46d213373f8d0adc7e1f2a739de"
     },
     "docs/RC2_HISTORY_CONTRACTS_2026-10-04.md": {
       "mode": "100644",
@@ -740,15 +740,15 @@
     },
     "docs/WIRING_ESP32_S3.md": {
       "mode": "100644",
-      "sha256": "36fc855ef54ca39ce37f15a64e3672b1027aac4447093e40b0fdfb2d848436a1"
+      "sha256": "c8b38400f13652e06ca28b9ce1957f16ee7ec3437ec17f2905ef8886ac23521e"
     },
     "docs/WORK_STATE.MD": {
       "mode": "100644",
-      "sha256": "296c35806fb2a3b116e590862abe257e534a8bf09a8bef1f78087e3826ed8ed7"
+      "sha256": "67b6d0e66c59f24203b1531a2cdb15517861cb3f60e817fd0c2f766c77694a37"
     },
     "docs/images/README.md": {
       "mode": "100644",
-      "sha256": "39fb728c0abcf3d0d09c7bd706bf082204b335b60b1feee925ea637f2680ec8f"
+      "sha256": "8e08134b51e24d8510d0b551d16c5a01b1c1083090e874af1ba185d1f9a5e7f6"
     },
     "docs/images/dashboard-ems-v1.5.8.png": {
       "mode": "100644",
@@ -776,11 +776,11 @@
     },
     "docs/images/esp32-s3-rs485-hoymiles-pl.png": {
       "mode": "100644",
-      "sha256": "5d99b05abd8bdbaf4e31b0dfa060c72c61891569f71a3651f2c3ca671b0d1bb8"
+      "sha256": "a0567da406d5b11dc4df640bfc6b581cdab35bc150b55ae504bcacdbce1209af"
     },
     "docs/images/esp32-s3-rs485-hoymiles-pl.svg": {
       "mode": "100644",
-      "sha256": "9af20977613b6b6102d43f73619a4a9410d4fb6a191186bf8f8348cb5473a9e0"
+      "sha256": "1d205a9ba26a427a8aba6bc307eedc15a5ec4382671a708c7a87429955d71f24"
     },
     "docs/planning/EV_LOAD_FILTER_1_5_8_OFFLINE.md": {
       "mode": "100644",
@@ -1220,7 +1220,7 @@
     },
     "tools/rc2_release_contract.py": {
       "mode": "100644",
-      "sha256": "0971992e3ea01e941581e11288001579d4931f2a0b15a2c2e63dd0c01e66cc96"
+      "sha256": "507c97d4eae7afd58ef61712ad75ab5484e316570a5f734e93b4f1648056d833"
     },
     "tools/release_fixtures/rc2_baselines/177215b/rce_optimizer.py": {
       "mode": "100644",

@@ -6,14 +6,14 @@
 
 ## Scope / Zakres
 
-This original schematic applies to **Espressif ESP32-S3-DevKitC-1 v1.1**,
+This illustrated guide applies to **Espressif ESP32-S3-DevKitC-1 v1.1**,
 the isolated **Waveshare TTL TO RS485 (B)** converter and **Hoymiles
-HIT-(5–20)L-G3, COM2 / 485_2**. It shows logical connections, not physical
-terminal positions. J1 numbers identify the Espressif header positions;
-they are not GPIO numbers. Check each device's own labels and manual.
+HIT-(5–20)L-G3, COM2 / 485_2**. It shows the board, converter and COM2 terminal
+strip with Polish annotations. J1 numbers identify the Espressif header
+positions; they are not GPIO numbers. Check each device's own labels and manual.
 
-Autorski schemat dotyczy wyłącznie powyższych urządzeń. Nie przedstawia
-fizycznego rozmieszczenia zacisków. Oznaczenia J1 dotyczą nagłówka płytki
+Ilustracja dotyczy wyłącznie powyższych urządzeń i pokazuje ich punkty połączeń.
+Oznaczenia J1 dotyczą nagłówka płytki
 Espressif, a nie numerów GPIO. Nie przenoś tego pinoutu COM2 na HiOne, HAS,
 HAT ani inne warianty bez sprawdzenia ich dokumentacji.
 
@@ -48,8 +48,9 @@ see [board variants and first USB installation](ESP32_VARIANTS.md). Repository
 inverter-link defaults are `115200 8N1`, address `1`; they must match the
 inverter port and are not settings for the separate energy-meter link.
 
-Domyślny YAML używa `esp32dev`. Dostosuj płytkę, platformę i ustawienia
-frameworka do konkretnego S3 przed kompilacją. Domyślne parametry połączenia
+Dla S3 N16R8 użyj osobnego pliku `hoymiles-inverter-s3.yaml` wskazanego powyżej.
+Starsza adnotacja na ilustracji o `esp32dev` dotyczy pliku klasycznego ESP32.
+Domyślne parametry połączenia
 z falownikiem to `115200 8N1`, adres `1`; muszą odpowiadać konfiguracji portu.
 Nie dotyczą osobnego połączenia z licznikiem energii.
 
@@ -66,24 +67,27 @@ Rysunek obejmuje tylko komunikację; zobacz [instrukcję instalacji](QUICK_START
 - **20 September 2026:** the user confirmed that these six connections matched
   the actual installation and passed a test. This is attributed user evidence;
   no duration, instrument readings or detailed test log were supplied.
-- **3 October 2026:** the same connection map was redrawn as an original
-  bilingual vector schematic for RC2. The PNG is rendered from the SVG. It
-  contains no manufacturer photographs, logos, copied drawings or private
-  installation identifiers. Both files use the repository's [MIT license](../LICENSE).
-- The earlier drawing is retained in private evidence. Its visual acceptance
-  is not a new live test of RC2, other models or the complete EMS.
+- **9 October 2026:** the accepted **20 September 2026, revision 2** PNG and
+  editable SVG were restored from the original illustration. They show the board
+  pin layout, hardware photographs and the manufacturer's COM2 drawing.
+- The illustration's acceptance refers to that particular example. It is not
+  a new live test of RC2, other models or the complete EMS. The current S3 N16R8
+  configuration is linked above; the historical graphic does not replace it.
+- Embedded third-party graphics retain their owners' rights. The project's
+  MIT license does not relicense the Espressif, Waveshare or Hoymiles images.
 
-**PL:** użytkownik potwierdził połączenia i test 20 września. Rysunek RC2 z
-3 października zachowuje tę mapę połączeń, lecz jest nową, autorską grafiką.
-Nie zawiera zdjęć ani rysunków producentów. Kontrola dokumentacji nie oznacza
-ponownego testu sprzętu ani odbioru całego EMS.
+**PL:** użytkownik potwierdził połączenia i test 20 września. Przywrócono dokładnie
+tę zaakceptowaną ilustrację, ze zdjęciami urządzeń i listwą COM2. Źródła materiałów
+producentów są podane poniżej; zachowują one prawa swoich właścicieli. Przywrócenie
+grafiki nie oznacza ponownego testu sprzętu ani odbioru całego EMS.
 
 ## Manufacturer references / Dokumentacja producentów
 
-- [Espressif DevKitC-1 v1.1 guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html): J1 header table.
+- [Espressif DevKitC-1 v1.1 guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html): J1 header table and board pin-layout graphic.
+- [Espressif board photograph](https://raw.githubusercontent.com/espressif/esp-dev-kits/master/docs/_static/esp32-s3-devkitc-1/esp32-s3-devkitc-1-v1.1-isometric.png).
 - [Waveshare TTL TO RS485 (B)](https://www.waveshare.com/ttl-to-rs485-b.htm)
   and [manufacturer wiki](https://www.waveshare.com/wiki/TTL_TO_RS485_(B)):
-  logic levels, isolated terminals and UART directions.
+  product photograph, logic levels, isolated terminals and UART directions.
 - [Hoymiles HIT-(5–20)L-G3 manual](https://www.hoymiles.com/uploadfile/1/202506/ec8b1b6a09.pdf):
-  section 7.8, printed page 39, COM2 labels 485_2+ / 485_2−. Counted terminal
+  section 7.8, printed page 39, COM2 drawing and labels 485_2+ / 485_2−. Counted terminal
   positions are not substituted for the manufacturer's printed labels.
